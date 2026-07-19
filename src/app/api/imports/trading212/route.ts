@@ -2,44 +2,44 @@ import { randomUUID } from "node:crypto";
 
 import { NextResponse } from "next/server";
 
-import { trading212SourceAccountId } from "@/domain/source-accounts";
+import { findSourceAccount, trading212SourceAccountId } from "@/domain/source-accounts";
 import { Trading212Client } from "@/infrastructure/trading212/trading212-client";
 import { getPortfolioRepository } from "@/server/portfolio-db";
+import { getTrading212ConnectionConfig } from "@/server/trading212-config";
 
 export const runtime = "nodejs";
 
-export async function POST() {
-  const apiKey = process.env.TRADING212_API_KEY;
-  const apiSecret = process.env.TRADING212_API_SECRET;
-  if (!apiKey || !apiSecret) {
+export async function POST(request: Request) {
+  const body = await request.json().catch(() => ({})) as { sourceAccountId?: string };
+  const sourceAccountId = body.sourceAccountId ?? trading212SourceAccountId;
+  if (findSourceAccount(sourceAccountId)?.provider !== "trading212") {
+    return NextResponse.json({ error: "Choose a Trading 212 source account." }, { status: 400 });
+  }
+  const config = getTrading212ConnectionConfig(sourceAccountId);
+  if (!config) {
     return NextResponse.json(
-      { error: "A Trading 212 read-only API key is not configured on this device." },
+      { error: "A read-only API key is not configured for this Trading 212 account." },
       { status: 503 },
     );
   }
 
   try {
-    const environment = process.env.TRADING212_ENVIRONMENT === "live"
-      ? "live"
-      : "demo";
     const client = new Trading212Client({
-      apiKey,
-      apiSecret,
-      environment,
+      ...config,
     });
     const id = randomUUID();
     const snapshot = await client.fetchOpeningSnapshot({
       id: randomUUID(),
-      sourceAccountId: trading212SourceAccountId,
+      sourceAccountId,
     });
     const draft = {
       id,
-      sourceAccountId: trading212SourceAccountId,
+      sourceAccountId,
       sourceKind: "trading-212" as const,
       createdAt: snapshot.asOf,
       confidence: "high",
       warnings: [
-        `Trading 212 ${environment} account; only the account summary and positions GET endpoints are used.`,
+        `Trading 212 ${config.environment} account; only the account summary and positions GET endpoints are used.`,
       ],
       proposedOpeningSnapshot: snapshot,
     };

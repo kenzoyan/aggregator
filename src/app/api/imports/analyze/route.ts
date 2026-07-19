@@ -8,6 +8,7 @@ import {
   prepareScreenshotImport,
   type VisionExtractor,
 } from "@/application/imports/vision-extractor";
+import { findSourceAccount } from "@/domain/source-accounts";
 import { OpenAIVisionExtractor } from "@/infrastructure/openai/openai-vision-extractor";
 import { getPortfolioRepository } from "@/server/portfolio-db";
 
@@ -35,6 +36,9 @@ export async function POST(request: Request) {
 
     if (!sourceAccountId) {
       return errorResponse("Choose a source account.", 400);
+    }
+    if (!findSourceAccount(sourceAccountId)) {
+      return errorResponse("Choose a known source account.", 400);
     }
 
     let extractor: VisionExtractor;
@@ -80,6 +84,7 @@ export async function POST(request: Request) {
       sourceAccountId,
       createdAt: now,
       extraction,
+      sourceKind: mode === "demo" ? "demo" : "screenshot",
     });
     const repository = getPortfolioRepository();
     repository.createImportDraft(draft);

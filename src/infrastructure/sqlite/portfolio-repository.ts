@@ -6,11 +6,12 @@ import type {
   PortfolioEventInput,
   PortfolioState,
 } from "@/domain/portfolio/types";
+import { findSourceAccount } from "@/domain/source-accounts";
 
 export interface ImportDraftInput {
   id: string;
   sourceAccountId: string;
-  sourceKind: "screenshot" | "trading-212" | "manual";
+  sourceKind: "screenshot" | "trading-212" | "manual" | "demo";
   createdAt: string;
   confidence: string;
   warnings: readonly string[];
@@ -26,6 +27,11 @@ export interface ImportDraftReview {
   confidence: string;
   warnings: readonly string[];
   proposedOpeningSnapshot: OpeningSnapshotInput;
+}
+
+export interface ConfirmedSnapshotRecord {
+  snapshot: OpeningSnapshotInput;
+  confirmedAt: string;
 }
 
 interface ImportDraftRow {
@@ -50,6 +56,9 @@ export interface PortfolioRepository {
   updateImportDraft(id: string, review: ImportDraftReview): void;
   confirmImportDraft(id: string, confirmedAt: string): void;
   getOpeningSnapshots(): OpeningSnapshotInput[];
+  getConfirmedSnapshots(): ConfirmedSnapshotRecord[];
+  getSourceAccountLabels(): Record<string, string>;
+  renameSourceAccount(id: string, label: string): void;
   getPortfolioState(): PortfolioState;
   close(): void;
 }
@@ -105,6 +114,11 @@ export function createPortfolioRepository(
       as_of TEXT NOT NULL,
       payload_json TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS source_account_labels (
+      source_account_id TEXT PRIMARY KEY,
+      custom_label TEXT NOT NULL
+    );
   `);
 
   const insertDraft = database.prepare(`
@@ -142,14 +156,35 @@ export function createPortfolioRepository(
     WHERE id = ?
   `);
   const selectSnapshots = database.prepare(`
-    SELECT payload_json
+    SELECT opening_snapshots.payload_json
     FROM opening_snapshots
-    ORDER BY as_of, id
+    LEFT JOIN import_drafts ON import_drafts.id = opening_snapshots.import_draft_id
+    ORDER BY
+      opening_snapshots.as_of,
+      COALESCE(import_drafts.confirmed_at, ''),
+      opening_snapshots.rowid
+  `);
+  const selectConfirmedSnapshots = database.prepare(`
+    SELECT opening_snapshots.payload_json, import_drafts.confirmed_at
+    FROM opening_snapshots
+    JOIN import_drafts ON import_drafts.id = opening_snapshots.import_draft_id
+    WHERE import_drafts.confirmed_at IS NOT NULL
+    ORDER BY import_drafts.confirmed_at, opening_snapshots.rowid
   `);
   const selectEvents = database.prepare(`
     SELECT payload_json
     FROM portfolio_events
     ORDER BY as_of, id
+  `);
+  const selectAccountLabels = database.prepare(`
+    SELECT source_account_id, custom_label
+    FROM source_account_labels
+    ORDER BY source_account_id
+  `);
+  const upsertAccountLabel = database.prepare(`
+    INSERT INTO source_account_labels (source_account_id, custom_label)
+    VALUES (?, ?)
+    ON CONFLICT(source_account_id) DO UPDATE SET custom_label = excluded.custom_label
   `);
 
   return {
@@ -193,7 +228,7 @@ export function createPortfolioRepository(
           throw new Error(`Import Draft ${id} does not exist`);
         }
 
-        if (row.status === "draft") {
+        if (row.status === "draft" && row.source_kind !== "demo") {
           const snapshot = JSON.parse(
             row.proposed_snapshot_json,
           ) as OpeningSnapshotInput;
@@ -204,8 +239,8 @@ export function createPortfolioRepository(
             JSON.stringify(snapshot),
             id,
           );
-          markDraftConfirmed.run(confirmedAt, id);
         }
+        markDraftConfirmed.run(confirmedAt, id);
 
         database.exec("COMMIT");
       } catch (error) {
@@ -226,6 +261,38 @@ export function createPortfolioRepository(
       return (selectSnapshots.all() as unknown as FactRow[]).map(
         (row) => JSON.parse(row.payload_json) as OpeningSnapshotInput,
       );
+    },
+
+    getConfirmedSnapshots() {
+      const rows = selectConfirmedSnapshots.all() as unknown as Array<{
+        payload_json: string;
+        confirmed_at: string;
+      }>;
+      return rows.map((row) => ({
+        snapshot: JSON.parse(row.payload_json) as OpeningSnapshotInput,
+        confirmedAt: row.confirmed_at,
+      }));
+    },
+
+    getSourceAccountLabels() {
+      const rows = selectAccountLabels.all() as unknown as Array<{
+        source_account_id: string;
+        custom_label: string;
+      }>;
+      return Object.fromEntries(
+        rows.map((row) => [row.source_account_id, row.custom_label]),
+      );
+    },
+
+    renameSourceAccount(id, label) {
+      if (!findSourceAccount(id)) {
+        throw new Error(`Unknown Source Account ${id}`);
+      }
+      const normalized = label.trim();
+      if (!normalized) {
+        throw new Error("Source Account label cannot be empty");
+      }
+      upsertAccountLabel.run(id, normalized);
     },
 
     close() {

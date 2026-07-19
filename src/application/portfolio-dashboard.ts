@@ -12,6 +12,7 @@ export function createDashboardReadModel(input: {
   snapshotTimes: Readonly<Record<string, string>>;
   eurPerUnit: Readonly<Record<string, string>>;
   fxAsOf: string;
+  accountLabels?: Readonly<Record<string, string>>;
 }) {
   const prices = input.state.positions.flatMap((position) => {
     const quantity = new Decimal(position.quantity);
@@ -50,7 +51,7 @@ export function createDashboardReadModel(input: {
       id: `${position.sourceAccountId}:${position.instrumentId}`,
       name: position.instrumentId,
       symbol: position.instrumentId,
-      source: sourceAccountDashboardLabel(position.sourceAccountId),
+      source: sourceAccountDashboardLabel(position.sourceAccountId, input.accountLabels),
       category: "Unclassified" as const,
       currency: position.currency as DashboardHolding["currency"],
       originalValue: `${position.originalValue} ${position.currency}`,
@@ -64,7 +65,7 @@ export function createDashboardReadModel(input: {
       id: `${cash.sourceAccountId}:cash:${cash.currency}`,
       name: "Portfolio Cash",
       symbol: "CASH",
-      source: sourceAccountDashboardLabel(cash.sourceAccountId),
+      source: sourceAccountDashboardLabel(cash.sourceAccountId, input.accountLabels),
       category: "Portfolio cash" as const,
       currency: cash.currency as DashboardHolding["currency"],
       originalValue: `${cash.originalValue} ${cash.currency}`,

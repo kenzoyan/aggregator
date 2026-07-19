@@ -9,6 +9,11 @@ import {
   type DashboardHolding,
   type Period,
 } from "@/application/demo-dashboard";
+import {
+  demoPortfolioStorageKey,
+  parseDemoPortfolioRecord,
+  toDemoDashboardHoldings,
+} from "@/application/demo-portfolio";
 
 const eur = new Intl.NumberFormat("en-FI", {
   style: "currency",
@@ -65,6 +70,9 @@ function Change({ value, percent }: { value: number; percent: number }) {
 export function Dashboard() {
   const [period, setPeriod] = useState<Period>("today");
   const [source, setSource] = useState(allAccounts);
+  const [demoEnabled, setDemoEnabled] = useState(false);
+  const [reviewedDemoHoldings, setReviewedDemoHoldings] = useState<DashboardHolding[]>();
+  const [loading, setLoading] = useState(true);
   const [localPortfolio, setLocalPortfolio] = useState<{
     holdings: DashboardHolding[];
     totalValueEur: number;
@@ -79,6 +87,13 @@ export function Dashboard() {
   }>();
 
   useEffect(() => {
+    setDemoEnabled(new URLSearchParams(window.location.search).get("demo") === "1");
+    try {
+      const savedDemo = parseDemoPortfolioRecord(window.localStorage.getItem(demoPortfolioStorageKey));
+      if (savedDemo) setReviewedDemoHoldings(toDemoDashboardHoldings(savedDemo));
+    } catch {
+      // The built-in sample remains available if private browsing blocks local storage.
+    }
     const controller = new AbortController();
     fetch("/api/portfolio", { signal: controller.signal })
       .then(async (response) => {
@@ -89,13 +104,28 @@ export function Dashboard() {
         };
         if (payload.hasPortfolioData) setLocalPortfolio(payload.portfolio);
       })
-      .catch(() => undefined);
+      .catch(() => undefined)
+      .finally(() => setLoading(false));
     return () => controller.abort();
   }, []);
 
-  const isLocal = Boolean(localPortfolio);
-  const holdings = localPortfolio?.holdings ?? demoHoldings;
-  const localHistory = localPortfolio?.history[period];
+  function setDemoMode(enabled: boolean) {
+    setDemoEnabled(enabled);
+    const url = new URL(window.location.href);
+    if (enabled) {
+      url.searchParams.set("demo", "1");
+    } else {
+      url.searchParams.delete("demo");
+    }
+    window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
+  }
+
+  const isLocal = Boolean(localPortfolio) && !demoEnabled;
+  const hasVisiblePortfolio = isLocal || demoEnabled;
+  const usingReviewedDemo = demoEnabled && Boolean(reviewedDemoHoldings);
+  const activeDemoHoldings = reviewedDemoHoldings ?? demoHoldings;
+  const holdings = demoEnabled ? activeDemoHoldings : localPortfolio?.holdings ?? [];
+  const localHistory = isLocal ? localPortfolio?.history[period] : undefined;
   const current = isLocal
     ? {
         ...periodData[period],
@@ -105,8 +135,12 @@ export function Dashboard() {
           ? localHistory.points
           : [50, 50, 50, 50, 50, 50],
       }
-    : periodData[period];
-  const total = localPortfolio?.totalValueEur ?? holdings.reduce((sum, holding) => sum + holding.eurValue, 0);
+    : demoEnabled && !usingReviewedDemo
+      ? periodData[period]
+      : { ...periodData[period], change: 0, percent: 0, points: [50, 50, 50, 50, 50, 50] };
+  const total = isLocal
+    ? localPortfolio?.totalValueEur ?? 0
+    : holdings.reduce((sum, holding) => sum + holding.eurValue, 0);
   const filtered = source === allAccounts ? holdings : holdings.filter((holding) => holding.source === source);
   const sources = [allAccounts, ...new Set(holdings.map((holding) => holding.source))];
   const sourceTotals = Array.from(
@@ -132,9 +166,10 @@ export function Dashboard() {
         <nav aria-label="Main navigation">
           <a className="nav-item active" href="#overview"><span>◫</span>Overview</a>
           <a className="nav-item" href="#holdings"><span>◎</span>Holdings</a>
+          <Link className="nav-item" href="/accounts"><span>⌁</span>Accounts</Link>
           <Link className="nav-item" href="/imports"><span>↥</span>Import</Link>
         </nav>
-        <div className="privacy-note"><span className="status-dot" />Local mode<br /><small>Data stays on this device</small></div>
+        <div className="privacy-note"><span className="status-dot" />Local portfolio<br /><small>Confirmed records stay on this device</small></div>
       </aside>
 
       <main className="main-content" id="overview">
@@ -144,16 +179,44 @@ export function Dashboard() {
             <h1>Portfolio overview</h1>
           </div>
           <div className="header-actions">
-            <span className="demo-badge">{isLocal ? "Local data" : "Demo data"}</span>
+            <span className="demo-badge">{isLocal ? "Local data" : demoEnabled ? "Demo data" : loading ? "Loading" : "No portfolio"}</span>
+            {!isLocal && (
+              <button className="demo-toggle" type="button" onClick={() => setDemoMode(!demoEnabled)}>
+                {demoEnabled ? "Exit demo" : "Explore demo"}
+              </button>
+            )}
             <Link className="primary-button" href="/imports">Update assets</Link>
           </div>
         </header>
+
+        {!loading && !hasVisiblePortfolio && (
+          <section className="empty-portfolio-banner">
+            <div>
+              <span>◎</span>
+              <div>
+                <p className="eyebrow">YOUR PORTFOLIO IS EMPTY</p>
+                <h2>Start with a screenshot, manual entry or Trading 212</h2>
+                <p>Demo values stay separate and never become part of your local portfolio.</p>
+              </div>
+            </div>
+            <div className="empty-portfolio-actions">
+              <Link className="primary-button" href="/imports">Add my assets</Link>
+              <button type="button" onClick={() => setDemoMode(true)}>View synthetic demo</button>
+            </div>
+          </section>
+        )}
 
         <section className="hero-grid">
           <article className="balance-card">
             <div className="card-heading">
               <span>Current investment assets</span>
-              <span className="coverage">{isLocal ? `${holdings.length} valued positions` : "10 / 12 valued today"}</span>
+              <span className="coverage">{isLocal
+                ? `${holdings.length} valued positions`
+                : usingReviewedDemo
+                  ? `${holdings.length} confirmed demo positions`
+                  : demoEnabled
+                    ? "10 / 12 valued today"
+                    : "No confirmed positions"}</span>
             </div>
             <strong className="total-value">{eur.format(total)}</strong>
             <p className="subtle">EUR base currency · original currencies retained</p>
@@ -165,7 +228,11 @@ export function Dashboard() {
               ))}
             </div>
             <div className="period-summary">
-              {isLocal && !localHistory?.available ? (
+              {!hasVisiblePortfolio ? (
+                <div><span>{current.label} change</span><strong className="pending-change">No data yet</strong><small>Import a confirmed snapshot to begin</small></div>
+              ) : usingReviewedDemo ? (
+                <div><span>{current.label} change</span><strong className="pending-change">Waiting for the next demo snapshot</strong><small>Your confirmed demo holdings are shown below</small></div>
+              ) : isLocal && !localHistory?.available ? (
                 <div><span>{current.label} change</span><strong className="pending-change">Waiting for the next snapshot</strong><small>Starts after two confirmed snapshots</small></div>
               ) : (
                 <div>
@@ -178,7 +245,7 @@ export function Dashboard() {
                   </small>
                 </div>
               )}
-              <span className="market-note">{isLocal ? `ECB rates ${localPortfolio?.fxAsOf}` : "Last valued 16:18"}<br />{isLocal ? "Prior return retained" : "Some funds await NAV"}</span>
+              <span className="market-note">{isLocal ? `ECB rates ${localPortfolio?.fxAsOf}` : usingReviewedDemo ? "Confirmed demo review" : demoEnabled ? "Synthetic valuation" : "EUR base currency"}<br />{isLocal ? "Prior return retained" : usingReviewedDemo ? "Stored only in this browser" : demoEnabled ? "Some funds await NAV" : "No demo data mixed in"}</span>
             </div>
             <Sparkline points={current.points} negative={current.change < 0} />
           </article>
@@ -197,8 +264,8 @@ export function Dashboard() {
         </section>
 
         <section className="insight-strip" aria-label="Data status">
-          <div><span className="insight-icon">✓</span><p><strong>{isLocal ? "Local ledger connected" : "Trading 212"}</strong><small>{isLocal ? "Confirmed snapshots are active" : "Read-only connector ready"}</small></p></div>
-          <div><span className="insight-icon amber">◷</span><p><strong>{isLocal ? "Performance baseline" : "2 funds awaiting NAV"}</strong><small>{isLocal ? "Comparison starts after the next update" : "Missing data is never shown as zero"}</small></p></div>
+          <div><span className="insight-icon">✓</span><p><strong>{isLocal ? "Local ledger connected" : usingReviewedDemo ? "Confirmed demo review" : demoEnabled ? "Synthetic example" : "Local ledger ready"}</strong><small>{isLocal ? "Confirmed snapshots are active" : demoEnabled ? "Never mixed with your assets" : "Add a confirmed snapshot to begin"}</small></p></div>
+          <div><span className="insight-icon amber">◷</span><p><strong>{isLocal ? "Performance baseline" : demoEnabled ? "2 funds awaiting NAV" : "No performance baseline"}</strong><small>{isLocal ? "Comparison starts after the next update" : demoEnabled ? "Missing data is never shown as zero" : "Starts after two confirmed snapshots"}</small></p></div>
           <div><span className="insight-icon blue">€</span><p><strong>EUR overview</strong><small>{isLocal ? `ECB reference rates · ${localPortfolio?.missingInputs.length ?? 0} missing` : "Price and FX are calculated separately"}</small></p></div>
         </section>
 
@@ -225,6 +292,9 @@ export function Dashboard() {
                 </div>
               </article>
             ))}
+            {filtered.length === 0 && (
+              <div className="empty-holdings"><strong>No confirmed holdings</strong><small>Add or import assets to populate this table.</small></div>
+            )}
           </div>
         </section>
       </main>
@@ -232,6 +302,7 @@ export function Dashboard() {
       <nav className="mobile-nav" aria-label="Mobile navigation">
         <a className="active" href="#overview"><span>◫</span>Overview</a>
         <a href="#holdings"><span>◎</span>Holdings</a>
+        <Link href="/accounts"><span>⌁</span>Accounts</Link>
         <Link href="/imports"><span>↥</span>Import</Link>
       </nav>
     </div>

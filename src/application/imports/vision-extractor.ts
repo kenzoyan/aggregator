@@ -43,7 +43,7 @@ export interface VisionExtractor {
 export interface PreparedScreenshotImport {
   id: string;
   sourceAccountId: string;
-  sourceKind: "screenshot";
+  sourceKind: "screenshot" | "demo";
   createdAt: string;
   confidence: string;
   warnings: readonly string[];
@@ -88,6 +88,7 @@ export function prepareScreenshotImport(input: {
   sourceAccountId: string;
   createdAt: string;
   extraction: ScreenshotExtraction;
+  sourceKind?: "screenshot" | "demo";
 }): PreparedScreenshotImport {
   const extraction = screenshotExtractionSchema.parse(input.extraction);
   const warnings = [...extraction.warnings];
@@ -123,7 +124,7 @@ export function prepareScreenshotImport(input: {
   return {
     id: input.draftId,
     sourceAccountId: input.sourceAccountId,
-    sourceKind: "screenshot",
+    sourceKind: input.sourceKind ?? "screenshot",
     createdAt: input.createdAt,
     confidence: extraction.confidence,
     warnings,

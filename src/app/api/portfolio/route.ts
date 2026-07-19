@@ -4,6 +4,8 @@ import {
   createDashboardReadModel,
   createPortfolioHistoryReadModel,
 } from "@/application/portfolio-dashboard";
+import { createSourceAccountStatusReadModel } from "@/application/source-account-status";
+import { sourceAccounts } from "@/domain/source-accounts";
 import { EcbFxClient, type EcbRates } from "@/infrastructure/ecb/ecb-fx-client";
 import { getPortfolioRepository } from "@/server/portfolio-db";
 
@@ -23,6 +25,7 @@ export async function GET() {
   const repository = getPortfolioRepository();
   const state = repository.getPortfolioState();
   const snapshots = repository.getOpeningSnapshots();
+  const accountLabels = repository.getSourceAccountLabels();
   const snapshotTimes = Object.fromEntries(
     snapshots.map((snapshot) => [snapshot.sourceAccountId, snapshot.asOf]),
   );
@@ -41,6 +44,7 @@ export async function GET() {
     snapshotTimes,
     eurPerUnit: rates.eurPerUnit,
     fxAsOf: rates.asOf,
+    accountLabels,
   });
   const history = createPortfolioHistoryReadModel({
     snapshots,
@@ -51,6 +55,17 @@ export async function GET() {
 
   return NextResponse.json({
     hasPortfolioData: state.positions.length > 0 || state.cashBalances.length > 0,
-    portfolio: { ...portfolio, history },
+    portfolio: {
+      ...portfolio,
+      history,
+      accounts: createSourceAccountStatusReadModel({
+        accounts: sourceAccounts,
+        confirmedSnapshots: repository.getConfirmedSnapshots(),
+        snapshots,
+        state,
+        labels: accountLabels,
+        now: new Date().toISOString(),
+      }),
+    },
   });
 }

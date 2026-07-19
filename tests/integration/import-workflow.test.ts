@@ -3,6 +3,36 @@ import { describe, expect, it } from "vitest";
 import { createPortfolioRepository } from "@/infrastructure/sqlite/portfolio-repository";
 
 describe("screenshot import confirmation workflow", () => {
+  it("allows the demo review flow without adding synthetic holdings to the portfolio", () => {
+    const repository = createPortfolioRepository(":memory:");
+    repository.createImportDraft({
+      id: "draft-demo",
+      sourceAccountId: "alipay-main",
+      sourceKind: "demo",
+      createdAt: "2026-07-19T10:00:00.000Z",
+      confidence: "high",
+      warnings: [],
+      proposedOpeningSnapshot: {
+        id: "snapshot-demo",
+        sourceAccountId: "alipay-main",
+        asOf: "2026-07-19T10:00:00.000Z",
+        positions: [{
+          instrumentId: "Synthetic Example Fund",
+          quantity: "1",
+          currency: "CNY",
+          costBasis: "100",
+        }],
+      },
+    });
+
+    repository.confirmImportDraft("draft-demo", "2026-07-19T10:01:00.000Z");
+
+    expect(repository.getImportDraft("draft-demo")?.status).toBe("confirmed");
+    expect(repository.getOpeningSnapshots()).toEqual([]);
+    expect(repository.getPortfolioState().positions).toEqual([]);
+    repository.close();
+  });
+
   it("keeps an Import Draft out of the Tracked Portfolio until confirmation", () => {
     const repository = createPortfolioRepository(":memory:");
 
@@ -104,6 +134,48 @@ describe("screenshot import confirmation workflow", () => {
     );
 
     expect(repository.getPortfolioState().positions[0]?.costBasis).toBe("750");
+    repository.close();
+  });
+
+  it("uses the later confirmation when source timestamps are equal", () => {
+    const repository = createPortfolioRepository(":memory:");
+    repository.createImportDraft({
+      id: "z-first-draft",
+      sourceAccountId: "danske-main",
+      sourceKind: "manual",
+      createdAt: "2026-07-19T10:00:00.000Z",
+      confidence: "manual",
+      warnings: [],
+      proposedOpeningSnapshot: {
+        id: "z-first-snapshot",
+        sourceAccountId: "danske-main",
+        asOf: "2026-07-18T10:00:00.000Z",
+        positions: [],
+      },
+    });
+    repository.createImportDraft({
+      id: "a-second-draft",
+      sourceAccountId: "danske-main",
+      sourceKind: "manual",
+      createdAt: "2026-07-19T10:01:00.000Z",
+      confidence: "manual",
+      warnings: [],
+      proposedOpeningSnapshot: {
+        id: "a-second-snapshot",
+        sourceAccountId: "danske-main",
+        asOf: "2026-07-18T10:00:00.000Z",
+        positions: [
+          { instrumentId: "bond-a", quantity: "1", currency: "EUR", costBasis: "100" },
+          { instrumentId: "bond-b", quantity: "1", currency: "EUR", costBasis: "100" },
+        ],
+      },
+    });
+
+    repository.confirmImportDraft("z-first-draft", "2026-07-19T10:02:00.000Z");
+    repository.confirmImportDraft("a-second-draft", "2026-07-19T10:03:00.000Z");
+
+    expect(repository.getPortfolioState().positions).toHaveLength(2);
+    expect(repository.getConfirmedSnapshots().at(-1)?.snapshot.id).toBe("a-second-snapshot");
     repository.close();
   });
 });

@@ -13,6 +13,19 @@ interface BuildPortfolioStateInput {
   events: readonly PortfolioEventInput[];
 }
 
+export function selectLatestSnapshotsByAccount(
+  openingSnapshots: readonly OpeningSnapshotInput[],
+): Map<string, OpeningSnapshotInput> {
+  const latestSnapshotsByAccount = new Map<string, OpeningSnapshotInput>();
+  for (const snapshot of openingSnapshots) {
+    const current = latestSnapshotsByAccount.get(snapshot.sourceAccountId);
+    if (!current || snapshot.asOf >= current.asOf) {
+      latestSnapshotsByAccount.set(snapshot.sourceAccountId, snapshot);
+    }
+  }
+  return latestSnapshotsByAccount;
+}
+
 function normalizeDecimal(value: string): string {
   return new Decimal(value).toString();
 }
@@ -25,14 +38,7 @@ export function buildPortfolioState({
   const cashBalances: CashBalance[] = [];
   const appliedEventIds: string[] = [];
   const appliedEventIdSet = new Set<string>();
-  const latestSnapshotsByAccount = new Map<string, OpeningSnapshotInput>();
-
-  for (const snapshot of openingSnapshots) {
-    const current = latestSnapshotsByAccount.get(snapshot.sourceAccountId);
-    if (!current || snapshot.asOf >= current.asOf) {
-      latestSnapshotsByAccount.set(snapshot.sourceAccountId, snapshot);
-    }
-  }
+  const latestSnapshotsByAccount = selectLatestSnapshotsByAccount(openingSnapshots);
 
   for (const snapshot of latestSnapshotsByAccount.values()) {
     for (const position of snapshot.positions) {

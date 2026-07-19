@@ -1,29 +1,54 @@
 import { NextResponse } from "next/server";
+import Decimal from "decimal.js";
 import { z } from "zod";
 
 import { getPortfolioRepository } from "@/server/portfolio-db";
 
 export const runtime = "nodejs";
 
-const moneySchema = z.object({ amount: z.string(), currency: z.string() });
+const decimalSchema = z.string().trim().refine(
+  (value) => {
+    try {
+      return new Decimal(value).isFinite();
+    } catch {
+      return false;
+    }
+  },
+  "Enter a valid number.",
+);
+const positiveDecimalSchema = decimalSchema.refine(
+  (value) => new Decimal(value).gt(0),
+  "Quantity must be greater than zero.",
+);
+const currencySchema = z.string().trim().regex(/^[A-Za-z]{3}$/, "Use a three-letter currency code.");
+const moneySchema = z.object({ amount: decimalSchema, currency: currencySchema });
 const reviewSchema = z.object({
   confidence: z.string(),
   warnings: z.array(z.string()),
   proposedOpeningSnapshot: z.object({
     id: z.string(),
     sourceAccountId: z.string(),
-    asOf: z.string(),
+    asOf: z.iso.datetime(),
     portfolioCash: moneySchema.optional(),
     positions: z.array(
       z.object({
         instrumentId: z.string().min(1),
-        quantity: z.string().min(1),
-        currency: z.string().min(1),
-        costBasis: z.string().min(1),
-        reportedPriorReturn: z.string().optional(),
+        quantity: positiveDecimalSchema,
+        currency: currencySchema,
+        costBasis: decimalSchema,
+        reportedPriorReturn: decimalSchema.optional(),
       }),
     ),
   }),
+}).superRefine((review, context) => {
+  const snapshot = review.proposedOpeningSnapshot;
+  if (snapshot.positions.length === 0 && !snapshot.portfolioCash) {
+    context.addIssue({
+      code: "custom",
+      path: ["proposedOpeningSnapshot", "positions"],
+      message: "Add at least one holding or a portfolio cash balance.",
+    });
+  }
 });
 
 export async function POST(
