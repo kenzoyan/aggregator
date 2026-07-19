@@ -136,6 +136,11 @@ h2 { margin-bottom: 0; font-size: 25px; letter-spacing: -.03em; }
 .connector-panel { display: flex; align-items: center; justify-content: space-between; gap: 15px; padding: 13px 14px; border: 1px solid #e0e6eb; border-radius: 13px; }
 .connector-panel > div { display: grid; gap: 4px; }.connector-panel strong { font-size: 12px; }.connector-panel small { color: var(--muted); font-size: 9px; }
 .connector-panel button { border: 1px solid #cbd6df; border-radius: 9px; background: #f7f9fa; color: var(--ink); padding: 7px 11px; cursor: pointer; font-size: 11px; font-weight: 800; }.connector-panel button:disabled { opacity: .45; cursor: not-allowed; }
+.csv-import-panel { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 9px 12px; padding: 13px 14px; border: 1px solid #d9e5f1; border-radius: 13px; background: #f7faff; }
+.csv-import-panel > div { display: grid; gap: 4px; }.csv-import-panel strong { font-size: 12px; }.csv-import-panel small { color: var(--muted); font-size: 9px; }
+.csv-file-button { max-width: 150px; overflow: hidden; padding: 7px 10px; border: 1px solid #c7d6e6; border-radius: 9px; background: white; color: var(--blue); cursor: pointer; font-size: 10px; font-weight: 800; text-overflow: ellipsis; white-space: nowrap; }
+.csv-file-button input { position: absolute; width: 1px; height: 1px; overflow: hidden; opacity: 0; }
+.csv-import-panel > button { grid-column: 1 / -1; border: 0; border-radius: 9px; background: var(--blue); color: white; padding: 8px 11px; cursor: pointer; font-size: 11px; font-weight: 800; }.csv-import-panel > button:disabled { opacity: .45; cursor: not-allowed; }
 .manage-accounts-link { display: inline-block; margin-top: 12px; color: var(--blue); font-size: 11px; font-weight: 750; }
 .error-message { margin: 14px 0 0; padding: 10px 12px; border-radius: 10px; background: #fdecee; color: #a7444d; font-size: 12px; }
 .review-card { min-height: 520px; }

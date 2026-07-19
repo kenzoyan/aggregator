@@ -114,10 +114,13 @@ export function prepareScreenshotImport(input: {
     }
     return {
       instrumentId: position.instrumentCode || position.displayName,
+      displayName: position.displayName,
+      ...(position.instrumentCode ? { instrumentCode: position.instrumentCode } : {}),
       quantity: position.quantity ?? "1",
       currency: currency.toUpperCase(),
       costBasis: accounting.costBasis,
       reportedPriorReturn: accounting.reportedPriorReturn,
+      ...(position.marketValue ? { reportedMarketValue: position.marketValue } : {}),
     };
   });
 

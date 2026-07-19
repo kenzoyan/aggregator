@@ -2,26 +2,17 @@ import { NextResponse } from "next/server";
 import Decimal from "decimal.js";
 import { z } from "zod";
 
+import {
+  assetTypeSchema,
+  currencyCodeSchema,
+  decimalStringSchema,
+  positiveDecimalStringSchema,
+} from "@/domain/portfolio/schemas";
 import { getPortfolioRepository } from "@/server/portfolio-db";
 
 export const runtime = "nodejs";
 
-const decimalSchema = z.string().trim().refine(
-  (value) => {
-    try {
-      return new Decimal(value).isFinite();
-    } catch {
-      return false;
-    }
-  },
-  "Enter a valid number.",
-);
-const positiveDecimalSchema = decimalSchema.refine(
-  (value) => new Decimal(value).gt(0),
-  "Quantity must be greater than zero.",
-);
-const currencySchema = z.string().trim().regex(/^[A-Za-z]{3}$/, "Use a three-letter currency code.");
-const moneySchema = z.object({ amount: decimalSchema, currency: currencySchema });
+const moneySchema = z.object({ amount: decimalStringSchema, currency: currencyCodeSchema });
 const reviewSchema = z.object({
   confidence: z.string(),
   warnings: z.array(z.string()),
@@ -33,10 +24,18 @@ const reviewSchema = z.object({
     positions: z.array(
       z.object({
         instrumentId: z.string().min(1),
-        quantity: positiveDecimalSchema,
-        currency: currencySchema,
-        costBasis: decimalSchema,
-        reportedPriorReturn: decimalSchema.optional(),
+        displayName: z.string().trim().min(1).optional(),
+        instrumentCode: z.string().trim().min(1).optional(),
+        assetType: assetTypeSchema.optional(),
+        quantity: positiveDecimalStringSchema,
+        currency: currencyCodeSchema,
+        costBasis: decimalStringSchema,
+        reportedPriorReturn: decimalStringSchema.optional(),
+        averageCost: positiveDecimalStringSchema.optional(),
+        observedPrice: positiveDecimalStringSchema.optional(),
+        priceAsOf: z.iso.datetime().optional(),
+        priceSource: z.string().trim().min(1).optional(),
+        reportedMarketValue: positiveDecimalStringSchema.optional(),
       }),
     ),
   }),
@@ -49,6 +48,28 @@ const reviewSchema = z.object({
       message: "Add at least one holding or a portfolio cash balance.",
     });
   }
+  snapshot.positions.forEach((position, index) => {
+    if (position.reportedMarketValue) {
+      const accountedValue = new Decimal(position.costBasis).plus(position.reportedPriorReturn ?? "0");
+      if (accountedValue.minus(position.reportedMarketValue).abs().gt("0.02")) {
+        context.addIssue({
+          code: "custom",
+          path: ["proposedOpeningSnapshot", "positions", index, "reportedMarketValue"],
+          message: "Current value must match cost basis plus prior return.",
+        });
+      }
+    }
+    if (position.reportedMarketValue && position.observedPrice) {
+      const pricedValue = new Decimal(position.quantity).mul(position.observedPrice);
+      if (pricedValue.minus(position.reportedMarketValue).abs().gt("0.02")) {
+        context.addIssue({
+          code: "custom",
+          path: ["proposedOpeningSnapshot", "positions", index, "observedPrice"],
+          message: "Quantity multiplied by price must match current value.",
+        });
+      }
+    }
+  });
 });
 
 export async function POST(

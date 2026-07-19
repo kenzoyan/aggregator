@@ -1,4 +1,13 @@
 export type CurrencyCode = string;
+export const assetTypes = ["fund", "stock", "bond", "etf", "unclassified"] as const;
+export type AssetType = (typeof assetTypes)[number];
+export const assetTypeLabels: Record<AssetType, string> = {
+  fund: "Fund",
+  stock: "Stock",
+  bond: "Bond",
+  etf: "ETF",
+  unclassified: "Unclassified",
+};
 
 export interface MoneyInput {
   amount: string;
@@ -7,10 +16,18 @@ export interface MoneyInput {
 
 export interface OpeningPositionInput {
   instrumentId: string;
+  displayName?: string;
+  instrumentCode?: string;
+  assetType?: AssetType;
   quantity: string;
   currency: CurrencyCode;
   costBasis: string;
   reportedPriorReturn?: string;
+  averageCost?: string;
+  observedPrice?: string;
+  priceAsOf?: string;
+  priceSource?: string;
+  reportedMarketValue?: string;
 }
 
 export interface OpeningSnapshotInput {
@@ -37,10 +54,18 @@ export type PortfolioEventInput = SaleEventInput;
 export interface Position {
   sourceAccountId: string;
   instrumentId: string;
+  displayName?: string;
+  instrumentCode?: string;
+  assetType?: AssetType;
   quantity: string;
   currency: CurrencyCode;
   costBasis: string;
   reportedPriorReturn: string;
+  averageCost?: string;
+  observedPrice?: string;
+  priceAsOf?: string;
+  priceSource?: string;
+  reportedMarketValue?: string;
 }
 
 export interface CashBalance {

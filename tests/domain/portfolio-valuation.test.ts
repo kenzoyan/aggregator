@@ -4,6 +4,44 @@ import { valuePortfolio } from "@/domain/portfolio/valuation";
 import type { PortfolioState } from "@/domain/portfolio/types";
 
 describe("daily portfolio valuation", () => {
+  it("retains a source-reported holding value when NAV multiplication differs by rounding", () => {
+    const valuation = valuePortfolio({
+      state: {
+        positions: [{
+          sourceAccountId: "alipay-main",
+          instrumentId: "001234",
+          quantity: "40.91",
+          currency: "CNY",
+          costBasis: "340",
+          reportedPriorReturn: "-9.75",
+        }],
+        cashBalances: [],
+        appliedEventIds: [],
+      },
+      asOf: "2026-07-19",
+      prices: [{
+        instrumentId: "001234",
+        price: "8.0725",
+        reportedMarketValue: "330.25",
+        currency: "CNY",
+        asOf: "2026-07-16",
+        source: "confirmed-csv",
+        freshness: "manual",
+      }],
+      fxRates: [{
+        currency: "CNY",
+        eurPerUnit: "0.125",
+        asOf: "2026-07-18",
+        source: "ecb",
+      }],
+    });
+
+    expect(valuation.positions[0]).toMatchObject({
+      originalValue: "330.25",
+      eurValue: "41.28125",
+    });
+  });
+
   it("keeps original-currency value while aggregating positions and Portfolio Cash in EUR", () => {
     const state: PortfolioState = {
       positions: [

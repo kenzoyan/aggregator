@@ -27,6 +27,7 @@ test-results/
 /screenshots/
 /imports/
 /exports/
+/data/imports/
 
 # Local product thinking and working notes
 CONTEXT.md

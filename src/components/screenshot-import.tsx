@@ -8,7 +8,13 @@ import {
   demoPortfolioStorageKey,
 } from "@/application/demo-portfolio";
 import type { SourceAccountView } from "@/application/source-account-status";
-import type { OpeningSnapshotInput } from "@/domain/portfolio/types";
+import type { ImportSourceKind } from "@/domain/imports";
+import {
+  assetTypeLabels,
+  assetTypes,
+  type AssetType,
+  type OpeningSnapshotInput,
+} from "@/domain/portfolio/types";
 import {
   sourceAccounts,
   trading212SourceAccountId,
@@ -17,7 +23,7 @@ import {
 interface ImportDraftView {
   id: string;
   sourceAccountId: string;
-  sourceKind: "screenshot" | "trading-212" | "manual" | "demo";
+  sourceKind: ImportSourceKind;
   confidence: string;
   warnings: string[];
   status: "draft" | "confirmed";
@@ -27,12 +33,13 @@ interface ImportDraftView {
 
 type AccountOption = Pick<SourceAccountView, "id" | "provider" | "label" | "connector">;
 
-export function ScreenshotImport() {
+export function AssetImportWorkflow() {
   const [sourceAccountId, setSourceAccountId] = useState("alipay-main");
   const [accounts, setAccounts] = useState<AccountOption[]>(
     sourceAccounts.map((account) => ({ id: account.id, provider: account.provider, label: account.label })),
   );
   const [file, setFile] = useState<File>();
+  const [csvFile, setCsvFile] = useState<File>();
   const [draft, setDraft] = useState<ImportDraftView>();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -117,6 +124,16 @@ export function ScreenshotImport() {
       }), "Manual draft could not be created.");
   }
 
+  async function importCsv() {
+    await requestDraft(async () => {
+      if (!csvFile) throw new Error("Choose a CSV file first.");
+      const form = new FormData();
+      form.set("sourceAccountId", sourceAccountId);
+      form.set("file", csvFile);
+      return fetch("/api/imports/csv", { method: "POST", body: form });
+    }, "CSV import failed.");
+  }
+
   function addPosition() {
     setDraft((current) => {
       if (!current || current.status !== "draft") return current;
@@ -131,6 +148,8 @@ export function ScreenshotImport() {
             ...current.proposedOpeningSnapshot.positions,
             {
               instrumentId: "",
+              displayName: "",
+              assetType: "unclassified",
               quantity: "1",
               currency,
               costBasis: "",
@@ -157,14 +176,42 @@ export function ScreenshotImport() {
 
   function updatePosition(
     index: number,
-    field: "instrumentId" | "quantity" | "currency" | "costBasis" | "reportedPriorReturn",
+    field: "displayName" | "instrumentCode" | "assetType" | "quantity" | "currency" | "costBasis" | "reportedPriorReturn" | "averageCost" | "observedPrice" | "priceAsOf" | "reportedMarketValue",
     value: string,
   ) {
     setDraft((current) => {
       if (!current) return current;
       const positions = current.proposedOpeningSnapshot.positions.map(
-        (position, positionIndex) =>
-          positionIndex === index ? { ...position, [field]: value } : position,
+        (position, positionIndex) => {
+          if (positionIndex !== index) return position;
+          if (field === "displayName") {
+            return {
+              ...position,
+              displayName: value,
+              instrumentId: position.instrumentCode || value,
+            };
+          }
+          if (field === "instrumentCode") {
+            return {
+              ...position,
+              instrumentCode: value || undefined,
+              instrumentId: value || position.displayName || position.instrumentId,
+            };
+          }
+          if (field === "observedPrice") {
+            return { ...position, observedPrice: value || undefined };
+          }
+          if (field === "priceAsOf") {
+            return {
+              ...position,
+              priceAsOf: value ? `${value}T00:00:00.000Z` : undefined,
+            };
+          }
+          if (field === "averageCost" || field === "reportedMarketValue") {
+            return { ...position, [field]: value || undefined };
+          }
+          return { ...position, [field]: value };
+        },
       );
       return {
         ...current,
@@ -229,14 +276,14 @@ export function ScreenshotImport() {
         <div>
           <p className="eyebrow">LOCAL IMPORT WORKFLOW</p>
           <h1>Update assets</h1>
-          <p>A screenshot only creates a draft. Your portfolio does not change until you confirm it.</p>
+          <p>Every update creates a draft. Your portfolio does not change until you confirm it.</p>
         </div>
         <Link className="secondary-button" href="/">Back to overview</Link>
       </header>
 
       <div className="import-layout">
         <section className="import-card">
-          <div className="step-label"><span>1</span>Select source and screenshot</div>
+          <div className="step-label"><span>1</span>Select source and update method</div>
           <label className="field-label">
             Source account
             <select
@@ -296,6 +343,22 @@ export function ScreenshotImport() {
             </button>
           </div>
           <div className="connector-divider"><span>or</span></div>
+          <div className="csv-import-panel">
+            <div>
+              <strong>Saved holdings CSV</strong>
+              <small>Processed locally · creates a review draft</small>
+            </div>
+            <label className="csv-file-button">
+              {csvFile ? csvFile.name : "Choose CSV"}
+              <input
+                type="file"
+                accept=".csv,text/csv"
+                onChange={(event) => setCsvFile(event.target.files?.[0])}
+              />
+            </label>
+            <button type="button" disabled={busy || !csvFile} onClick={importCsv}>Review CSV</button>
+          </div>
+          <div className="connector-divider"><span>or</span></div>
           <div className="connector-panel">
             <div>
               <strong>Trading 212 API</strong>
@@ -317,7 +380,7 @@ export function ScreenshotImport() {
             <div className="empty-review">
               <span>◎</span>
               <strong>Waiting for analysis</strong>
-              <p>You can edit names, currencies, cost basis and prior return here.</p>
+              <p>You can review names, codes, quantities, NAV dates, values and prior return here.</p>
             </div>
           )}
 
@@ -358,9 +421,33 @@ export function ScreenshotImport() {
                 {draft.proposedOpeningSnapshot.positions.map((position, index) => (
                   <fieldset key={`${draft.id}-holding-${index}`}>
                     <legend><span>Holding {index + 1}</span><button type="button" onClick={() => removePosition(index)}>Remove</button></legend>
-                    <label className="field-label full-field">Name or code
-                      <input required value={position.instrumentId} onChange={(event) => updatePosition(index, "instrumentId", event.target.value)} />
-                    </label>
+                    <div className="field-grid">
+                      <label className="field-label">Name
+                        <input required value={position.displayName ?? position.instrumentId} onChange={(event) => updatePosition(index, "displayName", event.target.value)} />
+                      </label>
+                      <label className="field-label">Code / ISIN / ticker
+                        <input value={position.instrumentCode ?? ""} onChange={(event) => updatePosition(index, "instrumentCode", event.target.value)} />
+                      </label>
+                      <label className="field-label">Asset type
+                        <select value={position.assetType ?? "unclassified"} onChange={(event) => updatePosition(index, "assetType", event.target.value as AssetType)}>
+                          {assetTypes.map((assetType) => (
+                            <option value={assetType} key={assetType}>{assetTypeLabels[assetType]}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="field-label">Average cost
+                        <input inputMode="decimal" value={position.averageCost ?? ""} onChange={(event) => updatePosition(index, "averageCost", event.target.value)} placeholder="Optional" />
+                      </label>
+                      <label className="field-label">Latest price / NAV
+                        <input inputMode="decimal" value={position.observedPrice ?? ""} onChange={(event) => updatePosition(index, "observedPrice", event.target.value)} placeholder="Optional" />
+                      </label>
+                      <label className="field-label">Price / NAV date
+                        <input type="date" value={position.priceAsOf?.slice(0, 10) ?? ""} onChange={(event) => updatePosition(index, "priceAsOf", event.target.value)} />
+                      </label>
+                      <label className="field-label">Current value
+                        <input inputMode="decimal" value={position.reportedMarketValue ?? ""} onChange={(event) => updatePosition(index, "reportedMarketValue", event.target.value)} placeholder="Optional" />
+                      </label>
+                    </div>
                     <div className="field-grid">
                       <label className="field-label">Quantity
                         <input required inputMode="decimal" value={position.quantity} onChange={(event) => updatePosition(index, "quantity", event.target.value)} />

@@ -68,10 +68,18 @@ describe("Trading 212 read-only client", () => {
       positions: [
         {
           instrumentId: "EXAMPLE_US_EQ",
+          displayName: "Example Equity",
+          instrumentCode: "US0000000001",
+          assetType: "stock",
           quantity: "2",
           currency: "EUR",
           costBasis: "200",
           reportedPriorReturn: "15",
+          averageCost: "100",
+          observedPrice: "107.5",
+          priceAsOf: "2026-07-19T12:00:00.000Z",
+          priceSource: "trading212",
+          reportedMarketValue: "215",
         },
       ],
     });

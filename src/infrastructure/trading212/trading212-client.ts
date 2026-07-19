@@ -95,23 +95,34 @@ export class Trading212Client {
     const cash = new Decimal(summary.cash.availableToTrade)
       .plus(summary.cash.inPies)
       .plus(summary.cash.reservedForOrders);
+    const asOf = this.now().toISOString();
 
     return {
       id: input.id,
       sourceAccountId: input.sourceAccountId,
-      asOf: this.now().toISOString(),
+      asOf,
       portfolioCash: {
         amount: cash.toString(),
         currency: summary.currency.toUpperCase(),
       },
       positions: positions.map((position) => ({
         instrumentId: position.instrument.ticker,
+        displayName: position.instrument.name,
+        instrumentCode: position.instrument.isin,
+        assetType: "stock" as const,
         quantity: new Decimal(position.quantity).toString(),
         currency: position.walletImpact.currency.toUpperCase(),
         costBasis: new Decimal(position.walletImpact.totalCost).toString(),
         reportedPriorReturn: new Decimal(
           position.walletImpact.unrealizedProfitLoss,
         ).toString(),
+        averageCost: new Decimal(position.averagePricePaid).toString(),
+        observedPrice: new Decimal(position.walletImpact.currentValue)
+          .div(position.quantity)
+          .toString(),
+        priceAsOf: asOf,
+        priceSource: "trading212",
+        reportedMarketValue: new Decimal(position.walletImpact.currentValue).toString(),
       })),
     };
   }

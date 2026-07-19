@@ -1,6 +1,7 @@
 import { DatabaseSync } from "node:sqlite";
 
 import { buildPortfolioState } from "@/domain/portfolio/ledger";
+import type { ImportSourceKind } from "@/domain/imports";
 import type {
   OpeningSnapshotInput,
   PortfolioEventInput,
@@ -11,7 +12,7 @@ import { findSourceAccount } from "@/domain/source-accounts";
 export interface ImportDraftInput {
   id: string;
   sourceAccountId: string;
-  sourceKind: "screenshot" | "trading-212" | "manual" | "demo";
+  sourceKind: ImportSourceKind;
   createdAt: string;
   confidence: string;
   warnings: readonly string[];

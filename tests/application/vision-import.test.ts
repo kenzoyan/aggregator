@@ -54,10 +54,12 @@ describe("screenshot import seam", () => {
     expect(draft.proposedOpeningSnapshot.positions).toEqual([
       {
         instrumentId: "Synthetic Example Fund",
+        displayName: "Synthetic Example Fund",
         quantity: "1",
         currency: "CNY",
         costBasis: "4000",
         reportedPriorReturn: "321.09",
+        reportedMarketValue: "4321.09",
       },
     ]);
     expect(draft.warnings).toContain(

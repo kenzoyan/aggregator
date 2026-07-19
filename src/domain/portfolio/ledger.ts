@@ -45,12 +45,22 @@ export function buildPortfolioState({
       positions.push({
         sourceAccountId: snapshot.sourceAccountId,
         instrumentId: position.instrumentId,
+        ...(position.displayName ? { displayName: position.displayName } : {}),
+        ...(position.instrumentCode ? { instrumentCode: position.instrumentCode } : {}),
+        ...(position.assetType ? { assetType: position.assetType } : {}),
         quantity: normalizeDecimal(position.quantity),
         currency: position.currency,
         costBasis: normalizeDecimal(position.costBasis),
         reportedPriorReturn: normalizeDecimal(
           position.reportedPriorReturn ?? "0",
         ),
+        ...(position.averageCost ? { averageCost: normalizeDecimal(position.averageCost) } : {}),
+        ...(position.observedPrice ? { observedPrice: normalizeDecimal(position.observedPrice) } : {}),
+        ...(position.priceAsOf ? { priceAsOf: position.priceAsOf } : {}),
+        ...(position.priceSource ? { priceSource: position.priceSource } : {}),
+        ...(position.reportedMarketValue
+          ? { reportedMarketValue: normalizeDecimal(position.reportedMarketValue) }
+          : {}),
       });
     }
 

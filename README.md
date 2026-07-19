@@ -8,6 +8,7 @@ A private, local-first investment portfolio monitor for combining holdings from 
 - Funds, stocks, bonds, and investment-account cash
 - Trading 212 read-only synchronization
 - Screenshot-assisted imports with review and confirmation
+- Reusable CSV holdings imports with stable fund codes, names, quantities and NAV dates
 - Manual-entry fallback with editable holding rows
 - Current value plus daily and recent-period performance
 - Clear source timestamps and stale/manual data states
@@ -33,6 +34,8 @@ Real integrations are enabled only through `.env.local`:
 - `TRADING212_API_KEY` and `TRADING212_API_SECRET` configure the Trading 212 Source Account. Keep `TRADING212_ENVIRONMENT=demo` until the read-only connection is verified.
 
 Use **Accounts** to rename the four local Source Accounts and see the last confirmed snapshot, imported holding count, update method and stale/not-connected state. Account names are stored only in the ignored local SQLite database.
+
+Use **Update assets → Saved holdings CSV** to reopen a locally stored holdings file as a review draft. CSV rows do not affect the portfolio until confirmation. Personal CSV files under `data/imports/` remain ignored by Git.
 
 Local portfolio records are stored in `data/invest-assets-monitor.sqlite`. The entire `data` database remains ignored by Git.
 

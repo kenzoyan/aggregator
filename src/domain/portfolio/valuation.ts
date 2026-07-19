@@ -7,6 +7,7 @@ export type Freshness = "fresh" | "awaiting-nav" | "stale" | "manual";
 export interface PriceObservation {
   instrumentId: string;
   price: string;
+  reportedMarketValue?: string;
   currency: CurrencyCode;
   asOf: string;
   source: string;
@@ -114,7 +115,9 @@ export function valuePortfolio({
       continue;
     }
 
-    const originalValue = new Decimal(position.quantity).mul(price.price);
+    const originalValue = price.reportedMarketValue
+      ? new Decimal(price.reportedMarketValue)
+      : new Decimal(position.quantity).mul(price.price);
     const eurValue = originalValue.mul(fx.eurPerUnit);
     totalValueEur = totalValueEur.plus(eurValue);
     valuedPositions.push({

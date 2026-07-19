@@ -19,13 +19,16 @@ export function createDashboardReadModel(input: {
     if (quantity.eq(0)) return [];
     return [{
       instrumentId: position.instrumentId,
-      price: new Decimal(position.costBasis)
-        .plus(position.reportedPriorReturn)
-        .div(quantity)
-        .toString(),
+      price: position.observedPrice ?? new Decimal(position.costBasis)
+          .plus(position.reportedPriorReturn)
+          .div(quantity)
+          .toString(),
+      ...(position.reportedMarketValue
+        ? { reportedMarketValue: position.reportedMarketValue }
+        : {}),
       currency: position.currency,
-      asOf: input.snapshotTimes[position.sourceAccountId] ?? input.asOf,
-      source: "confirmed-snapshot",
+      asOf: position.priceAsOf ?? input.snapshotTimes[position.sourceAccountId] ?? input.asOf,
+      source: position.priceSource ?? "confirmed-snapshot",
       freshness: position.sourceAccountId.includes("trading212")
         ? "fresh" as const
         : "manual" as const,
@@ -47,20 +50,35 @@ export function createDashboardReadModel(input: {
   });
 
   const holdings: DashboardHolding[] = [
-    ...valuation.positions.map((position) => ({
-      id: `${position.sourceAccountId}:${position.instrumentId}`,
-      name: position.instrumentId,
-      symbol: position.instrumentId,
-      source: sourceAccountDashboardLabel(position.sourceAccountId, input.accountLabels),
-      category: "Unclassified" as const,
-      currency: position.currency as DashboardHolding["currency"],
-      originalValue: `${position.originalValue} ${position.currency}`,
-      eurValue: Number(position.eurValue),
-      changeEur: 0,
-      changePercent: 0,
-      freshness: position.freshness,
-      asOf: position.priceAsOf.slice(0, 16).replace("T", " "),
-    })),
+    ...valuation.positions.map((position) => {
+      const sourcePosition = input.state.positions.find((candidate) =>
+        candidate.sourceAccountId === position.sourceAccountId &&
+        candidate.instrumentId === position.instrumentId
+      );
+      const category: DashboardHolding["category"] =
+        sourcePosition?.assetType === "fund" || sourcePosition?.assetType === "etf"
+          ? "Fund"
+          : sourcePosition?.assetType === "stock"
+            ? "Stock"
+            : sourcePosition?.assetType === "bond"
+              ? "Bond"
+              : "Unclassified";
+
+      return {
+        id: `${position.sourceAccountId}:${position.instrumentId}`,
+        name: sourcePosition?.displayName ?? position.instrumentId,
+        symbol: sourcePosition?.instrumentCode ?? position.instrumentId,
+        source: sourceAccountDashboardLabel(position.sourceAccountId, input.accountLabels),
+        category,
+        currency: position.currency as DashboardHolding["currency"],
+        originalValue: `${position.originalValue} ${position.currency}`,
+        eurValue: Number(position.eurValue),
+        changeEur: 0,
+        changePercent: 0,
+        freshness: position.freshness,
+        asOf: position.priceAsOf.slice(0, 16).replace("T", " "),
+      };
+    }),
     ...valuation.cash.map((cash) => ({
       id: `${cash.sourceAccountId}:cash:${cash.currency}`,
       name: "Portfolio Cash",
