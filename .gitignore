@@ -8,6 +8,7 @@ dist/
 coverage/
 playwright-report/
 test-results/
+*.tsbuildinfo
 
 # Local configuration and secrets
 .env
@@ -22,10 +23,10 @@ test-results/
 *.sqlite3
 
 # Financial source material and generated exports stay local
-uploads/
-screenshots/
-imports/
-exports/
+/uploads/
+/screenshots/
+/imports/
+/exports/
 
 # Local product thinking and working notes
 CONTEXT.md

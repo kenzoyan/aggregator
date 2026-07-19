@@ -1,0 +1,28 @@
+{
+  "name": "invest-assets-monitor",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "NODE_OPTIONS=--experimental-sqlite next dev",
+    "build": "NODE_OPTIONS=--experimental-sqlite next build",
+    "start": "NODE_OPTIONS=--experimental-sqlite next start",
+    "typecheck": "tsc --noEmit",
+    "test": "NODE_OPTIONS=--experimental-sqlite vitest run",
+    "test:watch": "NODE_OPTIONS=--experimental-sqlite vitest"
+  },
+  "dependencies": {
+    "decimal.js": "10.6.0",
+    "next": "16.2.10",
+    "openai": "6.48.0",
+    "react": "19.2.7",
+    "react-dom": "19.2.7",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "26.1.1",
+    "@types/react": "19.2.17",
+    "@types/react-dom": "19.2.3",
+    "typescript": "5.9.3",
+    "vitest": "3.2.7"
+  }
+}

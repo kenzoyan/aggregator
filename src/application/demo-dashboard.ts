@@ -1,0 +1,124 @@
+export type Period = "today" | "week" | "month";
+
+export interface DashboardHolding {
+  id: string;
+  name: string;
+  symbol: string;
+  source: string;
+  category: "Fund" | "Stock" | "Bond" | "Portfolio cash" | "Unclassified";
+  currency: string;
+  originalValue: string;
+  eurValue: number;
+  changeEur: number;
+  changePercent: number;
+  freshness: "fresh" | "manual" | "stale" | "awaiting-nav";
+  asOf: string;
+}
+
+export const demoHoldings: DashboardHolding[] = [
+  {
+    id: "demo-1",
+    name: "Global Technology Index",
+    symbol: "TECH 100",
+    source: "Alipay",
+    category: "Fund",
+    currency: "CNY",
+    originalValue: "¥82,410.00",
+    eurValue: 10414.58,
+    changeEur: 118.2,
+    changePercent: 1.15,
+    freshness: "awaiting-nav",
+    asOf: "Yesterday's NAV",
+  },
+  {
+    id: "demo-2",
+    name: "Nordic Investment Bond",
+    symbol: "FI BOND",
+    source: "Danske",
+    category: "Bond",
+    currency: "EUR",
+    originalValue: "€7,540.00",
+    eurValue: 7540,
+    changeEur: 22.4,
+    changePercent: 0.3,
+    freshness: "fresh",
+    asOf: "Today 16:10",
+  },
+  {
+    id: "demo-3",
+    name: "European Quality Equity",
+    symbol: "EQQ",
+    source: "Trading 212",
+    category: "Stock",
+    currency: "EUR",
+    originalValue: "€5,880.42",
+    eurValue: 5880.42,
+    changeEur: 64.5,
+    changePercent: 1.11,
+    freshness: "fresh",
+    asOf: "Today 16:18",
+  },
+  {
+    id: "demo-4",
+    name: "Asia Consumer Fund",
+    symbol: "ASIA C",
+    source: "WeChat",
+    category: "Fund",
+    currency: "CNY",
+    originalValue: "¥42,260.00",
+    eurValue: 5340.32,
+    changeEur: -31.7,
+    changePercent: -0.59,
+    freshness: "manual",
+    asOf: "Screenshot 2 days ago",
+  },
+  {
+    id: "demo-5",
+    name: "US Broad Market ETF",
+    symbol: "USM",
+    source: "Trading 212",
+    category: "Stock",
+    currency: "USD",
+    originalValue: "$2,910.80",
+    eurValue: 2690.8,
+    changeEur: 15.3,
+    changePercent: 0.57,
+    freshness: "fresh",
+    asOf: "Today 16:18",
+  },
+  {
+    id: "demo-6",
+    name: "Portfolio Cash",
+    symbol: "CASH",
+    source: "Danske",
+    category: "Portfolio cash",
+    currency: "EUR",
+    originalValue: "€614.60",
+    eurValue: 614.6,
+    changeEur: 0,
+    changePercent: 0,
+    freshness: "fresh",
+    asOf: "Today 16:10",
+  },
+];
+
+export const periodData = {
+  today: {
+    label: "Today",
+    change: 188.7,
+    percent: 0.58,
+    points: [42, 39, 45, 48, 46, 57, 62, 59, 68, 72, 78, 86],
+  },
+  week: {
+    label: "7 days",
+    change: 624.18,
+    percent: 1.96,
+    points: [31, 35, 34, 42, 46, 44, 52, 58, 61, 68, 73, 86],
+  },
+  month: {
+    label: "30 days",
+    change: -284.4,
+    percent: -0.86,
+    points: [82, 76, 72, 74, 68, 64, 59, 63, 58, 54, 57, 51],
+  },
+} satisfies Record<Period, { label: string; change: number; percent: number; points: number[] }>;
