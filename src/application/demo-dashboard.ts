@@ -1,21 +1,6 @@
-export type Period = "today" | "week" | "month";
+import type { HoldingReadModel, Period } from "@/application/portfolio-read-model";
 
-export interface DashboardHolding {
-  id: string;
-  name: string;
-  symbol: string;
-  source: string;
-  category: "Fund" | "Stock" | "Bond" | "Portfolio cash" | "Unclassified";
-  currency: string;
-  originalValue: string;
-  eurValue: number;
-  changeEur: number;
-  changePercent: number;
-  freshness: "fresh" | "manual" | "stale" | "awaiting-nav";
-  asOf: string;
-}
-
-export const demoHoldings: DashboardHolding[] = [
+export const demoHoldings: HoldingReadModel[] = [
   {
     id: "demo-1",
     name: "Global Technology Index",

@@ -3,9 +3,10 @@ import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
+import { createImportDraftReadModel } from "@/application/imports/import-draft-read-model";
 import { createManualImportDraft } from "@/application/imports/manual-import";
 import { findSourceAccount } from "@/domain/source-accounts";
-import { getPortfolioRepository } from "@/server/portfolio-db";
+import { getPortfolioDatabase } from "@/server/portfolio-db";
 
 export const runtime = "nodejs";
 
@@ -25,9 +26,11 @@ export async function POST(request: Request) {
       sourceAccountId,
       createdAt: now,
     });
-    const repository = getPortfolioRepository();
-    repository.createImportDraft(draft);
-    return NextResponse.json({ draft: repository.getImportDraft(draft.id) });
+    const database = getPortfolioDatabase();
+    database.saveImportDraft(draft);
+    return NextResponse.json({
+      draft: createImportDraftReadModel(database.getImportDraft(draft.id)!),
+    });
   } catch (error) {
     if (error instanceof z.ZodError) {
       return NextResponse.json({ error: "Choose a source account." }, { status: 400 });

@@ -7,8 +7,12 @@ import {
   decimalStringSchema,
   positiveDecimalStringSchema,
 } from "@/domain/portfolio/schemas";
-import type { OpeningSnapshotInput } from "@/domain/portfolio/types";
-import type { ImportDraftInput } from "@/infrastructure/sqlite/portfolio-repository";
+import {
+  knownDraftValue,
+  unknownDraftValue,
+  type DraftHolding,
+  type ImportDraftInput,
+} from "@/domain/imports";
 
 const requiredColumns = [
   "source_account_id",
@@ -128,7 +132,7 @@ export function createCsvImportDraft(input: {
   const holdings = parseHoldings(input.csv);
   const seenIds = new Set<string>();
 
-  const positions: OpeningSnapshotInput["positions"] = holdings.map((holding, index) => {
+  const draftHoldings: DraftHolding[] = holdings.map((holding, index) => {
     if (holding.source_account_id !== input.sourceAccountId) {
       throw new Error(`CSV row ${index + 2} belongs to ${holding.source_account_id}, not ${input.sourceAccountId}.`);
     }
@@ -139,19 +143,32 @@ export function createCsvImportDraft(input: {
     assertReconciles(holding, index + 2);
 
     return {
-      instrumentId: holding.instrument_code,
-      displayName: holding.instrument_name,
-      instrumentCode: holding.instrument_code,
-      assetType: holding.asset_type,
-      quantity: new Decimal(holding.quantity).toString(),
-      currency: holding.currency.toUpperCase(),
-      costBasis: new Decimal(holding.historical_cost_basis).toString(),
-      reportedPriorReturn: new Decimal(holding.reported_profit).toString(),
-      averageCost: new Decimal(holding.average_cost).toString(),
-      observedPrice: new Decimal(holding.nav).toString(),
-      priceAsOf: `${holding.nav_date}T00:00:00.000Z`,
-      priceSource: "confirmed-csv",
-      reportedMarketValue: new Decimal(holding.current_value).toString(),
+      lineId: `${input.draftId}:line:${index + 1}`,
+      instrumentId: knownDraftValue(holding.instrument_code, "csv"),
+      displayName: knownDraftValue(holding.instrument_name, "csv"),
+      instrumentCode: knownDraftValue(holding.instrument_code, "csv"),
+      assetType: knownDraftValue(holding.asset_type, "csv"),
+      quantity: knownDraftValue(new Decimal(holding.quantity).toString(), "csv"),
+      currency: knownDraftValue(holding.currency.toUpperCase(), "csv"),
+      costBasis: knownDraftValue(
+        new Decimal(holding.historical_cost_basis).toString(),
+        "csv",
+      ),
+      reportedPriorReturn: knownDraftValue(
+        new Decimal(holding.reported_profit).toString(),
+        "csv",
+      ),
+      averageCost: knownDraftValue(
+        new Decimal(holding.average_cost).toString(),
+        "csv",
+      ),
+      observedPrice: knownDraftValue(new Decimal(holding.nav).toString(), "csv"),
+      priceAsOf: knownDraftValue(`${holding.nav_date}T00:00:00.000Z`, "csv"),
+      priceSource: knownDraftValue("confirmed-csv", "csv"),
+      reportedMarketValue: knownDraftValue(
+        new Decimal(holding.current_value).toString(),
+        "csv",
+      ),
     };
   });
 
@@ -164,11 +181,11 @@ export function createCsvImportDraft(input: {
     warnings: [
       "CSV import excludes pending transactions. Review all holdings before confirmation.",
     ],
-    proposedOpeningSnapshot: {
-      id: input.snapshotId,
-      sourceAccountId: input.sourceAccountId,
-      asOf: input.createdAt,
-      positions,
+    portfolio: {
+      snapshotId: input.snapshotId,
+      asOf: knownDraftValue(input.createdAt, "csv"),
+      portfolioCash: unknownDraftValue(),
+      holdings: draftHoldings,
     },
   };
 }

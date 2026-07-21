@@ -1,13 +1,19 @@
 import { NextResponse } from "next/server";
 
 import {
+  createFxRateObservations,
+  eurPerUnitAt,
+} from "@/application/fx-history";
+import { createHoldingHistoryReadModel } from "@/application/holding-history";
+import {
   createDashboardReadModel,
   createPortfolioHistoryReadModel,
 } from "@/application/portfolio-dashboard";
 import { createSourceAccountStatusReadModel } from "@/application/source-account-status";
 import { sourceAccounts } from "@/domain/source-accounts";
 import { EcbFxClient, type EcbRates } from "@/infrastructure/ecb/ecb-fx-client";
-import { getPortfolioRepository } from "@/server/portfolio-db";
+import type { PortfolioDatabase } from "@/infrastructure/sqlite/portfolio-repository";
+import { getPortfolioDatabase } from "@/server/portfolio-db";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -21,56 +27,126 @@ async function latestRates(): Promise<EcbRates> {
   return value;
 }
 
-export async function GET() {
-  const repository = getPortfolioRepository();
-  const state = repository.getPortfolioState();
-  const snapshots = repository.getOpeningSnapshots();
-  const marketPrices = repository.getMarketPriceObservations();
-  const latestMarketRefresh = repository.getLatestMarketRefreshRecord();
-  const accountLabels = repository.getSourceAccountLabels();
-  const snapshotTimes = Object.fromEntries(
-    snapshots.map((snapshot) => [snapshot.sourceAccountId, snapshot.asOf]),
-  );
+type PortfolioQueryDatabase = Pick<
+  PortfolioDatabase,
+  | "readPortfolioFacts"
+  | "readMarketData"
+  | "readSourceAccountLabels"
+  | "recordMarketData"
+>;
 
-  let rates: EcbRates;
-  try {
-    rates = await latestRates();
-  } catch (error) {
-    console.error("ECB FX refresh failed", error);
-    rates = { asOf: new Date().toISOString(), eurPerUnit: { EUR: "1" } };
-  }
+export function createPortfolioHandler(input: {
+  database: PortfolioQueryDatabase;
+  fetchLatestRates: () => Promise<EcbRates>;
+  now?: () => string;
+  logError?: (message: string, error: unknown) => void;
+}) {
+  return async function handlePortfolio() {
+    const database = input.database;
+    const now = input.now?.() ?? new Date().toISOString();
+    const facts = database.readPortfolioFacts();
+    const marketData = database.readMarketData();
+    const state = facts.state;
+    const snapshots = facts.openingSnapshots;
+    const marketPrices = marketData.observations;
+    const latestMarketRefresh = marketData.latestMarketRefresh;
+    const accountLabels = database.readSourceAccountLabels();
+    const snapshotTimes = Object.fromEntries(
+      snapshots.map((snapshot) => [snapshot.sourceAccountId, snapshot.asOf]),
+    );
 
-  const portfolio = createDashboardReadModel({
-    state,
-    asOf: new Date().toISOString(),
-    snapshotTimes,
-    marketPrices,
-    latestMarketRefresh,
-    eurPerUnit: rates.eurPerUnit,
-    fxAsOf: rates.asOf,
-    accountLabels,
-  });
-  const history = createPortfolioHistoryReadModel({
-    snapshots,
-    marketPrices,
-    asOf: new Date().toISOString(),
-    eurPerUnit: rates.eurPerUnit,
-    fxAsOf: rates.asOf,
-  });
+    let fxObservations = marketData.fxObservations;
+    try {
+      const rates = await input.fetchLatestRates();
+      const recorded = createFxRateObservations({ rates, recordedAt: now });
+      database.recordMarketData({ observations: [], fxObservations: recorded });
+      fxObservations = [...fxObservations, ...recorded];
+    } catch (error) {
+      (input.logError ?? console.error)("ECB FX refresh failed", error);
+    }
+    const eurPerUnit = eurPerUnitAt(fxObservations, now);
+    const fxAsOf = fxObservations
+      .map((observation) => observation.asOf)
+      .sort()
+      .at(-1) ?? now;
 
-  return NextResponse.json({
-    hasPortfolioData: state.positions.length > 0 || state.cashBalances.length > 0,
-    portfolio: {
-      ...portfolio,
-      history,
-      accounts: createSourceAccountStatusReadModel({
-        accounts: sourceAccounts,
-        confirmedSnapshots: repository.getConfirmedSnapshots(),
-        snapshots,
-        state,
-        labels: accountLabels,
-        now: new Date().toISOString(),
+    const portfolio = createDashboardReadModel({
+      state,
+      asOf: now,
+      snapshotTimes,
+      marketPrices,
+      latestMarketRefresh,
+      eurPerUnit,
+      fxAsOf,
+      accountLabels,
+    });
+    const portfolioHistory = createPortfolioHistoryReadModel({
+      snapshots,
+      events: facts.events,
+      marketPrices,
+      fxObservations,
+      asOf: now,
+      eurPerUnit,
+      fxAsOf,
+    });
+    const holdingHistory = createHoldingHistoryReadModel({
+      state,
+      snapshots,
+      events: facts.events,
+      marketPrices,
+      fxObservations,
+      asOf: now,
+    });
+    const history = Object.fromEntries(
+      (["today", "week", "month"] as const).map((period) => {
+        const holdingPeriods = Object.values(holdingHistory)
+          .map((holding) => holding[period])
+          .filter((performance) => performance.available);
+        return [period, {
+          ...portfolioHistory[period],
+          priceChange: portfolioHistory[period].available
+            ? holdingPeriods.reduce(
+                (total, performance) => total + (performance.priceChange ?? 0),
+                0,
+              )
+            : 0,
+          fxChange: portfolioHistory[period].available
+            ? holdingPeriods.reduce(
+                (total, performance) => total + (performance.fxChange ?? 0),
+                0,
+              )
+            : 0,
+        }];
       }),
-    },
-  });
+    );
+
+    return NextResponse.json({
+      hasPortfolioData: state.positions.length > 0 || state.cashBalances.length > 0,
+      portfolio: {
+        ...portfolio,
+        holdings: portfolio.holdings.map((holding) => ({
+          ...holding,
+          ...(holdingHistory[holding.id]
+            ? { history: holdingHistory[holding.id] }
+            : {}),
+        })),
+        history,
+        accounts: createSourceAccountStatusReadModel({
+          accounts: sourceAccounts,
+          confirmedSnapshots: facts.confirmedSnapshots,
+          snapshots,
+          state,
+          labels: accountLabels,
+          now,
+        }),
+      },
+    });
+  };
+}
+
+export async function GET() {
+  return createPortfolioHandler({
+    database: getPortfolioDatabase(),
+    fetchLatestRates: latestRates,
+  })();
 }

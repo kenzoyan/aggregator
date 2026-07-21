@@ -1,13 +1,13 @@
 export type CurrencyCode = string;
 export const assetTypes = ["fund", "stock", "bond", "etf", "unclassified"] as const;
 export type AssetType = (typeof assetTypes)[number];
-export const assetTypeLabels: Record<AssetType, string> = {
+export const assetTypeLabels = {
   fund: "Fund",
   stock: "Stock",
   bond: "Bond",
   etf: "ETF",
   unclassified: "Unclassified",
-};
+} as const satisfies Record<AssetType, string>;
 
 export interface MoneyInput {
   amount: string;

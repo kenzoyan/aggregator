@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { createTrading212ImportHandler } from "@/app/api/imports/trading212/route";
-import type { StoredImportDraft } from "@/infrastructure/sqlite/portfolio-repository";
+import type { ImportDraftInput, StoredImportDraft } from "@/domain/imports";
 import { Trading212RequestError } from "@/infrastructure/trading212/trading212-client";
 
 function request(sourceAccountId = "trading212-main") {
@@ -12,10 +12,10 @@ function request(sourceAccountId = "trading212-main") {
   });
 }
 
-function repository() {
+function database() {
   const drafts = new Map<string, StoredImportDraft>();
   return {
-    createImportDraft: vi.fn((draft: Omit<StoredImportDraft, "status">) => {
+    saveImportDraft: vi.fn((draft: ImportDraftInput) => {
       drafts.set(draft.id, { ...draft, status: "draft" });
     }),
     getImportDraft: vi.fn((id: string) => drafts.get(id)),
@@ -32,9 +32,9 @@ const snapshot = {
 
 describe("POST /api/imports/trading212", () => {
   it("creates a review draft without directly changing the portfolio", async () => {
-    const store = repository();
+    const store = database();
     const handler = createTrading212ImportHandler({
-      repository: store,
+      database: store,
       getConfig: () => ({ apiKey: "key", apiSecret: "secret", environment: "demo" }),
       createClient: () => ({ fetchOpeningSnapshot: async () => snapshot }),
       newId: (() => {
@@ -51,15 +51,20 @@ describe("POST /api/imports/trading212", () => {
         id: "draft-1",
         status: "draft",
         sourceKind: "trading-212",
-        proposedOpeningSnapshot: snapshot,
+        portfolio: {
+          snapshotId: "snapshot-1",
+          asOf: "2026-07-21T12:00:00.000Z",
+          portfolioCash: { amount: "50", currency: "EUR" },
+          holdings: [],
+        },
       },
     });
-    expect(store.createImportDraft).toHaveBeenCalledOnce();
+    expect(store.saveImportDraft).toHaveBeenCalledOnce();
   });
 
   it("explains rejected credentials without leaking upstream details", async () => {
     const handler = createTrading212ImportHandler({
-      repository: repository(),
+      database: database(),
       getConfig: () => ({ apiKey: "key", apiSecret: "secret", environment: "live" }),
       createClient: () => ({
         fetchOpeningSnapshot: async () => {
@@ -80,7 +85,7 @@ describe("POST /api/imports/trading212", () => {
 
   it("reports when local credentials are not configured", async () => {
     const handler = createTrading212ImportHandler({
-      repository: repository(),
+      database: database(),
       getConfig: () => undefined,
       createClient: () => { throw new Error("should not create client"); },
       newId: () => "id",

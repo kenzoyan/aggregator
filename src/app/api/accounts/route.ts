@@ -3,7 +3,7 @@ import { z } from "zod";
 
 import { createSourceAccountStatusReadModel } from "@/application/source-account-status";
 import { sourceAccounts } from "@/domain/source-accounts";
-import { getPortfolioRepository } from "@/server/portfolio-db";
+import { getPortfolioDatabase } from "@/server/portfolio-db";
 import {
   getTrading212ConnectionConfig,
   trading212Environment,
@@ -18,14 +18,15 @@ const renameSchema = z.object({
 });
 
 function readAccounts() {
-  const repository = getPortfolioRepository();
-  const snapshots = repository.getOpeningSnapshots();
+  const database = getPortfolioDatabase();
+  const facts = database.readPortfolioFacts();
+  const snapshots = facts.openingSnapshots;
   const statuses = createSourceAccountStatusReadModel({
     accounts: sourceAccounts,
-    confirmedSnapshots: repository.getConfirmedSnapshots(),
+    confirmedSnapshots: facts.confirmedSnapshots,
     snapshots,
-    state: repository.getPortfolioState(),
-    labels: repository.getSourceAccountLabels(),
+    state: facts.state,
+    labels: database.readSourceAccountLabels(),
     now: new Date().toISOString(),
   });
 
@@ -50,7 +51,7 @@ export async function GET() {
 export async function PATCH(request: Request) {
   try {
     const input = renameSchema.parse(await request.json());
-    getPortfolioRepository().renameSourceAccount(input.id, input.label);
+    getPortfolioDatabase().renameSourceAccount(input.id, input.label);
     return NextResponse.json({ accounts: readAccounts() });
   } catch (error) {
     if (error instanceof z.ZodError) {

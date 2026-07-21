@@ -124,7 +124,6 @@ export class Trading212Client {
         instrumentId: position.instrument.ticker,
         displayName: position.instrument.name,
         instrumentCode: position.instrument.isin,
-        assetType: "stock" as const,
         quantity: new Decimal(position.quantity).toString(),
         currency: position.walletImpact.currency.toUpperCase(),
         costBasis: new Decimal(position.walletImpact.totalCost).toString(),

@@ -1,4 +1,8 @@
-import type { ImportDraftInput } from "@/infrastructure/sqlite/portfolio-repository";
+import {
+  knownDraftValue,
+  unknownDraftValue,
+  type ImportDraftInput,
+} from "@/domain/imports";
 
 export function createManualImportDraft(input: {
   draftId: string;
@@ -13,11 +17,11 @@ export function createManualImportDraft(input: {
     createdAt: input.createdAt,
     confidence: "manual",
     warnings: ["Manual draft: enter each value and review it before confirmation."],
-    proposedOpeningSnapshot: {
-      id: input.snapshotId,
-      sourceAccountId: input.sourceAccountId,
-      asOf: input.createdAt,
-      positions: [],
+    portfolio: {
+      snapshotId: input.snapshotId,
+      asOf: knownDraftValue(input.createdAt, "manual"),
+      portfolioCash: unknownDraftValue(),
+      holdings: [],
     },
   };
 }

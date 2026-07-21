@@ -1,6 +1,6 @@
 import Decimal from "decimal.js";
 
-import type { DashboardHolding } from "@/application/demo-dashboard";
+import type { HoldingReadModel } from "@/application/portfolio-read-model";
 import type { OpeningSnapshotInput } from "@/domain/portfolio/types";
 import { sourceAccountDashboardLabel } from "@/domain/source-accounts";
 
@@ -65,7 +65,7 @@ export function parseDemoPortfolioRecord(value: string | null): DemoPortfolioRec
   }
 }
 
-function inferCategory(name: string): DashboardHolding["category"] {
+function inferCategory(name: string): HoldingReadModel["category"] {
   const normalized = name.toLowerCase();
   if (normalized.includes("bond") || normalized.includes("债")) return "Bond";
   if (normalized.includes("stock") || normalized.includes("equity") || normalized.includes("share")) return "Stock";
@@ -97,11 +97,11 @@ function formatMoney(value: Decimal, currency: string): string {
   }
 }
 
-export function toDemoDashboardHoldings(record: DemoPortfolioRecord): DashboardHolding[] {
+export function toDemoDashboardHoldings(record: DemoPortfolioRecord): HoldingReadModel[] {
   const { snapshot } = record;
   const source = sourceAccountDashboardLabel(snapshot.sourceAccountId);
   const reviewedAt = `Demo review · ${snapshot.asOf.slice(0, 10)}`;
-  const positions = snapshot.positions.map((position, index): DashboardHolding => {
+  const positions = snapshot.positions.map((position, index): HoldingReadModel => {
     const value = originalValue(position.costBasis, position.reportedPriorReturn);
     return {
       id: `${snapshot.id}-position-${index}`,

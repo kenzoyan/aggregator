@@ -5,6 +5,7 @@ import {
   prepareScreenshotImport,
   type ScreenshotExtraction,
 } from "@/application/imports/vision-extractor";
+import { materializeOpeningSnapshot } from "@/domain/imports";
 
 const extracted: ScreenshotExtraction = {
   accountName: "Synthetic Provider",
@@ -51,7 +52,10 @@ describe("screenshot import seam", () => {
       extraction: extracted,
     });
 
-    expect(draft.proposedOpeningSnapshot.positions).toEqual([
+    expect(
+      materializeOpeningSnapshot(draft.sourceAccountId, draft.portfolio)
+        .positions,
+    ).toEqual([
       {
         instrumentId: "Synthetic Example Fund",
         displayName: "Synthetic Example Fund",
@@ -68,10 +72,18 @@ describe("screenshot import seam", () => {
     expect(draft.warnings).toContain(
       "Synthetic Example Fund: historical cost basis was inferred as current value minus prior cumulative return; please verify it.",
     );
-    expect(draft.proposedOpeningSnapshot.asOf).toBe(extracted.asOf);
+    expect(draft.portfolio.asOf).toMatchObject({
+      status: "known",
+      value: extracted.asOf,
+      source: "ocr",
+    });
+    expect(draft.portfolio.holdings[0]?.costBasis).toMatchObject({
+      status: "inferred",
+      value: "4000",
+    });
   });
 
-  it("rejects a row when current value cannot be reconciled", () => {
+  it("keeps missing accounting facts unknown until the user reviews them", () => {
     const invalid: ScreenshotExtraction = {
       ...extracted,
       positions: [
@@ -83,14 +95,19 @@ describe("screenshot import seam", () => {
       ],
     };
 
+    const draft = prepareScreenshotImport({
+      draftId: "draft-invalid",
+      snapshotId: "snapshot-invalid",
+      sourceAccountId: "alipay-main",
+      createdAt: "2026-07-19T12:01:00.000Z",
+      extraction: invalid,
+    });
+
+    expect(draft.portfolio.holdings[0]?.costBasis).toEqual({
+      status: "unknown",
+    });
     expect(() =>
-      prepareScreenshotImport({
-        draftId: "draft-invalid",
-        snapshotId: "snapshot-invalid",
-        sourceAccountId: "alipay-main",
-        createdAt: "2026-07-19T12:01:00.000Z",
-        extraction: invalid,
-      }),
-    ).toThrow("needs a market value or cost basis");
+      materializeOpeningSnapshot(draft.sourceAccountId, draft.portfolio),
+    ).toThrow("Holding 1 costBasis is still unknown");
   });
 });

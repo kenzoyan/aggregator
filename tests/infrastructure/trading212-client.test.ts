@@ -73,7 +73,6 @@ describe("Trading 212 read-only client", () => {
           instrumentId: "EXAMPLE_US_EQ",
           displayName: "Example Equity",
           instrumentCode: "US0000000001",
-          assetType: "stock",
           quantity: "2",
           currency: "EUR",
           costBasis: "200",

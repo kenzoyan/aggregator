@@ -20,6 +20,14 @@ export interface MarketPriceObservation {
   source: string;
 }
 
+export interface FxRateObservation {
+  currency: CurrencyCode;
+  eurPerUnit: string;
+  asOf: string;
+  recordedAt: string;
+  source: string;
+}
+
 export interface MarketRefreshRecord {
   provider: string;
   completedAt: string;

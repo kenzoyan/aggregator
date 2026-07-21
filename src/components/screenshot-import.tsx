@@ -7,29 +7,19 @@ import {
   createDemoPortfolioRecord,
   demoPortfolioStorageKey,
 } from "@/application/demo-portfolio";
+import type { ImportDraftReadModel } from "@/application/imports/import-draft-read-model";
 import type { SourceAccountView } from "@/application/source-account-status";
-import type { ImportSourceKind } from "@/domain/imports";
 import {
   assetTypeLabels,
   assetTypes,
   type AssetType,
-  type OpeningSnapshotInput,
 } from "@/domain/portfolio/types";
 import {
   sourceAccounts,
   trading212SourceAccountId,
 } from "@/domain/source-accounts";
 
-interface ImportDraftView {
-  id: string;
-  sourceAccountId: string;
-  sourceKind: ImportSourceKind;
-  confidence: string;
-  warnings: string[];
-  status: "draft" | "confirmed";
-  confirmedAt?: string;
-  proposedOpeningSnapshot: OpeningSnapshotInput;
-}
+type ImportDraftView = ImportDraftReadModel;
 
 type AccountOption = Pick<SourceAccountView, "id" | "provider" | "label" | "connector">;
 
@@ -142,14 +132,15 @@ export function AssetImportWorkflow() {
         : "EUR";
       return {
         ...current,
-        proposedOpeningSnapshot: {
-          ...current.proposedOpeningSnapshot,
-          positions: [
-            ...current.proposedOpeningSnapshot.positions,
+        portfolio: {
+          ...current.portfolio,
+          holdings: [
+            ...current.portfolio.holdings,
             {
+              lineId: crypto.randomUUID(),
               instrumentId: "",
               displayName: "",
-              assetType: "unclassified",
+              assetType: undefined,
               quantity: "1",
               currency,
               costBasis: "",
@@ -166,9 +157,9 @@ export function AssetImportWorkflow() {
       if (!current || current.status !== "draft") return current;
       return {
         ...current,
-        proposedOpeningSnapshot: {
-          ...current.proposedOpeningSnapshot,
-          positions: current.proposedOpeningSnapshot.positions.filter((_, positionIndex) => positionIndex !== index),
+        portfolio: {
+          ...current.portfolio,
+          holdings: current.portfolio.holdings.filter((_, positionIndex) => positionIndex !== index),
         },
       };
     });
@@ -181,7 +172,7 @@ export function AssetImportWorkflow() {
   ) {
     setDraft((current) => {
       if (!current) return current;
-      const positions = current.proposedOpeningSnapshot.positions.map(
+      const holdings = current.portfolio.holdings.map(
         (position, positionIndex) => {
           if (positionIndex !== index) return position;
           if (field === "displayName") {
@@ -196,6 +187,12 @@ export function AssetImportWorkflow() {
               ...position,
               instrumentCode: value || undefined,
               instrumentId: value || position.displayName || position.instrumentId,
+            };
+          }
+          if (field === "assetType") {
+            return {
+              ...position,
+              assetType: value ? value as AssetType : undefined,
             };
           }
           if (field === "observedPrice") {
@@ -215,9 +212,9 @@ export function AssetImportWorkflow() {
       );
       return {
         ...current,
-        proposedOpeningSnapshot: {
-          ...current.proposedOpeningSnapshot,
-          positions,
+        portfolio: {
+          ...current.portfolio,
+          holdings,
         },
       };
     });
@@ -226,7 +223,7 @@ export function AssetImportWorkflow() {
   async function confirm(event: FormEvent) {
     event.preventDefault();
     if (!draft) return;
-    if (draft.proposedOpeningSnapshot.positions.length === 0 && !draft.proposedOpeningSnapshot.portfolioCash) {
+    if (draft.portfolio.holdings.length === 0 && !draft.portfolio.portfolioCash) {
       setError("Add at least one holding before confirmation.");
       return;
     }
@@ -239,23 +236,24 @@ export function AssetImportWorkflow() {
         body: JSON.stringify({
           confidence: draft.confidence,
           warnings: draft.warnings,
-          proposedOpeningSnapshot: draft.proposedOpeningSnapshot,
+          portfolio: draft.portfolio,
         }),
       });
       const payload = (await response.json()) as {
         draft?: ImportDraftView;
+        confirmedSnapshot?: Parameters<typeof createDemoPortfolioRecord>[0]["snapshot"];
         error?: string;
       };
       if (!response.ok || !payload.draft) {
         throw new Error(payload.error ?? "Confirmation failed.");
       }
-      if (payload.draft.sourceKind === "demo") {
+      if (payload.draft.sourceKind === "demo" && payload.confirmedSnapshot) {
         try {
           window.localStorage.setItem(
             demoPortfolioStorageKey,
             JSON.stringify(createDemoPortfolioRecord({
               confirmedAt: payload.draft.confirmedAt ?? new Date().toISOString(),
-              snapshot: payload.draft.proposedOpeningSnapshot,
+              snapshot: payload.confirmedSnapshot,
             })),
           );
         } catch {
@@ -404,21 +402,21 @@ export function AssetImportWorkflow() {
             <form onSubmit={confirm}>
               <div className="review-meta">
                 <span className={`confidence ${draft.confidence}`}>Confidence: {draft.confidence}</span>
-                <span>{draft.proposedOpeningSnapshot.asOf.slice(0, 10)}</span>
+                <span>{draft.portfolio.asOf.slice(0, 10)}</span>
               </div>
               {draft.warnings.length > 0 && (
                 <div className="warning-list">
                   {draft.warnings.map((warning, index) => <p key={`${warning}-${index}`}>◷ {warning}</p>)}
                 </div>
               )}
-              {draft.proposedOpeningSnapshot.portfolioCash && (
+              {draft.portfolio.portfolioCash && (
                 <div className="cash-review">
                   <span>Portfolio cash</span>
-                  <strong>{draft.proposedOpeningSnapshot.portfolioCash.amount} {draft.proposedOpeningSnapshot.portfolioCash.currency}</strong>
+                  <strong>{draft.portfolio.portfolioCash.amount} {draft.portfolio.portfolioCash.currency}</strong>
                 </div>
               )}
               <div className="review-positions">
-                {draft.proposedOpeningSnapshot.positions.map((position, index) => (
+                {draft.portfolio.holdings.map((position, index) => (
                   <fieldset key={`${draft.id}-holding-${index}`}>
                     <legend><span>Holding {index + 1}</span><button type="button" onClick={() => removePosition(index)}>Remove</button></legend>
                     <div className="field-grid">
@@ -429,7 +427,8 @@ export function AssetImportWorkflow() {
                         <input value={position.instrumentCode ?? ""} onChange={(event) => updatePosition(index, "instrumentCode", event.target.value)} />
                       </label>
                       <label className="field-label">Asset type
-                        <select value={position.assetType ?? "unclassified"} onChange={(event) => updatePosition(index, "assetType", event.target.value as AssetType)}>
+                        <select value={position.assetType ?? ""} onChange={(event) => updatePosition(index, "assetType", event.target.value)}>
+                          <option value="">Unknown / not classified</option>
                           {assetTypes.map((assetType) => (
                             <option value={assetType} key={assetType}>{assetTypeLabels[assetType]}</option>
                           ))}
@@ -467,8 +466,8 @@ export function AssetImportWorkflow() {
                 ))}
               </div>
               <button className="add-holding-button" type="button" disabled={busy} onClick={addPosition}>+ Add holding</button>
-              <button className="primary-button confirm-button" disabled={busy || (draft.proposedOpeningSnapshot.positions.length === 0 && !draft.proposedOpeningSnapshot.portfolioCash)} type="submit">
-                {busy ? "Saving…" : `Confirm ${draft.proposedOpeningSnapshot.positions.length} holdings`}
+              <button className="primary-button confirm-button" disabled={busy || (draft.portfolio.holdings.length === 0 && !draft.portfolio.portfolioCash)} type="submit">
+                {busy ? "Saving…" : `Confirm ${draft.portfolio.holdings.length} holdings`}
               </button>
             </form>
           )}

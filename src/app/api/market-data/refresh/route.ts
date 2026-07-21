@@ -1,43 +1,34 @@
 import { NextResponse } from "next/server";
 
 import { refreshFundNavs } from "@/application/market-refresh";
-import type {
-  FundNavProvider,
-  MarketPriceObservation,
-  MarketRefreshRecord,
-} from "@/domain/market-data";
-import type {
-  OpeningSnapshotInput,
-  PortfolioState,
-} from "@/domain/portfolio/types";
+import type { FundNavProvider, MarketPriceObservation } from "@/domain/market-data";
 import { EastmoneyFundNavClient } from "@/infrastructure/eastmoney/eastmoney-fund-nav-client";
-import { getPortfolioRepository } from "@/server/portfolio-db";
+import type { PortfolioDatabase } from "@/infrastructure/sqlite/portfolio-repository";
+import { getPortfolioDatabase } from "@/server/portfolio-db";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-interface MarketRefreshRepository {
-  getPortfolioState(): PortfolioState;
-  getOpeningSnapshots(): OpeningSnapshotInput[];
-  getMarketPriceObservations(): MarketPriceObservation[];
-  saveMarketPriceObservations(
-    observations: readonly MarketPriceObservation[],
-  ): void;
-  saveMarketRefreshRecord(record: MarketRefreshRecord): void;
-}
+type MarketRefreshDatabase = Pick<
+  PortfolioDatabase,
+  "readPortfolioFacts" | "readMarketData" | "recordMarketData"
+>;
 
 export function createMarketRefreshHandler(input: {
-  repository: MarketRefreshRepository;
+  database: MarketRefreshDatabase;
   provider: FundNavProvider;
   now?: () => string;
 }) {
   return async function handleMarketRefresh() {
     try {
+      const facts = input.database.readPortfolioFacts();
+      const marketData = input.database.readMarketData();
+      const observations: MarketPriceObservation[] = [];
       const result = await refreshFundNavs({
-        state: input.repository.getPortfolioState(),
-        existingObservations: input.repository.getMarketPriceObservations(),
+        state: facts.state,
+        existingObservations: marketData.observations,
         monitoringStartedAtByPosition: Object.fromEntries(
-          input.repository.getOpeningSnapshots()
+          facts.openingSnapshots
             .flatMap((snapshot) => snapshot.positions.map((position) => ({
               key: `${snapshot.sourceAccountId}:${position.instrumentId}`,
               asOf: snapshot.asOf,
@@ -46,17 +37,21 @@ export function createMarketRefreshHandler(input: {
             .map((item) => [item.key, item.asOf]),
         ),
         provider: input.provider,
-        record: (observations) =>
-          input.repository.saveMarketPriceObservations(observations),
+        record: (recorded) => {
+          observations.push(...recorded);
+        },
         now: input.now?.() ?? new Date().toISOString(),
       });
-      input.repository.saveMarketRefreshRecord({
-        provider: input.provider.id,
-        completedAt: result.refreshedAt,
-        updated: result.updated,
-        unchanged: result.unchanged,
-        failed: result.failed.length,
-        failures: result.failed,
+      input.database.recordMarketData({
+        observations,
+        refresh: {
+          provider: input.provider.id,
+          completedAt: result.refreshedAt,
+          updated: result.updated,
+          unchanged: result.unchanged,
+          failed: result.failed.length,
+          failures: result.failed,
+        },
       });
       return NextResponse.json(result);
     } catch (error) {
@@ -71,7 +66,7 @@ export function createMarketRefreshHandler(input: {
 
 export async function POST() {
   return createMarketRefreshHandler({
-    repository: getPortfolioRepository(),
+    database: getPortfolioDatabase(),
     provider: new EastmoneyFundNavClient(),
   })();
 }

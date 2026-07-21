@@ -1,16 +1,20 @@
 import Decimal from "decimal.js";
 
-import type { DashboardHolding } from "@/application/demo-dashboard";
+import { eurPerUnitAt } from "@/application/fx-history";
+import type { HoldingReadModel } from "@/application/portfolio-read-model";
 import type {
+  FxRateObservation,
   MarketPriceObservation,
   MarketRefreshRecord,
 } from "@/domain/market-data";
 import { buildPortfolioState } from "@/domain/portfolio/ledger";
 import { sourceAccountDashboardLabel } from "@/domain/source-accounts";
-import type {
-  OpeningSnapshotInput,
-  PortfolioState,
-  Position,
+import {
+  assetTypeLabels,
+  type OpeningSnapshotInput,
+  type PortfolioEventInput,
+  type PortfolioState,
+  type Position,
 } from "@/domain/portfolio/types";
 import { valuePortfolio, type FxObservation } from "@/domain/portfolio/valuation";
 
@@ -94,20 +98,15 @@ export function createDashboardReadModel(input: {
     fxRates,
   });
 
-  const holdings: DashboardHolding[] = [
+  const holdings: HoldingReadModel[] = [
     ...valuation.positions.map((position) => {
       const sourcePosition = input.state.positions.find((candidate) =>
         candidate.sourceAccountId === position.sourceAccountId &&
         candidate.instrumentId === position.instrumentId
       );
-      const category: DashboardHolding["category"] =
-        sourcePosition?.assetType === "fund" || sourcePosition?.assetType === "etf"
-          ? "Fund"
-          : sourcePosition?.assetType === "stock"
-            ? "Stock"
-            : sourcePosition?.assetType === "bond"
-              ? "Bond"
-              : "Unclassified";
+      const category: HoldingReadModel["category"] = sourcePosition?.assetType
+        ? assetTypeLabels[sourcePosition.assetType]
+        : "Unclassified";
 
       return {
         id: `${position.sourceAccountId}:${position.instrumentId}`,
@@ -115,7 +114,7 @@ export function createDashboardReadModel(input: {
         symbol: sourcePosition?.instrumentCode ?? position.instrumentId,
         source: sourceAccountDashboardLabel(position.sourceAccountId, input.accountLabels),
         category,
-        currency: position.currency as DashboardHolding["currency"],
+        currency: position.currency as HoldingReadModel["currency"],
         originalValue: `${position.originalValue} ${position.currency}`,
         eurValue: Number(position.eurValue),
         changeEur: 0,
@@ -124,22 +123,24 @@ export function createDashboardReadModel(input: {
         asOf: position.priceAsOf.slice(0, 16).replace("T", " "),
       };
     }),
-    ...valuation.cash.map((cash) => ({
-      id: `${cash.sourceAccountId}:cash:${cash.currency}`,
-      name: "Portfolio Cash",
-      symbol: "CASH",
-      source: sourceAccountDashboardLabel(cash.sourceAccountId, input.accountLabels),
-      category: "Portfolio cash" as const,
-      currency: cash.currency as DashboardHolding["currency"],
-      originalValue: `${cash.originalValue} ${cash.currency}`,
-      eurValue: Number(cash.eurValue),
-      changeEur: 0,
-      changePercent: 0,
-      freshness: "fresh" as const,
-      asOf: (input.snapshotTimes[cash.sourceAccountId] ?? input.asOf)
-        .slice(0, 16)
-        .replace("T", " "),
-    })),
+    ...valuation.cash
+      .filter((cash) => !new Decimal(cash.originalValue).isZero())
+      .map((cash) => ({
+        id: `${cash.sourceAccountId}:cash:${cash.currency}`,
+        name: "Portfolio Cash",
+        symbol: "CASH",
+        source: sourceAccountDashboardLabel(cash.sourceAccountId, input.accountLabels),
+        category: "Portfolio cash" as const,
+        currency: cash.currency as HoldingReadModel["currency"],
+        originalValue: `${cash.originalValue} ${cash.currency}`,
+        eurValue: Number(cash.eurValue),
+        changeEur: 0,
+        changePercent: 0,
+        freshness: "fresh" as const,
+        asOf: (input.snapshotTimes[cash.sourceAccountId] ?? input.asOf)
+          .slice(0, 16)
+          .replace("T", " "),
+      })),
   ];
 
   return {
@@ -176,7 +177,9 @@ export interface DashboardPeriodHistory {
 
 export function createPortfolioHistoryReadModel(input: {
   snapshots: readonly OpeningSnapshotInput[];
+  events?: readonly PortfolioEventInput[];
   marketPrices?: readonly MarketPriceObservation[];
+  fxObservations?: readonly FxRateObservation[];
   asOf: string;
   eurPerUnit: Readonly<Record<string, string>>;
   fxAsOf: string;
@@ -184,11 +187,18 @@ export function createPortfolioHistoryReadModel(input: {
   const snapshots = [...input.snapshots].sort((left, right) =>
     left.asOf.localeCompare(right.asOf),
   );
+  const events = input.events ?? [];
   const marketPrices = input.marketPrices ?? [];
   const publishedPriceDates = new Set(
     marketPrices.map((observation) => observation.asOf.slice(0, 10)),
   );
-  const publishedPriceTimeline = [...publishedPriceDates]
+  const publishedObservationDates = new Set([
+    ...publishedPriceDates,
+    ...(input.fxObservations ?? []).map((observation) =>
+      observation.asOf.slice(0, 10)
+    ),
+  ]);
+  const publishedObservationTimeline = [...publishedObservationDates]
     .map((date) => priceTimelineTime(date, input.asOf))
     .sort();
   const timeline = [...new Set([
@@ -196,7 +206,21 @@ export function createPortfolioHistoryReadModel(input: {
     ...marketPrices.map((observation) =>
       priceTimelineTime(observation.asOf, input.asOf)
     ),
+    ...(input.fxObservations ?? []).map((observation) =>
+      priceTimelineTime(observation.asOf, input.asOf)
+    ),
+    ...events.map((event) => event.asOf),
   ])].sort();
+  const currentState = buildPortfolioState({
+    openingSnapshots: snapshots,
+    events: events.filter((event) => event.asOf <= input.asOf),
+  });
+  const currentQuantities = new Map(
+    currentState.positions.map((position) => [
+      `${position.sourceAccountId}:${position.instrumentId}`,
+      new Decimal(position.quantity),
+    ]),
+  );
   const points = timeline.flatMap((asOf) => {
     const knownSnapshots = snapshots.filter((snapshot) => snapshot.asOf <= asOf);
     if (knownSnapshots.length === 0) return [];
@@ -205,42 +229,44 @@ export function createPortfolioHistoryReadModel(input: {
     );
     const state = buildPortfolioState({
       openingSnapshots: knownSnapshots,
-      events: [],
+      events: events.filter((event) => event.asOf <= asOf),
     });
     const readModel = createDashboardReadModel({
       state,
       asOf,
       snapshotTimes,
       marketPrices,
-      eurPerUnit: input.eurPerUnit,
+      eurPerUnit: input.fxObservations?.length
+        ? eurPerUnitAt(input.fxObservations, asOf)
+        : input.eurPerUnit,
       fxAsOf: input.fxAsOf,
     });
-    const sourceAccountIds = [...new Set([
-      ...state.positions.map((position) => position.sourceAccountId),
-      ...state.cashBalances.map((cash) => cash.sourceAccountId),
-    ])];
-    const accountTotals = Object.fromEntries(
-      sourceAccountIds.map((sourceAccountId) => {
-        const accountReadModel = createDashboardReadModel({
-          state: {
-            positions: state.positions.filter((position) =>
-              position.sourceAccountId === sourceAccountId
-            ),
-            cashBalances: state.cashBalances.filter((cash) =>
-              cash.sourceAccountId === sourceAccountId
-            ),
-            appliedEventIds: state.appliedEventIds,
-          },
-          asOf,
-          snapshotTimes,
-          marketPrices,
-          eurPerUnit: input.eurPerUnit,
-          fxAsOf: input.fxAsOf,
-        });
-        return [sourceAccountId, accountReadModel.totalValueEur];
+    const holdingTotals = Object.fromEntries(
+      readModel.holdings.map((holding) => {
+        const historicalPosition = state.positions.find((position) =>
+          `${position.sourceAccountId}:${position.instrumentId}` === holding.id
+        );
+        const currentQuantity = currentQuantities.get(holding.id);
+        if (!historicalPosition || !currentQuantity) {
+          return [holding.id, holding.eurValue];
+        }
+        const historicalQuantity = new Decimal(historicalPosition.quantity);
+        const normalizedValue = historicalQuantity.isZero()
+          ? new Decimal(0)
+          : new Decimal(holding.eurValue)
+              .div(historicalQuantity)
+              .mul(currentQuantity);
+        return [holding.id, normalizedValue.toNumber()];
       }),
     );
-    return [{ asOf, total: readModel.totalValueEur, accountTotals }];
+    const total = Object.values(holdingTotals)
+      .reduce((sum, value) => sum + value, 0);
+    return [{
+      asOf,
+      total,
+      holdingTotals,
+      complete: readModel.missingInputs.length === 0,
+    }];
   });
 
   const now = new Date(input.asOf);
@@ -262,13 +288,13 @@ export function createPortfolioHistoryReadModel(input: {
   return Object.fromEntries(
     Object.entries(cutoffs).map(([period, cutoff]) => {
       const current = points.at(-1);
-      const previousPublishedPriceTime = publishedPriceTimeline.at(-2);
+      const previousPublishedObservationTime = publishedObservationTimeline.at(-2);
       let baseline = period === "today"
-        ? previousPublishedPriceTime
-          ? points.find((point) => point.asOf === previousPublishedPriceTime)
-          : marketPrices.length > 0
+        ? previousPublishedObservationTime
+          ? points.find((point) => point.asOf === previousPublishedObservationTime)
+          : publishedObservationTimeline.length > 0
             ? points.at(0)
-            : undefined
+            : points.at(-2)
         : [...points]
             .reverse()
             .find((point) => new Date(point.asOf) <= cutoff);
@@ -277,6 +303,15 @@ export function createPortfolioHistoryReadModel(input: {
         if (cutoff.getTime() - new Date(baseline.asOf).getTime() > maximumAge) {
           baseline = undefined;
         }
+      }
+      if (
+        baseline &&
+        period === "today" &&
+        current &&
+        new Date(current.asOf).getTime() - new Date(baseline.asOf).getTime() >
+          4 * 24 * 60 * 60 * 1000
+      ) {
+        baseline = undefined;
       }
       if (!baseline && period !== "today") {
         const next = points.find((point) => new Date(point.asOf) >= cutoff);
@@ -292,51 +327,60 @@ export function createPortfolioHistoryReadModel(input: {
         current &&
         baseline &&
         current.asOf !== baseline.asOf &&
-        current.total !== 0,
+        current.total !== 0 &&
+        current.complete &&
+        baseline.complete,
       );
-      const currentAccountIds = current
-        ? Object.keys(current.accountTotals)
+      const currentHoldingIds = current
+        ? Object.keys(current.holdingTotals)
         : [];
       const periodPoints = baseline
         ? points.filter((point) => point.asOf >= baseline.asOf)
         : [];
-      const accountBaselines = Object.fromEntries(
-        currentAccountIds.flatMap((sourceAccountId) => {
-          const accountBaseline = periodPoints.find((point) =>
-            point.accountTotals[sourceAccountId] !== undefined
-          )?.accountTotals[sourceAccountId];
-          return accountBaseline === undefined
+      const completePeriod = periodPoints.every((point) => point.complete);
+      const holdingBaselines = Object.fromEntries(
+        currentHoldingIds.flatMap((holdingId) => {
+          const holdingBaseline = periodPoints.find((point) =>
+            point.holdingTotals[holdingId] !== undefined
+          )?.holdingTotals[holdingId];
+          return holdingBaseline === undefined
             ? []
-            : [[sourceAccountId, accountBaseline]];
+            : [[holdingId, holdingBaseline]];
         }),
       );
-      const capitalBase = Object.values(accountBaselines)
+      const capitalBase = Object.values(holdingBaselines)
         .reduce((total, value) => total + value, 0);
-      const change = available
-        ? currentAccountIds.reduce((total, sourceAccountId) => {
-            const accountBaseline = accountBaselines[sourceAccountId];
-            if (accountBaseline === undefined) return total;
-            return total + current!.accountTotals[sourceAccountId] - accountBaseline;
+      const change = available && completePeriod
+        ? currentHoldingIds.reduce((total, holdingId) => {
+            const holdingBaseline = holdingBaselines[holdingId];
+            if (holdingBaseline === undefined) return total;
+            return total + current!.holdingTotals[holdingId] - holdingBaseline;
           }, 0)
         : 0;
-      const percent = available && capitalBase !== 0
+      const finalAvailable = available && completePeriod;
+      const percent = finalAvailable && capitalBase !== 0
         ? (change / capitalBase) * 100
         : 0;
-      const chartPoints = available
+      const chartPoints = finalAvailable
         ? periodPoints.map((point) =>
-            baseline!.total + currentAccountIds.reduce((total, sourceAccountId) => {
-              const accountBaseline = accountBaselines[sourceAccountId];
-              const accountValue = point.accountTotals[sourceAccountId];
-              if (accountBaseline === undefined || accountValue === undefined) {
+            baseline!.total + currentHoldingIds.reduce((total, holdingId) => {
+              const holdingBaseline = holdingBaselines[holdingId];
+              const holdingValue = point.holdingTotals[holdingId];
+              if (holdingBaseline === undefined || holdingValue === undefined) {
                 return total;
               }
-              return total + accountValue - accountBaseline;
+              return total + holdingValue - holdingBaseline;
             }, 0)
           )
         : current
           ? [current.total]
           : [];
-      return [period, { available, change, percent, points: chartPoints }];
+      return [period, {
+        available: finalAvailable,
+        change: finalAvailable ? change : 0,
+        percent,
+        points: chartPoints,
+      }];
     }),
   ) as Record<"today" | "week" | "month", DashboardPeriodHistory>;
 }

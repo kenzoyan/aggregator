@@ -1,7 +1,14 @@
 import Decimal from "decimal.js";
 import { z } from "zod";
 
-import type { OpeningSnapshotInput } from "@/domain/portfolio/types";
+import {
+  inferredDraftValue,
+  knownDraftValue,
+  unknownDraftValue,
+  type DraftHolding,
+  type DraftValue,
+  type ImportDraftInput,
+} from "@/domain/imports";
 
 const nullableMoney = z.string().nullable();
 
@@ -40,15 +47,9 @@ export interface VisionExtractor {
   extract(request: VisionExtractionRequest): Promise<ScreenshotExtraction>;
 }
 
-export interface PreparedScreenshotImport {
-  id: string;
-  sourceAccountId: string;
+export type PreparedScreenshotImport = ImportDraftInput & {
   sourceKind: "screenshot" | "demo";
-  createdAt: string;
-  confidence: string;
-  warnings: readonly string[];
-  proposedOpeningSnapshot: OpeningSnapshotInput;
-}
+};
 
 export function fixtureVisionExtractor(
   result: ScreenshotExtraction,
@@ -62,23 +63,49 @@ export function fixtureVisionExtractor(
   };
 }
 
-function resolvePositionAccounting(position: ScreenshotExtraction["positions"][number]) {
-  if (position.marketValue === null && position.costBasis === null) {
-    throw new Error(`${position.displayName} needs a market value or cost basis`);
-  }
-
+function resolvePositionAccounting(
+  position: ScreenshotExtraction["positions"][number],
+  source: "ocr" | "demo",
+): {
+  costBasis: DraftValue<string>;
+  reportedPriorReturn: DraftValue<string>;
+} {
   if (position.costBasis !== null) {
-    const reportedPriorReturn = position.reportedPriorReturn ??
-      (position.marketValue === null
-        ? "0"
-        : new Decimal(position.marketValue).minus(position.costBasis).toString());
-    return { costBasis: position.costBasis, reportedPriorReturn };
+    const reportedPriorReturn = position.reportedPriorReturn !== null
+      ? knownDraftValue(position.reportedPriorReturn, source, position.confidence)
+      : position.marketValue !== null
+        ? inferredDraftValue(
+            new Decimal(position.marketValue).minus(position.costBasis).toString(),
+            "Current value minus source-reported cost basis",
+          )
+        : unknownDraftValue<string>();
+    return {
+      costBasis: knownDraftValue(position.costBasis, source, position.confidence),
+      reportedPriorReturn,
+    };
   }
 
-  const reportedPriorReturn = position.reportedPriorReturn ?? "0";
+  if (position.marketValue !== null && position.reportedPriorReturn !== null) {
+    return {
+      costBasis: inferredDraftValue(
+        new Decimal(position.marketValue)
+          .minus(position.reportedPriorReturn)
+          .toString(),
+        "Current value minus reported prior return",
+      ),
+      reportedPriorReturn: knownDraftValue(
+        position.reportedPriorReturn,
+        source,
+        position.confidence,
+      ),
+    };
+  }
+
   return {
-    costBasis: new Decimal(position.marketValue!).minus(reportedPriorReturn).toString(),
-    reportedPriorReturn,
+    costBasis: unknownDraftValue(),
+    reportedPriorReturn: position.reportedPriorReturn !== null
+      ? knownDraftValue(position.reportedPriorReturn, source, position.confidence)
+      : unknownDraftValue(),
   };
 }
 
@@ -92,12 +119,10 @@ export function prepareScreenshotImport(input: {
 }): PreparedScreenshotImport {
   const extraction = screenshotExtractionSchema.parse(input.extraction);
   const warnings = [...extraction.warnings];
+  const source = input.sourceKind === "demo" ? "demo" as const : "ocr" as const;
 
-  const positions = extraction.positions.map((position) => {
+  const holdings: DraftHolding[] = extraction.positions.map((position, index) => {
     const currency = position.currency ?? extraction.currency;
-    if (!currency) {
-      throw new Error(`${position.displayName} needs a currency`);
-    }
 
     const wholeHoldingMode = position.quantity === null;
     if (wholeHoldingMode) {
@@ -106,21 +131,44 @@ export function prepareScreenshotImport(input: {
       );
     }
 
-    const accounting = resolvePositionAccounting(position);
+    const accounting = resolvePositionAccounting(position, source);
     if (position.costBasis === null) {
       warnings.push(
-        `${position.displayName}: historical cost basis was inferred as current value minus prior cumulative return; please verify it.`,
+        accounting.costBasis.status === "inferred"
+          ? `${position.displayName}: historical cost basis was inferred as current value minus prior cumulative return; please verify it.`
+          : `${position.displayName}: historical cost basis is unknown; enter it before confirmation.`,
       );
     }
     return {
-      instrumentId: position.instrumentCode || position.displayName,
-      displayName: position.displayName,
-      ...(position.instrumentCode ? { instrumentCode: position.instrumentCode } : {}),
-      quantity: position.quantity ?? "1",
-      currency: currency.toUpperCase(),
+      lineId: `${input.draftId}:line:${index + 1}`,
+      instrumentId: knownDraftValue(
+        position.instrumentCode || position.displayName,
+        source,
+        position.confidence,
+      ),
+      displayName: knownDraftValue(position.displayName, source, position.confidence),
+      instrumentCode: position.instrumentCode
+        ? knownDraftValue(position.instrumentCode, source, position.confidence)
+        : unknownDraftValue(),
+      assetType: unknownDraftValue(),
+      quantity: position.quantity !== null
+        ? knownDraftValue(position.quantity, source, position.confidence)
+        : inferredDraftValue(
+            "1",
+            "Screenshot does not show units; one represents the whole holding",
+          ),
+      currency: currency
+        ? knownDraftValue(currency.toUpperCase(), source, position.confidence)
+        : unknownDraftValue(),
       costBasis: accounting.costBasis,
       reportedPriorReturn: accounting.reportedPriorReturn,
-      ...(position.marketValue ? { reportedMarketValue: position.marketValue } : {}),
+      averageCost: unknownDraftValue(),
+      observedPrice: unknownDraftValue(),
+      priceAsOf: unknownDraftValue(),
+      priceSource: unknownDraftValue(),
+      reportedMarketValue: position.marketValue !== null
+        ? knownDraftValue(position.marketValue, source, position.confidence)
+        : unknownDraftValue(),
     };
   });
 
@@ -131,11 +179,16 @@ export function prepareScreenshotImport(input: {
     createdAt: input.createdAt,
     confidence: extraction.confidence,
     warnings,
-    proposedOpeningSnapshot: {
-      id: input.snapshotId,
-      sourceAccountId: input.sourceAccountId,
-      asOf: extraction.asOf ?? input.createdAt,
-      positions,
+    portfolio: {
+      snapshotId: input.snapshotId,
+      asOf: extraction.asOf
+        ? knownDraftValue(extraction.asOf, source, extraction.confidence)
+        : inferredDraftValue(
+            input.createdAt,
+            "Screenshot does not show an as-of time; using import time",
+          ),
+      portfolioCash: unknownDraftValue(),
+      holdings,
     },
   };
 }

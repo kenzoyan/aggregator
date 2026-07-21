@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 
 import { demoScreenshotExtraction } from "@/application/imports/demo-extraction";
+import { createImportDraftReadModel } from "@/application/imports/import-draft-read-model";
 import {
   fixtureVisionExtractor,
   prepareScreenshotImport,
@@ -10,7 +11,7 @@ import {
 } from "@/application/imports/vision-extractor";
 import { findSourceAccount } from "@/domain/source-accounts";
 import { OpenAIVisionExtractor } from "@/infrastructure/openai/openai-vision-extractor";
-import { getPortfolioRepository } from "@/server/portfolio-db";
+import { getPortfolioDatabase } from "@/server/portfolio-db";
 
 export const runtime = "nodejs";
 
@@ -86,11 +87,11 @@ export async function POST(request: Request) {
       extraction,
       sourceKind: mode === "demo" ? "demo" : "screenshot",
     });
-    const repository = getPortfolioRepository();
-    repository.createImportDraft(draft);
+    const database = getPortfolioDatabase();
+    database.saveImportDraft(draft);
 
     return NextResponse.json({
-      draft: repository.getImportDraft(draft.id),
+      draft: createImportDraftReadModel(database.getImportDraft(draft.id)!),
       extraction,
     });
   } catch (error) {

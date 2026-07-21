@@ -2,16 +2,16 @@ import { mkdirSync } from "node:fs";
 import { basename, join } from "node:path";
 
 import {
-  createPortfolioRepository,
-  type PortfolioRepository,
+  createPortfolioDatabase,
+  type PortfolioDatabase,
 } from "@/infrastructure/sqlite/portfolio-repository";
 
 const globalDatabase = globalThis as typeof globalThis & {
-  portfolioRepository?: PortfolioRepository;
+  portfolioDatabase?: PortfolioDatabase;
 };
 
-export function getPortfolioRepository(): PortfolioRepository {
-  if (!globalDatabase.portfolioRepository) {
+export function getPortfolioDatabase(): PortfolioDatabase {
+  if (!globalDatabase.portfolioDatabase) {
     const dataDirectory = join(process.cwd(), "data");
     const configuredName = process.env.PORTFOLIO_DB_FILENAME;
     const databaseName = configuredName
@@ -19,8 +19,8 @@ export function getPortfolioRepository(): PortfolioRepository {
       : "invest-assets-monitor.sqlite";
     const filename = join(dataDirectory, databaseName);
     mkdirSync(dataDirectory, { recursive: true });
-    globalDatabase.portfolioRepository = createPortfolioRepository(filename);
+    globalDatabase.portfolioDatabase = createPortfolioDatabase(filename);
   }
 
-  return globalDatabase.portfolioRepository;
+  return globalDatabase.portfolioDatabase;
 }

@@ -63,6 +63,7 @@ h2 { margin-bottom: 0; font-size: 25px; letter-spacing: -.03em; }
 .period-summary small { font-weight: 750; }
 .market-note { color: var(--muted) !important; text-align: right; line-height: 1.5; }
 .sparkline { width: calc(100% + 60px); height: 130px; margin: 4px -30px -20px; display: block; }
+.sparkline-empty { min-height: 114px; margin: 4px 0 -4px; display: grid; place-items: center; color: var(--muted); font-size: 0.78rem; text-align: center; }
 .positive { color: var(--green); }
 .negative { color: var(--red); }
 .empty-portfolio-banner { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-bottom: 20px; padding: 22px 24px; border: 1px solid #cfdced; border-radius: 20px; background: #f7faff; }
@@ -106,6 +107,8 @@ h2 { margin-bottom: 0; font-size: 25px; letter-spacing: -.03em; }
 .freshness.fresh { color: #087856; background: #e7f6f0; }.freshness.manual { color: #6354a1; background: #f0ecff; }.freshness.stale { color: #a7444d; background: #fdecee; }.freshness.awaiting-nav { color: #9a6715; background: #fff4dd; }
 .as-of { margin-top: 5px; }.value-cell, .change-cell { text-align: right; }.value-cell { display: grid; gap: 4px; }.value-cell strong { font-size: 14px; }.change-cell span { font-size: 12px; font-weight: 750; }
 .change-cell .pending-change-cell { color: var(--muted); font-weight: 650; }
+.holding-change { display: grid; grid-template-columns: minmax(0, 1fr) 72px; align-items: center; justify-content: end; gap: 10px; }
+.holding-sparkline { width: 72px; height: 34px; display: block; }
 .empty-holdings { display: grid; justify-items: center; gap: 5px; padding: 34px; color: var(--muted); }
 .empty-holdings strong { color: var(--ink); font-size: 13px; }
 .empty-holdings small { font-size: 11px; }
@@ -229,6 +232,8 @@ h2 { margin-bottom: 0; font-size: 25px; letter-spacing: -.03em; }
   .holding-row > div:nth-child(2) { grid-column: 1; grid-row: 2; }
   .value-cell { grid-column: 2; grid-row: 2; }
   .change-cell { grid-column: 1 / -1; grid-row: 3; padding-top: 10px; border-top: 1px dashed #e5e9ec; }
+  .holding-change { grid-template-columns: 1fr 96px; }
+  .holding-sparkline { width: 96px; }
   .mobile-nav { position: fixed; inset: auto 12px 12px; z-index: 20; display: grid; grid-template-columns: repeat(4, 1fr); padding: 8px; background: rgba(8,27,51,.96); border-radius: 18px; box-shadow: 0 12px 35px rgba(8,27,51,.25); backdrop-filter: blur(14px); }
   .mobile-nav a { display: grid; justify-items: center; gap: 3px; padding: 7px; color: #8fa4b9; font-size: 10px; font-weight: 700; }
   .mobile-nav a span { font-size: 17px; }.mobile-nav a.active { color: white; }

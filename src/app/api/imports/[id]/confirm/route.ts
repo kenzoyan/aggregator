@@ -1,14 +1,21 @@
+import { randomUUID } from "node:crypto";
+
 import { NextResponse } from "next/server";
 import Decimal from "decimal.js";
 import { z } from "zod";
 
+import {
+  applyImportDraftReview,
+  createImportDraftReadModel,
+} from "@/application/imports/import-draft-read-model";
+import { materializeOpeningSnapshot } from "@/domain/imports";
 import {
   assetTypeSchema,
   currencyCodeSchema,
   decimalStringSchema,
   positiveDecimalStringSchema,
 } from "@/domain/portfolio/schemas";
-import { getPortfolioRepository } from "@/server/portfolio-db";
+import { getPortfolioDatabase } from "@/server/portfolio-db";
 
 export const runtime = "nodejs";
 
@@ -16,13 +23,13 @@ const moneySchema = z.object({ amount: decimalStringSchema, currency: currencyCo
 const reviewSchema = z.object({
   confidence: z.string(),
   warnings: z.array(z.string()),
-  proposedOpeningSnapshot: z.object({
-    id: z.string(),
-    sourceAccountId: z.string(),
+  portfolio: z.object({
+    snapshotId: z.string().min(1),
     asOf: z.iso.datetime(),
     portfolioCash: moneySchema.optional(),
-    positions: z.array(
+    holdings: z.array(
       z.object({
+        lineId: z.string().min(1),
         instrumentId: z.string().min(1),
         displayName: z.string().trim().min(1).optional(),
         instrumentCode: z.string().trim().min(1).optional(),
@@ -40,22 +47,22 @@ const reviewSchema = z.object({
     ),
   }),
 }).superRefine((review, context) => {
-  const snapshot = review.proposedOpeningSnapshot;
-  if (snapshot.positions.length === 0 && !snapshot.portfolioCash) {
+  const portfolio = review.portfolio;
+  if (portfolio.holdings.length === 0 && !portfolio.portfolioCash) {
     context.addIssue({
       code: "custom",
-      path: ["proposedOpeningSnapshot", "positions"],
+      path: ["portfolio", "holdings"],
       message: "Add at least one holding or a portfolio cash balance.",
     });
   }
-  snapshot.positions.forEach((position, index) => {
+  portfolio.holdings.forEach((position, index) => {
     if (position.reportedMarketValue) {
       const accountedValue = new Decimal(position.costBasis).plus(position.reportedPriorReturn ?? "0");
       if (accountedValue.minus(position.reportedMarketValue).abs().gt("0.02")) {
         context.addIssue({
           code: "custom",
-          path: ["proposedOpeningSnapshot", "positions", index, "reportedMarketValue"],
-          message: "Current value must match cost basis plus prior return.",
+          path: ["portfolio", "holdings", index, "reportedMarketValue"],
+          message: `Cost basis + prior return is ${accountedValue.toFixed(2)} ${position.currency}, but current value is ${new Decimal(position.reportedMarketValue).toFixed(2)} ${position.currency}.`,
         });
       }
     }
@@ -64,8 +71,8 @@ const reviewSchema = z.object({
       if (pricedValue.minus(position.reportedMarketValue).abs().gt("0.02")) {
         context.addIssue({
           code: "custom",
-          path: ["proposedOpeningSnapshot", "positions", index, "observedPrice"],
-          message: "Quantity multiplied by price must match current value.",
+          path: ["portfolio", "holdings", index, "observedPrice"],
+          message: `Quantity × price is ${pricedValue.toFixed(2)} ${position.currency}, but current value is ${new Decimal(position.reportedMarketValue).toFixed(2)} ${position.currency}.`,
         });
       }
     }
@@ -78,30 +85,38 @@ export async function POST(
 ) {
   try {
     const { id } = await context.params;
-    const review = reviewSchema.parse(await request.json());
-    const repository = getPortfolioRepository();
-    const existing = repository.getImportDraft(id);
+    const editableReview = reviewSchema.parse(await request.json());
+    const database = getPortfolioDatabase();
+    const existing = database.getImportDraft(id);
 
     if (!existing) {
       return NextResponse.json({ error: "Import draft not found." }, { status: 404 });
     }
-    if (existing.sourceAccountId !== review.proposedOpeningSnapshot.sourceAccountId) {
-      return NextResponse.json(
-        { error: "The source account cannot be changed during confirmation." },
-        { status: 400 },
-      );
-    }
+    const review = applyImportDraftReview(existing, editableReview);
+    const confirmed = database.confirmImport({
+      draftId: id,
+      confirmedImportId: randomUUID(),
+      confirmedAt: new Date().toISOString(),
+      review,
+    });
 
-    if (existing.status === "draft") {
-      repository.updateImportDraft(id, review);
-      repository.confirmImportDraft(id, new Date().toISOString());
-    }
-
-    return NextResponse.json({ draft: repository.getImportDraft(id) });
+    return NextResponse.json({
+      draft: createImportDraftReadModel(confirmed),
+      confirmedSnapshot: materializeOpeningSnapshot(
+        confirmed.sourceAccountId,
+        confirmed.portfolio,
+      ),
+    });
   } catch (error) {
     if (error instanceof z.ZodError) {
+      const fieldErrors = Object.fromEntries(
+        error.issues.map((issue) => [issue.path.join("."), issue.message]),
+      );
       return NextResponse.json(
-        { error: "Check the name, quantity, currency, cost basis and prior return." },
+        {
+          error: error.issues[0]?.message ?? "Review the import values.",
+          fieldErrors,
+        },
         { status: 400 },
       );
     }

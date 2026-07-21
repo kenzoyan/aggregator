@@ -3,8 +3,9 @@ import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 
 import { createCsvImportDraft } from "@/application/imports/csv-import";
+import { createImportDraftReadModel } from "@/application/imports/import-draft-read-model";
 import { findSourceAccount } from "@/domain/source-accounts";
-import { getPortfolioRepository } from "@/server/portfolio-db";
+import { getPortfolioDatabase } from "@/server/portfolio-db";
 
 export const runtime = "nodejs";
 
@@ -34,9 +35,11 @@ export async function POST(request: Request) {
       createdAt: now,
       csv: await file.text(),
     });
-    const repository = getPortfolioRepository();
-    repository.createImportDraft(draft);
-    return NextResponse.json({ draft: repository.getImportDraft(draft.id) });
+    const database = getPortfolioDatabase();
+    database.saveImportDraft(draft);
+    return NextResponse.json({
+      draft: createImportDraftReadModel(database.getImportDraft(draft.id)!),
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : "CSV import failed.";
     return NextResponse.json({ error: message }, { status: 400 });

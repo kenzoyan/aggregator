@@ -1,8 +1,17 @@
 import { DatabaseSync } from "node:sqlite";
 
+import {
+  completePartialImportDraft,
+  materializeOpeningSnapshot,
+  restoreLegacyPartialSnapshots,
+  type ConfirmedImportRecord,
+  type ImportDraftInput,
+  type ImportDraftReview,
+  type StoredImportDraft,
+} from "@/domain/imports";
 import { buildPortfolioState } from "@/domain/portfolio/ledger";
-import type { ImportSourceKind } from "@/domain/imports";
 import type {
+  FxRateObservation,
   MarketPriceObservation,
   MarketRefreshRecord,
 } from "@/domain/market-data";
@@ -12,31 +21,53 @@ import type {
   PortfolioState,
 } from "@/domain/portfolio/types";
 import { findSourceAccount } from "@/domain/source-accounts";
+import { initializePortfolioSchema } from "@/infrastructure/sqlite/portfolio-schema";
 
-export interface ImportDraftInput {
-  id: string;
-  sourceAccountId: string;
-  sourceKind: ImportSourceKind;
-  createdAt: string;
-  confidence: string;
-  warnings: readonly string[];
-  proposedOpeningSnapshot: OpeningSnapshotInput;
-}
-
-export interface StoredImportDraft extends ImportDraftInput {
-  status: "draft" | "confirmed";
-  confirmedAt?: string;
-}
-
-export interface ImportDraftReview {
-  confidence: string;
-  warnings: readonly string[];
-  proposedOpeningSnapshot: OpeningSnapshotInput;
-}
+export {
+  LegacyPortfolioDatabaseError,
+  portfolioSchemaVersion,
+} from "@/infrastructure/sqlite/portfolio-schema";
 
 export interface ConfirmedSnapshotRecord {
   snapshot: OpeningSnapshotInput;
   confirmedAt: string;
+}
+
+export interface PortfolioFacts {
+  openingSnapshots: OpeningSnapshotInput[];
+  events: PortfolioEventInput[];
+  confirmedImports: ConfirmedImportRecord[];
+  confirmedSnapshots: ConfirmedSnapshotRecord[];
+  state: PortfolioState;
+}
+
+export interface MarketDataHistory {
+  observations: MarketPriceObservation[];
+  fxObservations: FxRateObservation[];
+  latestMarketRefresh?: MarketRefreshRecord;
+}
+
+export interface ConfirmImportCommand {
+  draftId: string;
+  confirmedImportId: string;
+  confirmedAt: string;
+  review: ImportDraftReview;
+}
+
+export interface PortfolioDatabase {
+  saveImportDraft(draft: ImportDraftInput): void;
+  getImportDraft(id: string): StoredImportDraft | undefined;
+  confirmImport(command: ConfirmImportCommand): StoredImportDraft;
+  readPortfolioFacts(): PortfolioFacts;
+  readMarketData(): MarketDataHistory;
+  readSourceAccountLabels(): Record<string, string>;
+  recordMarketData(input: {
+    observations: readonly MarketPriceObservation[];
+    fxObservations?: readonly FxRateObservation[];
+    refresh?: MarketRefreshRecord;
+  }): void;
+  renameSourceAccount(id: string, label: string): void;
+  close(): void;
 }
 
 interface ImportDraftRow {
@@ -46,7 +77,7 @@ interface ImportDraftRow {
   created_at: string;
   confidence: string;
   warnings_json: string;
-  proposed_snapshot_json: string;
+  portfolio_json: string;
   status: StoredImportDraft["status"];
   confirmed_at: string | null;
 }
@@ -55,23 +86,9 @@ interface FactRow {
   payload_json: string;
 }
 
-export interface PortfolioRepository {
-  createImportDraft(draft: ImportDraftInput): void;
-  getImportDraft(id: string): StoredImportDraft | undefined;
-  updateImportDraft(id: string, review: ImportDraftReview): void;
-  confirmImportDraft(id: string, confirmedAt: string): void;
-  getOpeningSnapshots(): OpeningSnapshotInput[];
-  getConfirmedSnapshots(): ConfirmedSnapshotRecord[];
-  saveMarketPriceObservations(
-    observations: readonly MarketPriceObservation[],
-  ): void;
-  getMarketPriceObservations(): MarketPriceObservation[];
-  saveMarketRefreshRecord(record: MarketRefreshRecord): void;
-  getLatestMarketRefreshRecord(): MarketRefreshRecord | undefined;
-  getSourceAccountLabels(): Record<string, string>;
-  renameSourceAccount(id: string, label: string): void;
-  getPortfolioState(): PortfolioState;
-  close(): void;
+interface SnapshotFactRow extends FactRow {
+  source_kind: ImportDraftInput["sourceKind"];
+  warnings_json: string;
 }
 
 function decodeDraft(row: ImportDraftRow): StoredImportDraft {
@@ -82,152 +99,80 @@ function decodeDraft(row: ImportDraftRow): StoredImportDraft {
     createdAt: row.created_at,
     confidence: row.confidence,
     warnings: JSON.parse(row.warnings_json) as string[],
-    proposedOpeningSnapshot: JSON.parse(
-      row.proposed_snapshot_json,
-    ) as OpeningSnapshotInput,
+    portfolio: JSON.parse(row.portfolio_json) as ImportDraftInput["portfolio"],
     status: row.status,
     ...(row.confirmed_at ? { confirmedAt: row.confirmed_at } : {}),
   };
 }
 
-export function createPortfolioRepository(
-  filename: string,
-): PortfolioRepository {
+export function createPortfolioDatabase(filename: string): PortfolioDatabase {
   const database = new DatabaseSync(filename);
-
-  database.exec(`
-    PRAGMA foreign_keys = ON;
-
-    CREATE TABLE IF NOT EXISTS import_drafts (
-      id TEXT PRIMARY KEY,
-      source_account_id TEXT NOT NULL,
-      source_kind TEXT NOT NULL,
-      created_at TEXT NOT NULL,
-      confidence TEXT NOT NULL,
-      warnings_json TEXT NOT NULL,
-      proposed_snapshot_json TEXT NOT NULL,
-      status TEXT NOT NULL CHECK (status IN ('draft', 'confirmed')),
-      confirmed_at TEXT
-    );
-
-    CREATE TABLE IF NOT EXISTS opening_snapshots (
-      id TEXT PRIMARY KEY,
-      source_account_id TEXT NOT NULL,
-      as_of TEXT NOT NULL,
-      payload_json TEXT NOT NULL,
-      import_draft_id TEXT UNIQUE,
-      FOREIGN KEY (import_draft_id) REFERENCES import_drafts(id)
-    );
-
-    CREATE TABLE IF NOT EXISTS portfolio_events (
-      id TEXT PRIMARY KEY,
-      source_account_id TEXT NOT NULL,
-      as_of TEXT NOT NULL,
-      payload_json TEXT NOT NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS market_price_observations (
-      source_account_id TEXT NOT NULL,
-      instrument_id TEXT NOT NULL,
-      instrument_code TEXT NOT NULL,
-      price TEXT NOT NULL,
-      currency TEXT NOT NULL,
-      as_of TEXT NOT NULL,
-      recorded_at TEXT NOT NULL,
-      source TEXT NOT NULL,
-      PRIMARY KEY (source_account_id, instrument_id, as_of, source)
-    );
-
-    CREATE TABLE IF NOT EXISTS market_refresh_runs (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      provider TEXT NOT NULL,
-      completed_at TEXT NOT NULL,
-      updated_count INTEGER NOT NULL,
-      unchanged_count INTEGER NOT NULL,
-      failed_count INTEGER NOT NULL,
-      failures_json TEXT NOT NULL DEFAULT '[]'
-    );
-
-    CREATE TABLE IF NOT EXISTS source_account_labels (
-      source_account_id TEXT PRIMARY KEY,
-      custom_label TEXT NOT NULL
-    );
-  `);
-
-  const marketRefreshColumns = database.prepare(
-    "PRAGMA table_info(market_refresh_runs)",
-  ).all() as unknown as Array<{ name: string }>;
-  if (!marketRefreshColumns.some((column) => column.name === "failures_json")) {
-    database.exec(
-      "ALTER TABLE market_refresh_runs ADD COLUMN failures_json TEXT NOT NULL DEFAULT '[]'",
-    );
+  try {
+    initializePortfolioSchema(database);
+  } catch (error) {
+    database.close();
+    throw error;
   }
 
   const insertDraft = database.prepare(`
     INSERT INTO import_drafts (
-      id,
-      source_account_id,
-      source_kind,
-      created_at,
-      confidence,
-      warnings_json,
-      proposed_snapshot_json,
-      status
+      id, source_account_id, source_kind, created_at, confidence,
+      warnings_json, portfolio_json, status
     ) VALUES (?, ?, ?, ?, ?, ?, ?, 'draft')
   `);
-  const selectDraft = database.prepare(`
-    SELECT * FROM import_drafts WHERE id = ?
-  `);
-  const updateDraft = database.prepare(`
+  const selectDraft = database.prepare(
+    "SELECT * FROM import_drafts WHERE id = ?",
+  );
+  const updateReviewedDraft = database.prepare(`
     UPDATE import_drafts
-    SET confidence = ?, warnings_json = ?, proposed_snapshot_json = ?
+    SET confidence = ?, warnings_json = ?, portfolio_json = ?
     WHERE id = ? AND status = 'draft'
-  `);
-  const insertSnapshot = database.prepare(`
-    INSERT OR IGNORE INTO opening_snapshots (
-      id,
-      source_account_id,
-      as_of,
-      payload_json,
-      import_draft_id
-    ) VALUES (?, ?, ?, ?, ?)
   `);
   const markDraftConfirmed = database.prepare(`
     UPDATE import_drafts
-    SET status = 'confirmed', confirmed_at = COALESCE(confirmed_at, ?)
-    WHERE id = ?
+    SET status = 'confirmed', confirmed_at = ?
+    WHERE id = ? AND status = 'draft'
+  `);
+  const insertConfirmedImport = database.prepare(`
+    INSERT INTO confirmed_imports (
+      id, draft_id, source_account_id, source_kind, confirmed_at
+    ) VALUES (?, ?, ?, ?, ?)
+  `);
+  const insertSnapshot = database.prepare(`
+    INSERT INTO opening_snapshots (
+      id, source_account_id, as_of, payload_json, confirmed_import_id
+    ) VALUES (?, ?, ?, ?, ?)
   `);
   const selectSnapshots = database.prepare(`
-    SELECT opening_snapshots.payload_json
+    SELECT opening_snapshots.payload_json, confirmed_imports.source_kind,
+      import_drafts.warnings_json
     FROM opening_snapshots
-    LEFT JOIN import_drafts ON import_drafts.id = opening_snapshots.import_draft_id
-    ORDER BY
-      opening_snapshots.as_of,
-      COALESCE(import_drafts.confirmed_at, ''),
+    JOIN confirmed_imports
+      ON confirmed_imports.id = opening_snapshots.confirmed_import_id
+    JOIN import_drafts
+      ON import_drafts.id = confirmed_imports.draft_id
+    ORDER BY opening_snapshots.as_of, confirmed_imports.confirmed_at,
       opening_snapshots.rowid
   `);
+  const selectConfirmedImports = database.prepare(`
+    SELECT id, draft_id, source_account_id, source_kind, confirmed_at
+    FROM confirmed_imports
+    ORDER BY confirmed_at, rowid
+  `);
   const selectConfirmedSnapshots = database.prepare(`
-    SELECT opening_snapshots.payload_json, import_drafts.confirmed_at
+    SELECT opening_snapshots.payload_json, confirmed_imports.confirmed_at
     FROM opening_snapshots
-    JOIN import_drafts ON import_drafts.id = opening_snapshots.import_draft_id
-    WHERE import_drafts.confirmed_at IS NOT NULL
-    ORDER BY import_drafts.confirmed_at, opening_snapshots.rowid
+    JOIN confirmed_imports
+      ON confirmed_imports.id = opening_snapshots.confirmed_import_id
+    ORDER BY confirmed_imports.confirmed_at, opening_snapshots.rowid
   `);
   const selectEvents = database.prepare(`
-    SELECT payload_json
-    FROM portfolio_events
-    ORDER BY as_of, id
+    SELECT payload_json FROM portfolio_events ORDER BY as_of, id
   `);
   const upsertMarketPrice = database.prepare(`
     INSERT INTO market_price_observations (
-      source_account_id,
-      instrument_id,
-      instrument_code,
-      price,
-      currency,
-      as_of,
-      recorded_at,
-      source
+      source_account_id, instrument_id, instrument_code, price,
+      currency, as_of, recorded_at, source
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(source_account_id, instrument_id, as_of, source) DO UPDATE SET
       instrument_code = excluded.instrument_code,
@@ -236,30 +181,33 @@ export function createPortfolioRepository(
       recorded_at = excluded.recorded_at
   `);
   const selectMarketPrices = database.prepare(`
-    SELECT
-      source_account_id,
-      instrument_id,
-      instrument_code,
-      price,
-      currency,
-      as_of,
-      recorded_at,
-      source
+    SELECT source_account_id, instrument_id, instrument_code, price,
+      currency, as_of, recorded_at, source
     FROM market_price_observations
     ORDER BY recorded_at, as_of, rowid
   `);
+  const upsertFxObservation = database.prepare(`
+    INSERT INTO fx_observations (
+      currency, eur_per_unit, as_of, recorded_at, source
+    ) VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(currency, as_of, source) DO UPDATE SET
+      eur_per_unit = excluded.eur_per_unit,
+      recorded_at = excluded.recorded_at
+  `);
+  const selectFxObservations = database.prepare(`
+    SELECT currency, eur_per_unit, as_of, recorded_at, source
+    FROM fx_observations
+    ORDER BY as_of, recorded_at, currency
+  `);
   const insertMarketRefresh = database.prepare(`
     INSERT INTO market_refresh_runs (
-      provider,
-      completed_at,
-      updated_count,
-      unchanged_count,
-      failed_count,
-      failures_json
+      provider, completed_at, updated_count, unchanged_count,
+      failed_count, failures_json
     ) VALUES (?, ?, ?, ?, ?, ?)
   `);
   const selectLatestMarketRefresh = database.prepare(`
-    SELECT provider, completed_at, updated_count, unchanged_count, failed_count, failures_json
+    SELECT provider, completed_at, updated_count, unchanged_count,
+      failed_count, failures_json
     FROM market_refresh_runs
     ORDER BY completed_at DESC, id DESC
     LIMIT 1
@@ -272,100 +220,230 @@ export function createPortfolioRepository(
   const upsertAccountLabel = database.prepare(`
     INSERT INTO source_account_labels (source_account_id, custom_label)
     VALUES (?, ?)
-    ON CONFLICT(source_account_id) DO UPDATE SET custom_label = excluded.custom_label
+    ON CONFLICT(source_account_id) DO UPDATE SET
+      custom_label = excluded.custom_label
   `);
 
+  function getImportDraft(id: string): StoredImportDraft | undefined {
+    const row = selectDraft.get(id) as ImportDraftRow | undefined;
+    return row ? decodeDraft(row) : undefined;
+  }
+
+  function readOpeningSnapshots(): OpeningSnapshotInput[] {
+    return restoreLegacyPartialSnapshots(
+      (selectSnapshots.all() as unknown as SnapshotFactRow[]).map((row) => ({
+        snapshot: JSON.parse(row.payload_json) as OpeningSnapshotInput,
+        sourceKind: row.source_kind,
+        warnings: JSON.parse(row.warnings_json) as string[],
+      })),
+    );
+  }
+
+  function readEvents(): PortfolioEventInput[] {
+    return (selectEvents.all() as unknown as FactRow[]).map(
+      (row) => JSON.parse(row.payload_json) as PortfolioEventInput,
+    );
+  }
+
+  function readMarketPrices(): MarketPriceObservation[] {
+    const rows = selectMarketPrices.all() as unknown as Array<{
+      source_account_id: string;
+      instrument_id: string;
+      instrument_code: string;
+      price: string;
+      currency: string;
+      as_of: string;
+      recorded_at: string;
+      source: string;
+    }>;
+    return rows.map((row) => ({
+      sourceAccountId: row.source_account_id,
+      instrumentId: row.instrument_id,
+      instrumentCode: row.instrument_code,
+      price: row.price,
+      currency: row.currency,
+      asOf: row.as_of,
+      recordedAt: row.recorded_at,
+      source: row.source,
+    }));
+  }
+
+  function readFxObservations(): FxRateObservation[] {
+    const rows = selectFxObservations.all() as unknown as Array<{
+      currency: string;
+      eur_per_unit: string;
+      as_of: string;
+      recorded_at: string;
+      source: string;
+    }>;
+    return rows.map((row) => ({
+      currency: row.currency,
+      eurPerUnit: row.eur_per_unit,
+      asOf: row.as_of,
+      recordedAt: row.recorded_at,
+      source: row.source,
+    }));
+  }
+
   return {
-    createImportDraft(draft) {
+    saveImportDraft(draft) {
+      const completedDraft = completePartialImportDraft(
+        draft,
+        buildPortfolioState({
+          openingSnapshots: readOpeningSnapshots(),
+          events: readEvents(),
+        }),
+      );
       insertDraft.run(
-        draft.id,
-        draft.sourceAccountId,
-        draft.sourceKind,
-        draft.createdAt,
-        draft.confidence,
-        JSON.stringify(draft.warnings),
-        JSON.stringify(draft.proposedOpeningSnapshot),
+        completedDraft.id,
+        completedDraft.sourceAccountId,
+        completedDraft.sourceKind,
+        completedDraft.createdAt,
+        completedDraft.confidence,
+        JSON.stringify(completedDraft.warnings),
+        JSON.stringify(completedDraft.portfolio),
       );
     },
 
-    getImportDraft(id) {
-      const row = selectDraft.get(id) as ImportDraftRow | undefined;
-      return row ? decodeDraft(row) : undefined;
-    },
+    getImportDraft,
 
-    updateImportDraft(id, review) {
-      const result = updateDraft.run(
-        review.confidence,
-        JSON.stringify(review.warnings),
-        JSON.stringify(review.proposedOpeningSnapshot),
-        id,
-      );
-
-      if (result.changes !== 1) {
-        throw new Error(`Import Draft ${id} is missing or already confirmed`);
+    confirmImport(command) {
+      const existing = getImportDraft(command.draftId);
+      if (!existing) {
+        throw new Error(`Import Draft ${command.draftId} does not exist`);
       }
-    },
+      if (existing.status === "confirmed") return existing;
+      if (existing.status !== "draft") {
+        throw new Error(`Import Draft ${command.draftId} cannot be confirmed`);
+      }
 
-    confirmImportDraft(id, confirmedAt) {
+      const reviewedDraft: ImportDraftInput = {
+        ...existing,
+        confidence: command.review.confidence,
+        warnings: command.review.warnings,
+        portfolio: command.review.portfolio,
+      };
+      const snapshot = reviewedDraft.sourceKind === "demo"
+        ? undefined
+        : materializeOpeningSnapshot(
+            reviewedDraft.sourceAccountId,
+            reviewedDraft.portfolio,
+          );
+
       database.exec("BEGIN IMMEDIATE");
-
       try {
-        const row = selectDraft.get(id) as ImportDraftRow | undefined;
-
-        if (!row) {
-          throw new Error(`Import Draft ${id} does not exist`);
+        const update = updateReviewedDraft.run(
+          command.review.confidence,
+          JSON.stringify(command.review.warnings),
+          JSON.stringify(command.review.portfolio),
+          command.draftId,
+        );
+        if (update.changes !== 1) {
+          throw new Error(`Import Draft ${command.draftId} changed during confirmation`);
         }
-
-        if (row.status === "draft" && row.source_kind !== "demo") {
-          const snapshot = JSON.parse(
-            row.proposed_snapshot_json,
-          ) as OpeningSnapshotInput;
+        insertConfirmedImport.run(
+          command.confirmedImportId,
+          command.draftId,
+          existing.sourceAccountId,
+          existing.sourceKind,
+          command.confirmedAt,
+        );
+        if (snapshot) {
           insertSnapshot.run(
             snapshot.id,
             snapshot.sourceAccountId,
             snapshot.asOf,
             JSON.stringify(snapshot),
-            id,
+            command.confirmedImportId,
           );
         }
-        markDraftConfirmed.run(confirmedAt, id);
-
+        markDraftConfirmed.run(command.confirmedAt, command.draftId);
         database.exec("COMMIT");
       } catch (error) {
         database.exec("ROLLBACK");
         throw error;
       }
+
+      return getImportDraft(command.draftId)!;
     },
 
-    getPortfolioState() {
-      const openingSnapshots = this.getOpeningSnapshots();
-      const events = (selectEvents.all() as unknown as FactRow[]).map(
-        (row) => JSON.parse(row.payload_json) as PortfolioEventInput,
-      );
-      return buildPortfolioState({ openingSnapshots, events });
-    },
-
-    getOpeningSnapshots() {
-      return (selectSnapshots.all() as unknown as FactRow[]).map(
-        (row) => JSON.parse(row.payload_json) as OpeningSnapshotInput,
-      );
-    },
-
-    getConfirmedSnapshots() {
-      const rows = selectConfirmedSnapshots.all() as unknown as Array<{
+    readPortfolioFacts() {
+      const openingSnapshots = readOpeningSnapshots();
+      const events = readEvents();
+      const confirmedImportRows = selectConfirmedImports.all() as unknown as Array<{
+        id: string;
+        draft_id: string;
+        source_account_id: string;
+        source_kind: ConfirmedImportRecord["sourceKind"];
+        confirmed_at: string;
+      }>;
+      const confirmedImports = confirmedImportRows.map((row) => ({
+        id: row.id,
+        draftId: row.draft_id,
+        sourceAccountId: row.source_account_id,
+        sourceKind: row.source_kind,
+        confirmedAt: row.confirmed_at,
+      }));
+      const confirmedSnapshotRows = selectConfirmedSnapshots.all() as unknown as Array<{
         payload_json: string;
         confirmed_at: string;
       }>;
-      return rows.map((row) => ({
-        snapshot: JSON.parse(row.payload_json) as OpeningSnapshotInput,
+      const confirmedSnapshots = confirmedSnapshotRows.map((row) => ({
+        snapshot: openingSnapshots.find(
+          (snapshot) => snapshot.id ===
+            (JSON.parse(row.payload_json) as OpeningSnapshotInput).id,
+        ) ?? JSON.parse(row.payload_json) as OpeningSnapshotInput,
         confirmedAt: row.confirmed_at,
       }));
+      return {
+        openingSnapshots,
+        events,
+        confirmedImports,
+        confirmedSnapshots,
+        state: buildPortfolioState({ openingSnapshots, events }),
+      };
     },
 
-    saveMarketPriceObservations(observations) {
+    readMarketData() {
+      const latestRefreshRow = selectLatestMarketRefresh.get() as {
+        provider: string;
+        completed_at: string;
+        updated_count: number;
+        unchanged_count: number;
+        failed_count: number;
+        failures_json: string;
+      } | undefined;
+      const latestMarketRefresh = latestRefreshRow
+        ? {
+            provider: latestRefreshRow.provider,
+            completedAt: latestRefreshRow.completed_at,
+            updated: latestRefreshRow.updated_count,
+            unchanged: latestRefreshRow.unchanged_count,
+            failed: latestRefreshRow.failed_count,
+            failures: JSON.parse(latestRefreshRow.failures_json) as MarketRefreshRecord["failures"],
+          }
+        : undefined;
+      return {
+        observations: readMarketPrices(),
+        fxObservations: readFxObservations(),
+        ...(latestMarketRefresh ? { latestMarketRefresh } : {}),
+      };
+    },
+
+    readSourceAccountLabels() {
+      const labelRows = selectAccountLabels.all() as unknown as Array<{
+        source_account_id: string;
+        custom_label: string;
+      }>;
+      return Object.fromEntries(
+        labelRows.map((row) => [row.source_account_id, row.custom_label]),
+      );
+    },
+
+    recordMarketData(input) {
       database.exec("BEGIN IMMEDIATE");
       try {
-        for (const observation of observations) {
+        for (const observation of input.observations) {
           upsertMarketPrice.run(
             observation.sourceAccountId,
             observation.instrumentId,
@@ -377,76 +455,30 @@ export function createPortfolioRepository(
             observation.source,
           );
         }
+        for (const observation of input.fxObservations ?? []) {
+          upsertFxObservation.run(
+            observation.currency,
+            observation.eurPerUnit,
+            observation.asOf,
+            observation.recordedAt,
+            observation.source,
+          );
+        }
+        if (input.refresh) {
+          insertMarketRefresh.run(
+            input.refresh.provider,
+            input.refresh.completedAt,
+            input.refresh.updated,
+            input.refresh.unchanged,
+            input.refresh.failed,
+            JSON.stringify(input.refresh.failures),
+          );
+        }
         database.exec("COMMIT");
       } catch (error) {
         database.exec("ROLLBACK");
         throw error;
       }
-    },
-
-    getMarketPriceObservations() {
-      const rows = selectMarketPrices.all() as unknown as Array<{
-        source_account_id: string;
-        instrument_id: string;
-        instrument_code: string;
-        price: string;
-        currency: string;
-        as_of: string;
-        recorded_at: string;
-        source: string;
-      }>;
-      return rows.map((row) => ({
-        sourceAccountId: row.source_account_id,
-        instrumentId: row.instrument_id,
-        instrumentCode: row.instrument_code,
-        price: row.price,
-        currency: row.currency,
-        asOf: row.as_of,
-        recordedAt: row.recorded_at,
-        source: row.source,
-      }));
-    },
-
-    saveMarketRefreshRecord(record) {
-      insertMarketRefresh.run(
-        record.provider,
-        record.completedAt,
-        record.updated,
-        record.unchanged,
-        record.failed,
-        JSON.stringify(record.failures),
-      );
-    },
-
-    getLatestMarketRefreshRecord() {
-      const row = selectLatestMarketRefresh.get() as {
-        provider: string;
-        completed_at: string;
-        updated_count: number;
-        unchanged_count: number;
-        failed_count: number;
-        failures_json: string;
-      } | undefined;
-      return row
-        ? {
-            provider: row.provider,
-            completedAt: row.completed_at,
-            updated: row.updated_count,
-            unchanged: row.unchanged_count,
-            failed: row.failed_count,
-            failures: JSON.parse(row.failures_json) as MarketRefreshRecord["failures"],
-          }
-        : undefined;
-    },
-
-    getSourceAccountLabels() {
-      const rows = selectAccountLabels.all() as unknown as Array<{
-        source_account_id: string;
-        custom_label: string;
-      }>;
-      return Object.fromEntries(
-        rows.map((row) => [row.source_account_id, row.custom_label]),
-      );
     },
 
     renameSourceAccount(id, label) {

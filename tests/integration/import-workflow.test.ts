@@ -1,18 +1,67 @@
 import { describe, expect, it } from "vitest";
 
-import { createPortfolioRepository } from "@/infrastructure/sqlite/portfolio-repository";
+import {
+  draftPortfolioFromOpeningSnapshot,
+  knownDraftValue,
+  type ImportDraftInput,
+} from "@/domain/imports";
+import {
+  applyImportDraftReview,
+  createImportDraftReadModel,
+} from "@/application/imports/import-draft-read-model";
+import type { OpeningSnapshotInput } from "@/domain/portfolio/types";
+import {
+  createPortfolioDatabase,
+  type PortfolioDatabase,
+} from "@/infrastructure/sqlite/portfolio-repository";
+
+function draft(input: {
+  id: string;
+  sourceAccountId: string;
+  sourceKind: ImportDraftInput["sourceKind"];
+  createdAt: string;
+  snapshot: OpeningSnapshotInput;
+}): ImportDraftInput {
+  return {
+    id: input.id,
+    sourceAccountId: input.sourceAccountId,
+    sourceKind: input.sourceKind,
+    createdAt: input.createdAt,
+    confidence: input.sourceKind === "manual" ? "manual" : "high",
+    warnings: [],
+    portfolio: draftPortfolioFromOpeningSnapshot(
+      input.snapshot,
+      input.sourceKind === "demo" ? "demo" : "manual",
+    ),
+  };
+}
+
+function confirm(
+  database: PortfolioDatabase,
+  importDraft: ImportDraftInput,
+  confirmedAt: string,
+) {
+  return database.confirmImport({
+    draftId: importDraft.id,
+    confirmedImportId: `confirmed:${importDraft.id}`,
+    confirmedAt,
+    review: {
+      confidence: importDraft.confidence,
+      warnings: importDraft.warnings,
+      portfolio: importDraft.portfolio,
+    },
+  });
+}
 
 describe("screenshot import confirmation workflow", () => {
   it("allows the demo review flow without adding synthetic holdings to the portfolio", () => {
-    const repository = createPortfolioRepository(":memory:");
-    repository.createImportDraft({
+    const database = createPortfolioDatabase(":memory:");
+    const importDraft = draft({
       id: "draft-demo",
       sourceAccountId: "alipay-main",
       sourceKind: "demo",
       createdAt: "2026-07-19T10:00:00.000Z",
-      confidence: "high",
-      warnings: [],
-      proposedOpeningSnapshot: {
+      snapshot: {
         id: "snapshot-demo",
         sourceAccountId: "alipay-main",
         asOf: "2026-07-19T10:00:00.000Z",
@@ -24,55 +73,45 @@ describe("screenshot import confirmation workflow", () => {
         }],
       },
     });
+    database.saveImportDraft(importDraft);
 
-    repository.confirmImportDraft("draft-demo", "2026-07-19T10:01:00.000Z");
+    confirm(database, importDraft, "2026-07-19T10:01:00.000Z");
 
-    expect(repository.getImportDraft("draft-demo")?.status).toBe("confirmed");
-    expect(repository.getOpeningSnapshots()).toEqual([]);
-    expect(repository.getPortfolioState().positions).toEqual([]);
-    repository.close();
+    expect(database.getImportDraft("draft-demo")?.status).toBe("confirmed");
+    expect(database.readPortfolioFacts().openingSnapshots).toEqual([]);
+    expect(database.readPortfolioFacts().state.positions).toEqual([]);
+    database.close();
   });
 
   it("keeps an Import Draft out of the Tracked Portfolio until confirmation", () => {
-    const repository = createPortfolioRepository(":memory:");
-
-    repository.createImportDraft({
+    const database = createPortfolioDatabase(":memory:");
+    const importDraft = draft({
       id: "draft-alipay-001",
-      sourceAccountId: "alipay",
+      sourceAccountId: "alipay-main",
       sourceKind: "screenshot",
       createdAt: "2026-07-19T10:00:00.000Z",
-      confidence: "0.96",
-      warnings: [],
-      proposedOpeningSnapshot: {
+      snapshot: {
         id: "opening-alipay-001",
-        sourceAccountId: "alipay",
+        sourceAccountId: "alipay-main",
         asOf: "2026-07-19T09:00:00.000Z",
-        positions: [
-          {
-            instrumentId: "fund-001",
-            quantity: "10",
-            currency: "CNY",
-            costBasis: "800",
-            reportedPriorReturn: "200",
-          },
-        ],
+        positions: [{
+          instrumentId: "fund-001",
+          quantity: "10",
+          currency: "CNY",
+          costBasis: "800",
+          reportedPriorReturn: "200",
+        }],
       },
     });
+    database.saveImportDraft(importDraft);
+    expect(database.readPortfolioFacts().state.positions).toEqual([]);
 
-    expect(repository.getPortfolioState().positions).toEqual([]);
+    confirm(database, importDraft, "2026-07-19T10:05:00.000Z");
+    confirm(database, importDraft, "2026-07-19T10:06:00.000Z");
 
-    repository.confirmImportDraft(
-      "draft-alipay-001",
-      "2026-07-19T10:05:00.000Z",
-    );
-    repository.confirmImportDraft(
-      "draft-alipay-001",
-      "2026-07-19T10:06:00.000Z",
-    );
-
-    expect(repository.getPortfolioState().positions).toEqual([
+    expect(database.readPortfolioFacts().state.positions).toEqual([
       {
-        sourceAccountId: "alipay",
+        sourceAccountId: "alipay-main",
         instrumentId: "fund-001",
         quantity: "10",
         currency: "CNY",
@@ -80,87 +119,108 @@ describe("screenshot import confirmation workflow", () => {
         reportedPriorReturn: "200",
       },
     ]);
-    expect(repository.getImportDraft("draft-alipay-001")?.status).toBe(
-      "confirmed",
-    );
-
-    repository.close();
+    expect(database.getImportDraft(importDraft.id)?.status).toBe("confirmed");
+    database.close();
   });
 
   it("uses the reviewed Import Draft values when confirming", () => {
-    const repository = createPortfolioRepository(":memory:");
-    repository.createImportDraft({
+    const database = createPortfolioDatabase(":memory:");
+    const importDraft = draft({
       id: "draft-reviewed-001",
-      sourceAccountId: "wechat",
+      sourceAccountId: "wechat-main",
       sourceKind: "screenshot",
       createdAt: "2026-07-19T10:00:00.000Z",
-      confidence: "0.72",
-      warnings: ["Cost Basis needs review"],
-      proposedOpeningSnapshot: {
+      snapshot: {
         id: "opening-wechat-001",
-        sourceAccountId: "wechat",
+        sourceAccountId: "wechat-main",
         asOf: "2026-07-19T09:00:00.000Z",
-        positions: [
-          {
-            instrumentId: "fund-002",
-            quantity: "10",
-            currency: "CNY",
-            costBasis: "800",
-          },
-        ],
+        positions: [{
+          instrumentId: "fund-002",
+          quantity: "10",
+          currency: "CNY",
+          costBasis: "800",
+        }],
+      },
+    });
+    database.saveImportDraft(importDraft);
+    const reviewedPortfolio = structuredClone(importDraft.portfolio);
+    reviewedPortfolio.holdings[0]!.costBasis = knownDraftValue("750", "manual");
+
+    database.confirmImport({
+      draftId: importDraft.id,
+      confirmedImportId: "confirmed-reviewed",
+      confirmedAt: "2026-07-19T10:05:00.000Z",
+      review: {
+        confidence: "high",
+        warnings: [],
+        portfolio: reviewedPortfolio,
       },
     });
 
-    repository.updateImportDraft("draft-reviewed-001", {
-      confidence: "1",
-      warnings: [],
-      proposedOpeningSnapshot: {
-        id: "opening-wechat-001",
-        sourceAccountId: "wechat",
-        asOf: "2026-07-19T09:00:00.000Z",
-        positions: [
-          {
-            instrumentId: "fund-002",
-            quantity: "10",
-            currency: "CNY",
-            costBasis: "750",
-          },
-        ],
+    expect(database.readPortfolioFacts().state.positions[0]?.costBasis).toBe("750");
+    database.close();
+  });
+
+  it("persists a Trading 212 asset-type correction made during review", () => {
+    const database = createPortfolioDatabase(":memory:");
+    const importDraft = draft({
+      id: "draft-trading212-etf",
+      sourceAccountId: "trading212-main",
+      sourceKind: "trading-212",
+      createdAt: "2026-07-21T19:28:00.000Z",
+      snapshot: {
+        id: "opening-trading212-etf",
+        sourceAccountId: "trading212-main",
+        asOf: "2026-07-21T19:28:00.000Z",
+        positions: [{
+          instrumentId: "IE00BYVQTM52",
+          displayName: "Invesco EQQQ Nasdaq-100 (Acc)",
+          instrumentCode: "IE00BYVQTM52",
+          assetType: "stock",
+          quantity: "1",
+          currency: "EUR",
+          costBasis: "96.32",
+        }],
       },
     });
-    repository.confirmImportDraft(
-      "draft-reviewed-001",
-      "2026-07-19T10:05:00.000Z",
-    );
+    database.saveImportDraft(importDraft);
+    const editable = createImportDraftReadModel({
+      ...importDraft,
+      status: "draft",
+    });
+    editable.portfolio.holdings[0]!.assetType = "etf";
 
-    expect(repository.getPortfolioState().positions[0]?.costBasis).toBe("750");
-    repository.close();
+    database.confirmImport({
+      draftId: importDraft.id,
+      confirmedImportId: "confirmed-trading212-etf",
+      confirmedAt: "2026-07-21T19:29:00.000Z",
+      review: applyImportDraftReview(importDraft, editable),
+    });
+
+    expect(database.readPortfolioFacts().state.positions[0]?.assetType).toBe("etf");
+    database.close();
   });
 
   it("uses the later confirmation when source timestamps are equal", () => {
-    const repository = createPortfolioRepository(":memory:");
-    repository.createImportDraft({
+    const database = createPortfolioDatabase(":memory:");
+    const first = draft({
       id: "z-first-draft",
       sourceAccountId: "danske-main",
       sourceKind: "manual",
       createdAt: "2026-07-19T10:00:00.000Z",
-      confidence: "manual",
-      warnings: [],
-      proposedOpeningSnapshot: {
+      snapshot: {
         id: "z-first-snapshot",
         sourceAccountId: "danske-main",
         asOf: "2026-07-18T10:00:00.000Z",
         positions: [],
       },
     });
-    repository.createImportDraft({
+    const second = draft({
       id: "a-second-draft",
       sourceAccountId: "danske-main",
       sourceKind: "manual",
       createdAt: "2026-07-19T10:01:00.000Z",
-      confidence: "manual",
-      warnings: [],
-      proposedOpeningSnapshot: {
+      snapshot: {
         id: "a-second-snapshot",
         sourceAccountId: "danske-main",
         asOf: "2026-07-18T10:00:00.000Z",
@@ -170,12 +230,14 @@ describe("screenshot import confirmation workflow", () => {
         ],
       },
     });
+    database.saveImportDraft(first);
+    database.saveImportDraft(second);
+    confirm(database, first, "2026-07-19T10:02:00.000Z");
+    confirm(database, second, "2026-07-19T10:03:00.000Z");
 
-    repository.confirmImportDraft("z-first-draft", "2026-07-19T10:02:00.000Z");
-    repository.confirmImportDraft("a-second-draft", "2026-07-19T10:03:00.000Z");
-
-    expect(repository.getPortfolioState().positions).toHaveLength(2);
-    expect(repository.getConfirmedSnapshots().at(-1)?.snapshot.id).toBe("a-second-snapshot");
-    repository.close();
+    const data = database.readPortfolioFacts();
+    expect(data.state.positions).toHaveLength(2);
+    expect(data.confirmedSnapshots.at(-1)?.snapshot.id).toBe("a-second-snapshot");
+    database.close();
   });
 });

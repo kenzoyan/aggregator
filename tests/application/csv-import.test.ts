@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { createCsvImportDraft } from "@/application/imports/csv-import";
+import { materializeOpeningSnapshot } from "@/domain/imports";
 
 const csv = `source_account_id,instrument_name,instrument_code,asset_type,currency,quantity,nav,nav_date,average_cost,current_value,reported_profit,reported_return_percent,daily_nav_change_percent,historical_cost_basis
 alipay-main,"Synthetic, Global Fund",001234,fund,CNY,10,12.5,2026-07-16,10,125,25,25,-1.5,100
@@ -21,12 +22,19 @@ describe("CSV import seam", () => {
       sourceAccountId: "alipay-main",
       sourceKind: "csv",
       confidence: "high",
-      proposedOpeningSnapshot: {
-        asOf: "2026-07-19T10:00:00.000Z",
+      portfolio: {
+        asOf: {
+          status: "known",
+          value: "2026-07-19T10:00:00.000Z",
+          source: "csv",
+        },
       },
     });
-    expect(draft.proposedOpeningSnapshot.positions).toHaveLength(2);
-    expect(draft.proposedOpeningSnapshot.positions[0]).toEqual({
+    expect(draft.portfolio.holdings).toHaveLength(2);
+    expect(
+      materializeOpeningSnapshot(draft.sourceAccountId, draft.portfolio)
+        .positions[0],
+    ).toEqual({
       instrumentId: "001234",
       displayName: "Synthetic, Global Fund",
       instrumentCode: "001234",

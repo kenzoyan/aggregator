@@ -50,6 +50,54 @@ const marketPrices = [
 ];
 
 describe("market-priced dashboard", () => {
+  it("renders a confirmed ETF as ETF instead of collapsing it into another asset type", () => {
+    const etfSnapshot = {
+      id: "opening-trading212-etf",
+      sourceAccountId: "trading212-main",
+      asOf: "2026-07-21T19:28:00.000Z",
+      positions: [{
+        instrumentId: "IE00BYVQTM52",
+        displayName: "Invesco EQQQ Nasdaq-100 (Acc)",
+        instrumentCode: "IE00BYVQTM52",
+        assetType: "etf" as const,
+        quantity: "1",
+        currency: "EUR",
+        costBasis: "96.32",
+        reportedMarketValue: "96.32",
+      }],
+    };
+
+    const readModel = createDashboardReadModel({
+      state: buildPortfolioState({ openingSnapshots: [etfSnapshot], events: [] }),
+      asOf: "2026-07-21T19:28:00.000Z",
+      snapshotTimes: { "trading212-main": etfSnapshot.asOf },
+      eurPerUnit: { EUR: "1" },
+      fxAsOf: "2026-07-21",
+    });
+
+    expect(readModel.holdings[0]?.category).toBe("ETF");
+  });
+
+  it("does not render a zero cash balance as an extra holding", () => {
+    const readModel = createDashboardReadModel({
+      state: {
+        positions: [],
+        cashBalances: [{
+          sourceAccountId: "trading212-main",
+          currency: "EUR",
+          amount: "0",
+        }],
+        appliedEventIds: [],
+      },
+      asOf: "2026-07-21T19:28:00.000Z",
+      snapshotTimes: { "trading212-main": "2026-07-21T19:28:00.000Z" },
+      eurPerUnit: { EUR: "1" },
+      fxAsOf: "2026-07-21",
+    });
+
+    expect(readModel.holdings).toEqual([]);
+  });
+
   it("uses the latest saved NAV instead of the imported market value", () => {
     const readModel = createDashboardReadModel({
       state: buildPortfolioState({ openingSnapshots: [openingSnapshot], events: [] }),
@@ -105,8 +153,16 @@ describe("market-priced dashboard", () => {
   });
 
   it("uses the confirmed import as the first monitored baseline", () => {
+    const recentOpeningSnapshot = {
+      ...openingSnapshot,
+      asOf: "2026-07-17T09:00:00.000Z",
+      positions: openingSnapshot.positions.map((position) => ({
+        ...position,
+        priceAsOf: "2026-07-17",
+      })),
+    };
     const history = createPortfolioHistoryReadModel({
-      snapshots: [openingSnapshot],
+      snapshots: [recentOpeningSnapshot],
       marketPrices: [marketPrices[0]],
       asOf: "2026-07-21T12:00:00.000Z",
       eurPerUnit: { EUR: "1", CNY: "0.125" },

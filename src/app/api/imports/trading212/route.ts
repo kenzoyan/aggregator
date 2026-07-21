@@ -2,17 +2,19 @@ import { randomUUID } from "node:crypto";
 
 import { NextResponse } from "next/server";
 
+import { createImportDraftReadModel } from "@/application/imports/import-draft-read-model";
+import {
+  draftPortfolioFromOpeningSnapshot,
+  type ImportDraftInput,
+  type StoredImportDraft,
+} from "@/domain/imports";
 import type { OpeningSnapshotInput } from "@/domain/portfolio/types";
 import { findSourceAccount, trading212SourceAccountId } from "@/domain/source-accounts";
-import type {
-  ImportDraftInput,
-  StoredImportDraft,
-} from "@/infrastructure/sqlite/portfolio-repository";
 import {
   Trading212Client,
   Trading212RequestError,
 } from "@/infrastructure/trading212/trading212-client";
-import { getPortfolioRepository } from "@/server/portfolio-db";
+import { getPortfolioDatabase } from "@/server/portfolio-db";
 import {
   getTrading212ConnectionConfig,
   type Trading212ConnectionConfig,
@@ -20,8 +22,8 @@ import {
 
 export const runtime = "nodejs";
 
-interface Trading212ImportRepository {
-  createImportDraft(draft: ImportDraftInput): void;
+interface Trading212ImportDatabase {
+  saveImportDraft(draft: ImportDraftInput): void;
   getImportDraft(id: string): StoredImportDraft | undefined;
 }
 
@@ -33,7 +35,7 @@ interface Trading212SnapshotClient {
 }
 
 export function createTrading212ImportHandler(input: {
-  repository: Trading212ImportRepository;
+  database: Trading212ImportDatabase;
   getConfig: (sourceAccountId: string) => Trading212ConnectionConfig | undefined;
   createClient: (config: Trading212ConnectionConfig) => Trading212SnapshotClient;
   newId: () => string;
@@ -69,10 +71,12 @@ export function createTrading212ImportHandler(input: {
         warnings: [
           `Trading 212 ${config.environment} account; only the account summary and positions GET endpoints are used.`,
         ],
-        proposedOpeningSnapshot: snapshot,
+        portfolio: draftPortfolioFromOpeningSnapshot(snapshot, "api"),
       };
-      input.repository.createImportDraft(draft);
-      return NextResponse.json({ draft: input.repository.getImportDraft(id) });
+      input.database.saveImportDraft(draft);
+      return NextResponse.json({
+        draft: createImportDraftReadModel(input.database.getImportDraft(id)!),
+      });
     } catch (error) {
       (input.logError ?? console.error)("Trading 212 synchronization failed", error);
       if (error instanceof Trading212RequestError && [401, 403].includes(error.status)) {
@@ -97,7 +101,7 @@ export function createTrading212ImportHandler(input: {
 
 export async function POST(request: Request) {
   return createTrading212ImportHandler({
-    repository: getPortfolioRepository(),
+    database: getPortfolioDatabase(),
     getConfig: getTrading212ConnectionConfig,
     createClient: (config) => new Trading212Client(config),
     newId: randomUUID,

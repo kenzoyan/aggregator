@@ -1,14 +1,23 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import {
+  useEffect,
+  useId,
+  useMemo,
+  useState,
+  type CSSProperties,
+} from "react";
 
 import {
   demoHoldings,
   periodData,
-  type DashboardHolding,
-  type Period,
 } from "@/application/demo-dashboard";
+import type {
+  HoldingReadModel,
+  Period,
+  PortfolioOverviewReadModel,
+} from "@/application/portfolio-read-model";
 import {
   demoPortfolioStorageKey,
   parseDemoPortfolioRecord,
@@ -22,7 +31,7 @@ const eur = new Intl.NumberFormat("en-FI", {
   minimumFractionDigits: 2,
 });
 
-const freshnessLabels: Record<DashboardHolding["freshness"], string> = {
+const freshnessLabels: Record<HoldingReadModel["freshness"], string> = {
   fresh: "Updated",
   manual: "Manual",
   stale: "Stale",
@@ -39,29 +48,18 @@ function formatRefreshFailures(
     .join("; ");
 }
 
-interface LocalPortfolioData {
-  holdings: DashboardHolding[];
-  totalValueEur: number;
-  fxAsOf: string;
-  missingInputs: unknown[];
-  marketData: {
-    lastRefreshedAt?: string;
-    latestResult?: {
-      updated: number;
-      unchanged: number;
-      failed: number;
-      failures: Array<{ instrumentCode: string; message: string }>;
-    };
-  };
-  history: Record<Period, {
-    available: boolean;
-    change: number;
-    percent: number;
-    points: number[];
-  }>;
-}
-
-function Sparkline({ points, negative }: { points: number[]; negative: boolean }) {
+function Sparkline({
+  points,
+  negative,
+  compact = false,
+  label = "Portfolio value trend",
+}: {
+  points: number[];
+  negative: boolean;
+  compact?: boolean;
+  label?: string;
+}) {
+  const gradientId = `chart-fill-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
   const path = useMemo(() => {
     const max = Math.max(...points);
     const min = Math.min(...points);
@@ -76,14 +74,14 @@ function Sparkline({ points, negative }: { points: number[]; negative: boolean }
   }, [points]);
 
   return (
-    <svg className="sparkline" viewBox="0 0 100 64" preserveAspectRatio="none" aria-label="Portfolio value trend">
+    <svg className={compact ? "holding-sparkline" : "sparkline"} viewBox="0 0 100 64" preserveAspectRatio="none" aria-label={label}>
       <defs>
-        <linearGradient id="chart-fill" x1="0" x2="0" y1="0" y2="1">
+        <linearGradient id={gradientId} x1="0" x2="0" y1="0" y2="1">
           <stop offset="0%" stopColor={negative ? "#e26d76" : "#13a779"} stopOpacity="0.3" />
           <stop offset="100%" stopColor={negative ? "#e26d76" : "#13a779"} stopOpacity="0" />
         </linearGradient>
       </defs>
-      <path d={`${path} L100,64 L0,64 Z`} fill="url(#chart-fill)" />
+      <path d={`${path} L100,64 L0,64 Z`} fill={`url(#${gradientId})`} />
       <path d={path} fill="none" stroke={negative ? "#d95763" : "#078d68"} strokeWidth="2.2" vectorEffect="non-scaling-stroke" />
     </svg>
   );
@@ -102,9 +100,9 @@ export function Dashboard() {
   const [period, setPeriod] = useState<Period>("today");
   const [source, setSource] = useState(allAccounts);
   const [demoEnabled, setDemoEnabled] = useState(false);
-  const [reviewedDemoHoldings, setReviewedDemoHoldings] = useState<DashboardHolding[]>();
+  const [reviewedDemoHoldings, setReviewedDemoHoldings] = useState<HoldingReadModel[]>();
   const [loading, setLoading] = useState(true);
-  const [localPortfolio, setLocalPortfolio] = useState<LocalPortfolioData>();
+  const [localPortfolio, setLocalPortfolio] = useState<PortfolioOverviewReadModel>();
   const [refreshingPrices, setRefreshingPrices] = useState(false);
   const [refreshMessage, setRefreshMessage] = useState<string>();
 
@@ -113,7 +111,7 @@ export function Dashboard() {
     if (!response.ok) throw new Error("Portfolio could not be loaded");
     const payload = (await response.json()) as {
       hasPortfolioData: boolean;
-      portfolio: LocalPortfolioData;
+      portfolio: PortfolioOverviewReadModel;
     };
     if (payload.hasPortfolioData) setLocalPortfolio(payload.portfolio);
   }
@@ -178,9 +176,7 @@ export function Dashboard() {
         ...periodData[period],
         change: localHistory?.change ?? 0,
         percent: localHistory?.percent ?? 0,
-        points: localHistory?.available && localHistory.points.length > 1
-          ? localHistory.points
-          : [50, 50, 50, 50, 50, 50],
+        points: localHistory?.points ?? [],
       }
     : demoEnabled && !usingReviewedDemo
       ? periodData[period]
@@ -316,7 +312,11 @@ export function Dashboard() {
                   : "Prices still use confirmed imports"
                 : usingReviewedDemo ? "Stored only in this browser" : demoEnabled ? "Some funds await NAV" : "No demo data mixed in"}</span>
             </div>
-            <Sparkline points={current.points} negative={current.change < 0} />
+            {isLocal && (!localHistory?.available || current.points.length < 2) ? (
+              <div className="sparkline-empty">Trend appears after another dated valuation</div>
+            ) : (
+              <Sparkline points={current.points} negative={current.change < 0} />
+            )}
           </article>
 
           <article className="allocation-card">
@@ -351,13 +351,28 @@ export function Dashboard() {
             <div className="holding-row holding-header"><span>Asset</span><span>Status</span><span>Current value</span><span>Period change</span></div>
             {filtered.map((holding) => (
               <article className="holding-row" key={holding.id}>
-                <div className="asset-cell"><span className="asset-icon">{holding.category === "Bond" ? "B" : holding.category === "Fund" ? "F" : holding.category === "Portfolio cash" ? "€" : holding.category === "Stock" ? "S" : "?"}</span><p><strong>{holding.name}</strong><small>{holding.source} · {holding.symbol} · {holding.category}</small></p></div>
+                <div className="asset-cell"><span className="asset-icon">{holding.category === "Bond" ? "B" : holding.category === "Fund" ? "F" : holding.category === "ETF" ? "E" : holding.category === "Portfolio cash" ? "€" : holding.category === "Stock" ? "S" : "?"}</span><p><strong>{holding.name}</strong><small>{holding.source} · {holding.symbol} · {holding.category}</small></p></div>
                 <div><span className={`freshness ${holding.freshness}`}>{freshnessLabels[holding.freshness]}</span><small className="as-of">{holding.asOf}</small></div>
                 <div className="value-cell"><strong>{eur.format(holding.eurValue)}</strong><small>{holding.originalValue}</small></div>
                 <div className="change-cell">
-                  {isLocal
-                    ? <span className="pending-change-cell">Awaiting baseline</span>
-                    : <Change value={holding.changeEur} percent={holding.changePercent} />}
+                  {isLocal ? holding.history?.[period]?.available ? (
+                    <div className="holding-change">
+                      <Change
+                        value={holding.history[period].change}
+                        percent={holding.history[period].percent}
+                      />
+                      <Sparkline
+                        compact
+                        points={holding.history[period].points}
+                        negative={holding.history[period].change < 0}
+                        label={`${holding.name} ${period} value trend`}
+                      />
+                    </div>
+                  ) : (
+                    <span className="pending-change-cell">Awaiting baseline</span>
+                  ) : (
+                    <Change value={holding.changeEur} percent={holding.changePercent} />
+                  )}
                 </div>
               </article>
             ))}

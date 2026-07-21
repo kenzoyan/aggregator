@@ -15,9 +15,9 @@ describe("manual import", () => {
       sourceAccountId: "wechat-main",
       sourceKind: "manual",
       confidence: "manual",
-      proposedOpeningSnapshot: {
-        sourceAccountId: "wechat-main",
-        positions: [],
+      portfolio: {
+        snapshotId: "snapshot-manual",
+        holdings: [],
       },
     });
   });

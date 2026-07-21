@@ -25,17 +25,24 @@ describe("POST /api/market-data/refresh", () => {
       appliedEventIds: [],
     };
     const handler = createMarketRefreshHandler({
-      repository: {
-        getPortfolioState: () => state,
-        getOpeningSnapshots: () => [{
-          id: "opening",
-          sourceAccountId: "alipay-main",
-          asOf: "2026-07-17T08:00:00.000Z",
-          positions: state.positions,
-        }],
-        getMarketPriceObservations: () => [],
-        saveMarketPriceObservations: (observations) => { saved.push(...observations); },
-        saveMarketRefreshRecord: (record) => { refreshRuns.push(record); },
+      database: {
+        readPortfolioFacts: () => ({
+          openingSnapshots: [{
+            id: "opening",
+            sourceAccountId: "alipay-main",
+            asOf: "2026-07-17T08:00:00.000Z",
+            positions: state.positions,
+          }],
+          events: [],
+          confirmedImports: [],
+          confirmedSnapshots: [],
+          state,
+        }),
+        readMarketData: () => ({ observations: [], fxObservations: [] }),
+        recordMarketData: ({ observations, refresh }) => {
+          saved.push(...observations);
+          if (refresh) refreshRuns.push(refresh);
+        },
       },
       provider: {
         id: "fixture-provider",
