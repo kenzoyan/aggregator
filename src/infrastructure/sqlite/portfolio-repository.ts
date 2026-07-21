@@ -3,6 +3,10 @@ import { DatabaseSync } from "node:sqlite";
 import { buildPortfolioState } from "@/domain/portfolio/ledger";
 import type { ImportSourceKind } from "@/domain/imports";
 import type {
+  MarketPriceObservation,
+  MarketRefreshRecord,
+} from "@/domain/market-data";
+import type {
   OpeningSnapshotInput,
   PortfolioEventInput,
   PortfolioState,
@@ -58,6 +62,12 @@ export interface PortfolioRepository {
   confirmImportDraft(id: string, confirmedAt: string): void;
   getOpeningSnapshots(): OpeningSnapshotInput[];
   getConfirmedSnapshots(): ConfirmedSnapshotRecord[];
+  saveMarketPriceObservations(
+    observations: readonly MarketPriceObservation[],
+  ): void;
+  getMarketPriceObservations(): MarketPriceObservation[];
+  saveMarketRefreshRecord(record: MarketRefreshRecord): void;
+  getLatestMarketRefreshRecord(): MarketRefreshRecord | undefined;
   getSourceAccountLabels(): Record<string, string>;
   renameSourceAccount(id: string, label: string): void;
   getPortfolioState(): PortfolioState;
@@ -116,11 +126,42 @@ export function createPortfolioRepository(
       payload_json TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS market_price_observations (
+      source_account_id TEXT NOT NULL,
+      instrument_id TEXT NOT NULL,
+      instrument_code TEXT NOT NULL,
+      price TEXT NOT NULL,
+      currency TEXT NOT NULL,
+      as_of TEXT NOT NULL,
+      recorded_at TEXT NOT NULL,
+      source TEXT NOT NULL,
+      PRIMARY KEY (source_account_id, instrument_id, as_of, source)
+    );
+
+    CREATE TABLE IF NOT EXISTS market_refresh_runs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      provider TEXT NOT NULL,
+      completed_at TEXT NOT NULL,
+      updated_count INTEGER NOT NULL,
+      unchanged_count INTEGER NOT NULL,
+      failed_count INTEGER NOT NULL,
+      failures_json TEXT NOT NULL DEFAULT '[]'
+    );
+
     CREATE TABLE IF NOT EXISTS source_account_labels (
       source_account_id TEXT PRIMARY KEY,
       custom_label TEXT NOT NULL
     );
   `);
+
+  const marketRefreshColumns = database.prepare(
+    "PRAGMA table_info(market_refresh_runs)",
+  ).all() as unknown as Array<{ name: string }>;
+  if (!marketRefreshColumns.some((column) => column.name === "failures_json")) {
+    database.exec(
+      "ALTER TABLE market_refresh_runs ADD COLUMN failures_json TEXT NOT NULL DEFAULT '[]'",
+    );
+  }
 
   const insertDraft = database.prepare(`
     INSERT INTO import_drafts (
@@ -176,6 +217,52 @@ export function createPortfolioRepository(
     SELECT payload_json
     FROM portfolio_events
     ORDER BY as_of, id
+  `);
+  const upsertMarketPrice = database.prepare(`
+    INSERT INTO market_price_observations (
+      source_account_id,
+      instrument_id,
+      instrument_code,
+      price,
+      currency,
+      as_of,
+      recorded_at,
+      source
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(source_account_id, instrument_id, as_of, source) DO UPDATE SET
+      instrument_code = excluded.instrument_code,
+      price = excluded.price,
+      currency = excluded.currency,
+      recorded_at = excluded.recorded_at
+  `);
+  const selectMarketPrices = database.prepare(`
+    SELECT
+      source_account_id,
+      instrument_id,
+      instrument_code,
+      price,
+      currency,
+      as_of,
+      recorded_at,
+      source
+    FROM market_price_observations
+    ORDER BY recorded_at, as_of, rowid
+  `);
+  const insertMarketRefresh = database.prepare(`
+    INSERT INTO market_refresh_runs (
+      provider,
+      completed_at,
+      updated_count,
+      unchanged_count,
+      failed_count,
+      failures_json
+    ) VALUES (?, ?, ?, ?, ?, ?)
+  `);
+  const selectLatestMarketRefresh = database.prepare(`
+    SELECT provider, completed_at, updated_count, unchanged_count, failed_count, failures_json
+    FROM market_refresh_runs
+    ORDER BY completed_at DESC, id DESC
+    LIMIT 1
   `);
   const selectAccountLabels = database.prepare(`
     SELECT source_account_id, custom_label
@@ -273,6 +360,83 @@ export function createPortfolioRepository(
         snapshot: JSON.parse(row.payload_json) as OpeningSnapshotInput,
         confirmedAt: row.confirmed_at,
       }));
+    },
+
+    saveMarketPriceObservations(observations) {
+      database.exec("BEGIN IMMEDIATE");
+      try {
+        for (const observation of observations) {
+          upsertMarketPrice.run(
+            observation.sourceAccountId,
+            observation.instrumentId,
+            observation.instrumentCode,
+            observation.price,
+            observation.currency,
+            observation.asOf,
+            observation.recordedAt,
+            observation.source,
+          );
+        }
+        database.exec("COMMIT");
+      } catch (error) {
+        database.exec("ROLLBACK");
+        throw error;
+      }
+    },
+
+    getMarketPriceObservations() {
+      const rows = selectMarketPrices.all() as unknown as Array<{
+        source_account_id: string;
+        instrument_id: string;
+        instrument_code: string;
+        price: string;
+        currency: string;
+        as_of: string;
+        recorded_at: string;
+        source: string;
+      }>;
+      return rows.map((row) => ({
+        sourceAccountId: row.source_account_id,
+        instrumentId: row.instrument_id,
+        instrumentCode: row.instrument_code,
+        price: row.price,
+        currency: row.currency,
+        asOf: row.as_of,
+        recordedAt: row.recorded_at,
+        source: row.source,
+      }));
+    },
+
+    saveMarketRefreshRecord(record) {
+      insertMarketRefresh.run(
+        record.provider,
+        record.completedAt,
+        record.updated,
+        record.unchanged,
+        record.failed,
+        JSON.stringify(record.failures),
+      );
+    },
+
+    getLatestMarketRefreshRecord() {
+      const row = selectLatestMarketRefresh.get() as {
+        provider: string;
+        completed_at: string;
+        updated_count: number;
+        unchanged_count: number;
+        failed_count: number;
+        failures_json: string;
+      } | undefined;
+      return row
+        ? {
+            provider: row.provider,
+            completedAt: row.completed_at,
+            updated: row.updated_count,
+            unchanged: row.unchanged_count,
+            failed: row.failed_count,
+            failures: JSON.parse(row.failures_json) as MarketRefreshRecord["failures"],
+          }
+        : undefined;
     },
 
     getSourceAccountLabels() {

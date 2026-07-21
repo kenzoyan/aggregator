@@ -14,6 +14,7 @@ import {
   parseDemoPortfolioRecord,
   toDemoDashboardHoldings,
 } from "@/application/demo-portfolio";
+import type { MarketRefreshResult } from "@/application/market-refresh";
 
 const eur = new Intl.NumberFormat("en-FI", {
   style: "currency",
@@ -29,6 +30,36 @@ const freshnessLabels: Record<DashboardHolding["freshness"], string> = {
 };
 
 const allAccounts = "All accounts";
+
+function formatRefreshFailures(
+  failures: readonly { instrumentCode: string; message: string }[],
+) {
+  return failures
+    .map((failure) => `${failure.instrumentCode} (${failure.message})`)
+    .join("; ");
+}
+
+interface LocalPortfolioData {
+  holdings: DashboardHolding[];
+  totalValueEur: number;
+  fxAsOf: string;
+  missingInputs: unknown[];
+  marketData: {
+    lastRefreshedAt?: string;
+    latestResult?: {
+      updated: number;
+      unchanged: number;
+      failed: number;
+      failures: Array<{ instrumentCode: string; message: string }>;
+    };
+  };
+  history: Record<Period, {
+    available: boolean;
+    change: number;
+    percent: number;
+    points: number[];
+  }>;
+}
 
 function Sparkline({ points, negative }: { points: number[]; negative: boolean }) {
   const path = useMemo(() => {
@@ -73,18 +104,19 @@ export function Dashboard() {
   const [demoEnabled, setDemoEnabled] = useState(false);
   const [reviewedDemoHoldings, setReviewedDemoHoldings] = useState<DashboardHolding[]>();
   const [loading, setLoading] = useState(true);
-  const [localPortfolio, setLocalPortfolio] = useState<{
-    holdings: DashboardHolding[];
-    totalValueEur: number;
-    fxAsOf: string;
-    missingInputs: unknown[];
-    history: Record<Period, {
-      available: boolean;
-      change: number;
-      percent: number;
-      points: number[];
-    }>;
-  }>();
+  const [localPortfolio, setLocalPortfolio] = useState<LocalPortfolioData>();
+  const [refreshingPrices, setRefreshingPrices] = useState(false);
+  const [refreshMessage, setRefreshMessage] = useState<string>();
+
+  async function loadLocalPortfolio(signal?: AbortSignal) {
+    const response = await fetch("/api/portfolio", { signal });
+    if (!response.ok) throw new Error("Portfolio could not be loaded");
+    const payload = (await response.json()) as {
+      hasPortfolioData: boolean;
+      portfolio: LocalPortfolioData;
+    };
+    if (payload.hasPortfolioData) setLocalPortfolio(payload.portfolio);
+  }
 
   useEffect(() => {
     setDemoEnabled(new URLSearchParams(window.location.search).get("demo") === "1");
@@ -95,15 +127,7 @@ export function Dashboard() {
       // The built-in sample remains available if private browsing blocks local storage.
     }
     const controller = new AbortController();
-    fetch("/api/portfolio", { signal: controller.signal })
-      .then(async (response) => {
-        if (!response.ok) return;
-        const payload = (await response.json()) as {
-          hasPortfolioData: boolean;
-          portfolio: NonNullable<typeof localPortfolio>;
-        };
-        if (payload.hasPortfolioData) setLocalPortfolio(payload.portfolio);
-      })
+    loadLocalPortfolio(controller.signal)
       .catch(() => undefined)
       .finally(() => setLoading(false));
     return () => controller.abort();
@@ -118,6 +142,29 @@ export function Dashboard() {
       url.searchParams.delete("demo");
     }
     window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
+  }
+
+  async function refreshPrices() {
+    setRefreshingPrices(true);
+    setRefreshMessage(undefined);
+    try {
+      const response = await fetch("/api/market-data/refresh", { method: "POST" });
+      const summary = (await response.json()) as MarketRefreshResult & { error?: string };
+      if (!response.ok) throw new Error(summary.error ?? "Price refresh failed");
+      await loadLocalPortfolio();
+      const tracked = summary.updated + summary.unchanged + summary.failed.length;
+      setRefreshMessage(
+        summary.failed.length > 0
+          ? `${summary.updated} updated · failed: ${formatRefreshFailures(summary.failed)}; previous prices kept`
+          : summary.updated > 0
+            ? `${summary.updated} of ${tracked} fund NAVs updated`
+            : `${tracked} fund NAVs are already current`,
+      );
+    } catch (error) {
+      setRefreshMessage(error instanceof Error ? error.message : "Price refresh failed");
+    } finally {
+      setRefreshingPrices(false);
+    }
   }
 
   const isLocal = Boolean(localPortfolio) && !demoEnabled;
@@ -158,6 +205,14 @@ export function Dashboard() {
         return `${palette[index % palette.length]} ${start.toFixed(2)}% ${allocationCursor.toFixed(2)}%`;
       }).join(", ")})`
     : undefined;
+  const latestMarketResult = localPortfolio?.marketData.latestResult;
+  const persistedMarketMessage = latestMarketResult
+    ? latestMarketResult.failed > 0
+      ? `Last check failed: ${formatRefreshFailures(latestMarketResult.failures)}; previous prices kept`
+      : latestMarketResult.updated > 0
+        ? `Last check updated ${latestMarketResult.updated} fund NAVs`
+        : `${latestMarketResult.unchanged} fund NAVs were already current`
+    : "Use Refresh prices to begin";
 
   return (
     <div className="app-shell">
@@ -183,6 +238,16 @@ export function Dashboard() {
             {!isLocal && (
               <button className="demo-toggle" type="button" onClick={() => setDemoMode(!demoEnabled)}>
                 {demoEnabled ? "Exit demo" : "Explore demo"}
+              </button>
+            )}
+            {isLocal && (
+              <button
+                className="refresh-button"
+                type="button"
+                onClick={refreshPrices}
+                disabled={refreshingPrices}
+              >
+                {refreshingPrices ? "Refreshing…" : "↻ Refresh prices"}
               </button>
             )}
             <Link className="primary-button" href="/imports">Update assets</Link>
@@ -233,7 +298,7 @@ export function Dashboard() {
               ) : usingReviewedDemo ? (
                 <div><span>{current.label} change</span><strong className="pending-change">Waiting for the next demo snapshot</strong><small>Your confirmed demo holdings are shown below</small></div>
               ) : isLocal && !localHistory?.available ? (
-                <div><span>{current.label} change</span><strong className="pending-change">Waiting for the next snapshot</strong><small>Starts after two confirmed snapshots</small></div>
+                <div><span>{current.label} change</span><strong className="pending-change">Waiting for another dated NAV</strong><small>Starts after two dated prices are recorded</small></div>
               ) : (
                 <div>
                   <span>{current.label} change</span>
@@ -245,7 +310,11 @@ export function Dashboard() {
                   </small>
                 </div>
               )}
-              <span className="market-note">{isLocal ? `ECB rates ${localPortfolio?.fxAsOf}` : usingReviewedDemo ? "Confirmed demo review" : demoEnabled ? "Synthetic valuation" : "EUR base currency"}<br />{isLocal ? "Prior return retained" : usingReviewedDemo ? "Stored only in this browser" : demoEnabled ? "Some funds await NAV" : "No demo data mixed in"}</span>
+              <span className="market-note">{isLocal ? `ECB rates ${localPortfolio?.fxAsOf}` : usingReviewedDemo ? "Confirmed demo review" : demoEnabled ? "Synthetic valuation" : "EUR base currency"}<br />{isLocal
+                ? localPortfolio?.marketData.lastRefreshedAt
+                  ? `Prices checked ${localPortfolio.marketData.lastRefreshedAt.slice(0, 16).replace("T", " ")}`
+                  : "Prices still use confirmed imports"
+                : usingReviewedDemo ? "Stored only in this browser" : demoEnabled ? "Some funds await NAV" : "No demo data mixed in"}</span>
             </div>
             <Sparkline points={current.points} negative={current.change < 0} />
           </article>
@@ -265,7 +334,7 @@ export function Dashboard() {
 
         <section className="insight-strip" aria-label="Data status">
           <div><span className="insight-icon">✓</span><p><strong>{isLocal ? "Local ledger connected" : usingReviewedDemo ? "Confirmed demo review" : demoEnabled ? "Synthetic example" : "Local ledger ready"}</strong><small>{isLocal ? "Confirmed snapshots are active" : demoEnabled ? "Never mixed with your assets" : "Add a confirmed snapshot to begin"}</small></p></div>
-          <div><span className="insight-icon amber">◷</span><p><strong>{isLocal ? "Performance baseline" : demoEnabled ? "2 funds awaiting NAV" : "No performance baseline"}</strong><small>{isLocal ? "Comparison starts after the next update" : demoEnabled ? "Missing data is never shown as zero" : "Starts after two confirmed snapshots"}</small></p></div>
+          <div><span className="insight-icon amber">◷</span><p><strong>{isLocal ? "Market price history" : demoEnabled ? "2 funds awaiting NAV" : "No performance baseline"}</strong><small>{isLocal ? refreshMessage ?? persistedMarketMessage : demoEnabled ? "Missing data is never shown as zero" : "Starts after two confirmed snapshots"}</small></p></div>
           <div><span className="insight-icon blue">€</span><p><strong>EUR overview</strong><small>{isLocal ? `ECB reference rates · ${localPortfolio?.missingInputs.length ?? 0} missing` : "Price and FX are calculated separately"}</small></p></div>
         </section>
 

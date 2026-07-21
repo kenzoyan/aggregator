@@ -46,7 +46,7 @@ describe("portfolio dashboard history", () => {
       change: 1.25,
       percent: 10,
     });
-    expect(history.month.available).toBe(true);
+    expect(history.month.available).toBe(false);
     expect(history.week.points).toEqual([12.5, 13.75]);
   });
 });

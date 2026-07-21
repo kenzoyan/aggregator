@@ -4,7 +4,7 @@ A private, local-first investment portfolio monitor for combining holdings from 
 
 ## Initial product scope
 
-- Responsive web app for desktop and mobile browsers
+- Desktop-first web app, with mobile layout polish planned after the core workflow
 - Funds, stocks, bonds, and investment-account cash
 - Trading 212 read-only synchronization
 - Screenshot-assisted imports with review and confirmation
@@ -36,6 +36,15 @@ Real integrations are enabled only through `.env.local`:
 Use **Accounts** to rename the four local Source Accounts and see the last confirmed snapshot, imported holding count, update method and stale/not-connected state. Account names are stored only in the ignored local SQLite database.
 
 Use **Update assets → Saved holdings CSV** to reopen a locally stored holdings file as a review draft. CSV rows do not affect the portfolio until confirmation. Personal CSV files under `data/imports/` remain ignored by Git.
+
+Use **Refresh prices** on the portfolio overview to check published NAVs for supported six-digit CNY fund codes held in Alipay or WeChat. Each check fills missing NAV dates since monitoring began, so checking a few times per month can still preserve a near-daily curve. The first provider is the public Eastmoney/Tiantian Fund NAV service. It requires no credential and receives only the public fund code—not account credentials, quantities, costs or portfolio totals. It is a third-party source behind a replaceable provider interface; failures keep the last successful local price.
+
+Price observations are stored separately from Holding State. A refresh never changes quantity, Cost Basis or Reported Prior Return. Today, 7-day and 30-day monitored performance becomes available only as new NAV observations accumulate after the Opening Snapshot; the app does not invent pre-monitoring portfolio history.
+
+## Near-term roadmap
+
+- Show each holding's Today, 7-day and 30-day change in both original currency/EUR and percentage, using the same dated NAV history as the portfolio total.
+- Complete and verify Trading 212 read-only synchronization before adding scheduled background refreshes.
 
 Local portfolio records are stored in `data/invest-assets-monitor.sqlite`. The entire `data` database remains ignored by Git.
 

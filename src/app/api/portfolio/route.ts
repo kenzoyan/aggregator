@@ -25,6 +25,8 @@ export async function GET() {
   const repository = getPortfolioRepository();
   const state = repository.getPortfolioState();
   const snapshots = repository.getOpeningSnapshots();
+  const marketPrices = repository.getMarketPriceObservations();
+  const latestMarketRefresh = repository.getLatestMarketRefreshRecord();
   const accountLabels = repository.getSourceAccountLabels();
   const snapshotTimes = Object.fromEntries(
     snapshots.map((snapshot) => [snapshot.sourceAccountId, snapshot.asOf]),
@@ -42,12 +44,15 @@ export async function GET() {
     state,
     asOf: new Date().toISOString(),
     snapshotTimes,
+    marketPrices,
+    latestMarketRefresh,
     eurPerUnit: rates.eurPerUnit,
     fxAsOf: rates.asOf,
     accountLabels,
   });
   const history = createPortfolioHistoryReadModel({
     snapshots,
+    marketPrices,
     asOf: new Date().toISOString(),
     eurPerUnit: rates.eurPerUnit,
     fxAsOf: rates.asOf,
