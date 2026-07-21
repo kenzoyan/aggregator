@@ -31,7 +31,7 @@ Open [http://localhost:3000](http://localhost:3000). A new local database starts
 Real integrations are enabled only through `.env.local`:
 
 - `OPENAI_API_KEY` and `OPENAI_VISION_MODEL` enable cloud screenshot extraction. Images are processed in memory and are not saved by the app.
-- `TRADING212_API_KEY` and `TRADING212_API_SECRET` configure the Trading 212 Source Account. Keep `TRADING212_ENVIRONMENT=demo` until the read-only connection is verified.
+- `TRADING212_API_KEY` and `TRADING212_API_SECRET` configure the Trading 212 Source Account. Create a key with only account-data and portfolio read permissions; do not grant order permissions. Keep `TRADING212_ENVIRONMENT=demo` until that environment is verified, then create a separate Live key before switching to `live`. The server calls only `GET /equity/account/summary` and `GET /equity/positions`; credentials never reach the browser or portfolio database.
 
 Use **Accounts** to rename the four local Source Accounts and see the last confirmed snapshot, imported holding count, update method and stale/not-connected state. Account names are stored only in the ignored local SQLite database.
 

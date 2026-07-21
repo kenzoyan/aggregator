@@ -37,7 +37,7 @@ const positionsSchema = z.array(
     walletImpact: z.object({
       currency: z.string(),
       currentValue: z.number(),
-      fxImpact: z.number(),
+      fxImpact: z.number().nullish(),
       totalCost: z.number(),
       unrealizedProfitLoss: z.number(),
     }),
@@ -50,6 +50,18 @@ export interface Trading212ClientOptions {
   environment: "demo" | "live";
   fetch?: typeof fetch;
   now?: () => Date;
+}
+
+export class Trading212RequestError extends Error {
+  readonly status: number;
+  readonly retryAfter?: string;
+
+  constructor(status: number, retryAfter?: string) {
+    super(`Trading 212 read failed with status ${status}`);
+    this.name = "Trading212RequestError";
+    this.status = status;
+    this.retryAfter = retryAfter;
+  }
 }
 
 export class Trading212Client {
@@ -77,7 +89,10 @@ export class Trading212Client {
     });
 
     if (!response.ok) {
-      throw new Error(`Trading 212 read failed with status ${response.status}`);
+      throw new Trading212RequestError(
+        response.status,
+        response.headers.get("retry-after") ?? undefined,
+      );
     }
     return response.json();
   }

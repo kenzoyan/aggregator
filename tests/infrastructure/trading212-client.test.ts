@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { Trading212Client } from "@/infrastructure/trading212/trading212-client";
+import {
+  Trading212Client,
+  Trading212RequestError,
+} from "@/infrastructure/trading212/trading212-client";
 
 describe("Trading 212 read-only client", () => {
   it("uses only read endpoints and maps current holdings into an opening snapshot", async () => {
@@ -39,7 +42,7 @@ describe("Trading 212 read-only client", () => {
           walletImpact: {
             currency: "EUR",
             currentValue: 215,
-            fxImpact: 1.2,
+            fxImpact: null,
             totalCost: 200,
             unrealizedProfitLoss: 15,
           },
@@ -91,5 +94,30 @@ describe("Trading 212 read-only client", () => {
       accept: "application/json",
       authorization: `Basic ${Buffer.from("read-key:read-secret").toString("base64")}`,
     });
+  });
+
+  it("returns a typed error without exposing credentials", async () => {
+    const client = new Trading212Client({
+      apiKey: "private-key",
+      apiSecret: "private-secret",
+      environment: "live",
+      fetch: async () => new Response(null, {
+        status: 429,
+        headers: { "retry-after": "5" },
+      }),
+    });
+
+    const request = client.fetchOpeningSnapshot({
+      id: "snapshot",
+      sourceAccountId: "trading212-main",
+    });
+
+    await expect(request).rejects.toMatchObject({
+      name: "Trading212RequestError",
+      status: 429,
+      retryAfter: "5",
+    });
+    await expect(request).rejects.not.toThrow(/private-key|private-secret/);
+    expect(Trading212RequestError).toBeDefined();
   });
 });

@@ -215,7 +215,32 @@ export function createPortfolioHistoryReadModel(input: {
       eurPerUnit: input.eurPerUnit,
       fxAsOf: input.fxAsOf,
     });
-    return [{ asOf, total: readModel.totalValueEur }];
+    const sourceAccountIds = [...new Set([
+      ...state.positions.map((position) => position.sourceAccountId),
+      ...state.cashBalances.map((cash) => cash.sourceAccountId),
+    ])];
+    const accountTotals = Object.fromEntries(
+      sourceAccountIds.map((sourceAccountId) => {
+        const accountReadModel = createDashboardReadModel({
+          state: {
+            positions: state.positions.filter((position) =>
+              position.sourceAccountId === sourceAccountId
+            ),
+            cashBalances: state.cashBalances.filter((cash) =>
+              cash.sourceAccountId === sourceAccountId
+            ),
+            appliedEventIds: state.appliedEventIds,
+          },
+          asOf,
+          snapshotTimes,
+          marketPrices,
+          eurPerUnit: input.eurPerUnit,
+          fxAsOf: input.fxAsOf,
+        });
+        return [sourceAccountId, accountReadModel.totalValueEur];
+      }),
+    );
+    return [{ asOf, total: readModel.totalValueEur, accountTotals }];
   });
 
   const now = new Date(input.asOf);
@@ -242,7 +267,7 @@ export function createPortfolioHistoryReadModel(input: {
         ? previousPublishedPriceTime
           ? points.find((point) => point.asOf === previousPublishedPriceTime)
           : marketPrices.length > 0
-            ? points.at(-2)
+            ? points.at(0)
             : undefined
         : [...points]
             .reverse()
@@ -267,14 +292,47 @@ export function createPortfolioHistoryReadModel(input: {
         current &&
         baseline &&
         current.asOf !== baseline.asOf &&
-        baseline.total !== 0,
+        current.total !== 0,
       );
-      const change = available ? current!.total - baseline!.total : 0;
-      const percent = available ? (change / baseline!.total) * 100 : 0;
+      const currentAccountIds = current
+        ? Object.keys(current.accountTotals)
+        : [];
+      const periodPoints = baseline
+        ? points.filter((point) => point.asOf >= baseline.asOf)
+        : [];
+      const accountBaselines = Object.fromEntries(
+        currentAccountIds.flatMap((sourceAccountId) => {
+          const accountBaseline = periodPoints.find((point) =>
+            point.accountTotals[sourceAccountId] !== undefined
+          )?.accountTotals[sourceAccountId];
+          return accountBaseline === undefined
+            ? []
+            : [[sourceAccountId, accountBaseline]];
+        }),
+      );
+      const capitalBase = Object.values(accountBaselines)
+        .reduce((total, value) => total + value, 0);
+      const change = available
+        ? currentAccountIds.reduce((total, sourceAccountId) => {
+            const accountBaseline = accountBaselines[sourceAccountId];
+            if (accountBaseline === undefined) return total;
+            return total + current!.accountTotals[sourceAccountId] - accountBaseline;
+          }, 0)
+        : 0;
+      const percent = available && capitalBase !== 0
+        ? (change / capitalBase) * 100
+        : 0;
       const chartPoints = available
-        ? points
-            .filter((point) => point.asOf >= baseline!.asOf)
-            .map((point) => point.total)
+        ? periodPoints.map((point) =>
+            baseline!.total + currentAccountIds.reduce((total, sourceAccountId) => {
+              const accountBaseline = accountBaselines[sourceAccountId];
+              const accountValue = point.accountTotals[sourceAccountId];
+              if (accountBaseline === undefined || accountValue === undefined) {
+                return total;
+              }
+              return total + accountValue - accountBaseline;
+            }, 0)
+          )
         : current
           ? [current.total]
           : [];
