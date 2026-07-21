@@ -104,6 +104,23 @@ describe("market-priced dashboard", () => {
     expect(history.month.available).toBe(false);
   });
 
+  it("uses the confirmed import as the first monitored baseline", () => {
+    const history = createPortfolioHistoryReadModel({
+      snapshots: [openingSnapshot],
+      marketPrices: [marketPrices[0]],
+      asOf: "2026-07-21T12:00:00.000Z",
+      eurPerUnit: { EUR: "1", CNY: "0.125" },
+      fxAsOf: "2026-07-21",
+    });
+
+    expect(history.today).toMatchObject({
+      available: true,
+      change: 1.25,
+      percent: 10,
+      points: [12.5, 13.75],
+    });
+  });
+
   it("uses the previous published NAV for today across a weekend", () => {
     const history = createPortfolioHistoryReadModel({
       snapshots: [openingSnapshot],

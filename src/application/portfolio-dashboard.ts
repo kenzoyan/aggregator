@@ -239,7 +239,11 @@ export function createPortfolioHistoryReadModel(input: {
       const current = points.at(-1);
       const previousPublishedPriceTime = publishedPriceTimeline.at(-2);
       let baseline = period === "today"
-        ? points.find((point) => point.asOf === previousPublishedPriceTime)
+        ? previousPublishedPriceTime
+          ? points.find((point) => point.asOf === previousPublishedPriceTime)
+          : marketPrices.length > 0
+            ? points.at(-2)
+            : undefined
         : [...points]
             .reverse()
             .find((point) => new Date(point.asOf) <= cutoff);
