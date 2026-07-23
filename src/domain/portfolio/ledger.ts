@@ -1,5 +1,9 @@
 import Decimal from "decimal.js";
 
+import {
+  identitiesOverlap,
+  normalizedIdentityKeys,
+} from "./identity";
 import type {
   CashBalance,
   OpeningSnapshotInput,
@@ -30,6 +34,31 @@ function normalizeDecimal(value: string): string {
   return new Decimal(value).toString();
 }
 
+function firstReportedPriorReturn(
+  snapshots: readonly OpeningSnapshotInput[],
+  sourceAccountId: string,
+  instrumentId: string,
+  instrumentCode?: string,
+): string {
+  const currentKeys = normalizedIdentityKeys([instrumentId, instrumentCode]);
+  const orderedSnapshots = snapshots
+    .filter((snapshot) => snapshot.sourceAccountId === sourceAccountId)
+    .toSorted((left, right) => left.asOf.localeCompare(right.asOf));
+  for (const snapshot of orderedSnapshots) {
+    const firstPosition = snapshot.positions.find((position) =>
+      identitiesOverlap(
+        currentKeys,
+        normalizedIdentityKeys([
+          position.instrumentId,
+          position.instrumentCode,
+        ]),
+      )
+    );
+    if (firstPosition) return firstPosition.reportedPriorReturn ?? "0";
+  }
+  return "0";
+}
+
 export function buildPortfolioState({
   openingSnapshots,
   events,
@@ -52,7 +81,12 @@ export function buildPortfolioState({
         currency: position.currency,
         costBasis: normalizeDecimal(position.costBasis),
         reportedPriorReturn: normalizeDecimal(
-          position.reportedPriorReturn ?? "0",
+          firstReportedPriorReturn(
+            openingSnapshots,
+            snapshot.sourceAccountId,
+            position.instrumentId,
+            position.instrumentCode,
+          ),
         ),
         ...(position.averageCost ? { averageCost: normalizeDecimal(position.averageCost) } : {}),
         ...(position.observedPrice ? { observedPrice: normalizeDecimal(position.observedPrice) } : {}),

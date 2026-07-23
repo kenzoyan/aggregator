@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { buildPortfolioState } from "@/domain/portfolio/ledger";
 
 describe("portfolio ledger", () => {
-  it("uses the latest opening snapshot per account instead of double-counting refreshes", () => {
+  it("uses the latest holding state without overwriting the first reported prior return", () => {
     const state = buildPortfolioState({
       openingSnapshots: [
         {
@@ -32,14 +32,22 @@ describe("portfolio ledger", () => {
               costBasis: "800",
               reportedPriorReturn: "260",
             },
+            {
+              instrumentId: "fund-b",
+              quantity: "1",
+              currency: "CNY",
+              costBasis: "100",
+              reportedPriorReturn: "10",
+            },
           ],
         },
       ],
       events: [],
     });
 
-    expect(state.positions).toHaveLength(1);
-    expect(state.positions[0]?.reportedPriorReturn).toBe("260");
+    expect(state.positions).toHaveLength(2);
+    expect(state.positions[0]?.reportedPriorReturn).toBe("200");
+    expect(state.positions[1]?.reportedPriorReturn).toBe("10");
   });
 
   it("starts monitoring from an Opening Snapshot without treating its value as new principal", () => {

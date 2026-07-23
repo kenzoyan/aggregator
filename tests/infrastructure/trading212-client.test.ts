@@ -58,7 +58,7 @@ describe("Trading 212 read-only client", () => {
       now: () => new Date("2026-07-19T12:00:00.000Z"),
     });
 
-    const snapshot = await client.fetchOpeningSnapshot({
+    const snapshot = await client.fetchAccountSnapshot({
       id: "t212-snapshot-1",
       sourceAccountId: "trading212-main",
     });
@@ -106,7 +106,7 @@ describe("Trading 212 read-only client", () => {
       }),
     });
 
-    const request = client.fetchOpeningSnapshot({
+    const request = client.fetchAccountSnapshot({
       id: "snapshot",
       sourceAccountId: "trading212-main",
     });

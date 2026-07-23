@@ -6,6 +6,7 @@ import {
   type DraftPortfolio,
   type DraftValue,
   type ImportDraftInput,
+  type ImportReconciliation,
   type ImportDraftReview,
   type StoredImportDraft,
 } from "@/domain/imports";
@@ -51,6 +52,7 @@ export interface ImportDraftReadModel extends EditableImportDraftReview {
   createdAt: string;
   status: StoredImportDraft["status"];
   confirmedAt?: string;
+  reconciliation?: ImportReconciliation;
 }
 
 function editableHolding(holding: DraftHolding): EditableDraftHolding {
@@ -102,6 +104,9 @@ export function createImportDraftReadModel(
     warnings: [...draft.warnings],
     status: draft.status,
     ...(draft.confirmedAt ? { confirmedAt: draft.confirmedAt } : {}),
+    ...(draft.portfolio.reconciliation
+      ? { reconciliation: draft.portfolio.reconciliation }
+      : {}),
     portfolio: {
       snapshotId: draft.portfolio.snapshotId,
       asOf: draftValue(draft.portfolio.asOf) ?? "",

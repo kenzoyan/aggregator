@@ -1,3 +1,5 @@
+import Decimal from "decimal.js";
+
 import type {
   AssetType,
   MoneyInput,
@@ -5,6 +7,10 @@ import type {
   OpeningSnapshotInput,
   PortfolioState,
 } from "@/domain/portfolio/types";
+import {
+  identitiesOverlap,
+  normalizedIdentityKeys,
+} from "@/domain/portfolio/identity";
 
 export const importSourceKinds = [
   "screenshot",
@@ -54,6 +60,58 @@ export interface DraftPortfolio {
   asOf: DraftValue<string>;
   portfolioCash: DraftValue<MoneyInput>;
   holdings: DraftHolding[];
+  reconciliation?: ImportReconciliation;
+}
+
+export type ImportUpdateMode = "complete" | "partial";
+
+export type HoldingReconciliationKind =
+  | "unchanged"
+  | "market-data-updated"
+  | "holding-changed"
+  | "new"
+  | "possibly-removed";
+
+export type HoldingStateField = "quantity" | "costBasis" | "currency";
+
+export interface HoldingStateComparison {
+  instrumentId: string;
+  displayName?: string;
+  instrumentCode?: string;
+  quantity: string;
+  costBasis: string;
+  currency: string;
+}
+
+export interface HoldingFieldChange {
+  field: HoldingStateField;
+  before?: string;
+  after?: string;
+}
+
+export interface HoldingReconciliation {
+  key: string;
+  proposedLineId?: string;
+  kind: HoldingReconciliationKind;
+  before?: HoldingStateComparison;
+  after?: HoldingStateComparison;
+  changes: HoldingFieldChange[];
+}
+
+export interface CashReconciliation {
+  kind: "unchanged" | "holding-changed" | "new" | "possibly-removed";
+  before?: MoneyInput;
+  after?: MoneyInput;
+}
+
+export interface ImportReconciliation {
+  mode: ImportUpdateMode;
+  snapshotKind: "opening" | "holding-state";
+  changeCount: number;
+  unchangedCount: number;
+  marketDataUpdatedCount: number;
+  holdings: HoldingReconciliation[];
+  cash?: CashReconciliation;
 }
 
 export interface ImportDraftInput {
@@ -162,12 +220,14 @@ function materializeHolding(
 export function materializeOpeningSnapshot(
   sourceAccountId: string,
   portfolio: DraftPortfolio,
+  snapshotKind?: ImportReconciliation["snapshotKind"],
 ): OpeningSnapshotInput {
   const portfolioCash = draftValue(portfolio.portfolioCash);
   return {
     id: portfolio.snapshotId,
     sourceAccountId,
     asOf: requiredDraftValue(portfolio.asOf, "Portfolio asOf"),
+    ...(snapshotKind ? { kind: snapshotKind } : {}),
     ...(portfolioCash ? { portfolioCash } : {}),
     positions: portfolio.holdings.map(materializeHolding),
   };
@@ -230,14 +290,216 @@ export const completedPartialImportReviewWarning =
   "Previously confirmed holdings were included in this review. Removing one records that it is no longer held.";
 
 function holdingIdentityKeys(holding: DraftHolding): string[] {
-  return [draftValue(holding.instrumentId), draftValue(holding.instrumentCode)]
-    .filter((value): value is string => Boolean(value?.trim()))
-    .map((value) => value.trim().toUpperCase());
+  return normalizedIdentityKeys([
+    draftValue(holding.instrumentId),
+    draftValue(holding.instrumentCode),
+  ]);
 }
 
 function sameHolding(left: DraftHolding, right: DraftHolding): boolean {
-  const leftKeys = new Set(holdingIdentityKeys(left));
-  return holdingIdentityKeys(right).some((key) => leftKeys.has(key));
+  return identitiesOverlap(holdingIdentityKeys(left), holdingIdentityKeys(right));
+}
+
+function sameHoldingAndPosition(
+  holding: DraftHolding,
+  position: PortfolioState["positions"][number],
+): boolean {
+  return identitiesOverlap(
+    holdingIdentityKeys(holding),
+    normalizedIdentityKeys([position.instrumentId, position.instrumentCode]),
+  );
+}
+
+function sameDecimal(left: string, right: string): boolean {
+  try {
+    return new Decimal(left).equals(new Decimal(right));
+  } catch {
+    return left.trim() === right.trim();
+  }
+}
+
+function holdingStateFromDraft(
+  holding: DraftHolding,
+): HoldingStateComparison | undefined {
+  const instrumentId = draftValue(holding.instrumentId);
+  const quantity = draftValue(holding.quantity);
+  const costBasis = draftValue(holding.costBasis);
+  const currency = draftValue(holding.currency);
+  if (!instrumentId || quantity === undefined || costBasis === undefined || !currency) {
+    return undefined;
+  }
+  const displayName = draftValue(holding.displayName);
+  const instrumentCode = draftValue(holding.instrumentCode);
+  return {
+    instrumentId,
+    ...(displayName ? { displayName } : {}),
+    ...(instrumentCode ? { instrumentCode } : {}),
+    quantity,
+    costBasis,
+    currency,
+  };
+}
+
+function holdingStateFromPosition(
+  position: PortfolioState["positions"][number],
+): HoldingStateComparison {
+  return {
+    instrumentId: position.instrumentId,
+    ...(position.displayName ? { displayName: position.displayName } : {}),
+    ...(position.instrumentCode ? { instrumentCode: position.instrumentCode } : {}),
+    quantity: position.quantity,
+    costBasis: position.costBasis,
+    currency: position.currency,
+  };
+}
+
+function holdingFieldChanges(
+  before: HoldingStateComparison,
+  after: HoldingStateComparison,
+): HoldingFieldChange[] {
+  const changes: HoldingFieldChange[] = [];
+  if (!sameDecimal(before.quantity, after.quantity)) {
+    changes.push({ field: "quantity", before: before.quantity, after: after.quantity });
+  }
+  if (!sameDecimal(before.costBasis, after.costBasis)) {
+    changes.push({ field: "costBasis", before: before.costBasis, after: after.costBasis });
+  }
+  if (before.currency.toUpperCase() !== after.currency.toUpperCase()) {
+    changes.push({ field: "currency", before: before.currency, after: after.currency });
+  }
+  return changes;
+}
+
+function hasMarketDataDifference(
+  holding: DraftHolding,
+  position: PortfolioState["positions"][number],
+): boolean {
+  const proposedPrice = draftValue(holding.observedPrice);
+  const proposedValue = draftValue(holding.reportedMarketValue);
+  const proposedAsOf = draftValue(holding.priceAsOf);
+  return (
+    (proposedPrice !== undefined &&
+      (position.observedPrice === undefined ||
+        !sameDecimal(proposedPrice, position.observedPrice))) ||
+    (proposedValue !== undefined &&
+      (position.reportedMarketValue === undefined ||
+        !sameDecimal(proposedValue, position.reportedMarketValue))) ||
+    (proposedAsOf !== undefined && proposedAsOf !== position.priceAsOf)
+  );
+}
+
+function cashReconciliation(
+  draft: ImportDraftInput,
+  currentState: PortfolioState,
+  mode: ImportUpdateMode,
+): CashReconciliation | undefined {
+  const proposed = draftValue(draft.portfolio.portfolioCash);
+  const current = currentState.cashBalances.find(
+    (cash) => cash.sourceAccountId === draft.sourceAccountId,
+  );
+  const before = current
+    ? { amount: current.amount, currency: current.currency }
+    : undefined;
+  if (!before && !proposed) return undefined;
+  if (!before && proposed) return { kind: "new", after: proposed };
+  if (before && !proposed) {
+    return mode === "complete"
+      ? { kind: "possibly-removed", before }
+      : { kind: "unchanged", before, after: before };
+  }
+  if (
+    before &&
+    proposed &&
+    sameDecimal(before.amount, proposed.amount) &&
+    before.currency.toUpperCase() === proposed.currency.toUpperCase()
+  ) {
+    return { kind: "unchanged", before, after: proposed };
+  }
+  return { kind: "holding-changed", before, after: proposed };
+}
+
+export function reconcileImportDraft(
+  draft: ImportDraftInput,
+  currentState: PortfolioState,
+): ImportReconciliation {
+  const mode: ImportUpdateMode = draft.sourceKind === "trading-212"
+    ? "complete"
+    : "partial";
+  const currentPositions = currentState.positions.filter(
+    (position) => position.sourceAccountId === draft.sourceAccountId,
+  );
+  const matchedCurrent = new Set<number>();
+  const holdings: HoldingReconciliation[] = draft.portfolio.holdings.map((holding) => {
+    const currentIndex = currentPositions.findIndex(
+      (position, index) =>
+        !matchedCurrent.has(index) && sameHoldingAndPosition(holding, position),
+    );
+    const after = holdingStateFromDraft(holding);
+    if (currentIndex < 0 || !after) {
+      return {
+        key: holding.lineId,
+        proposedLineId: holding.lineId,
+        kind: "new" as const,
+        ...(after ? { after } : {}),
+        changes: [],
+      };
+    }
+    matchedCurrent.add(currentIndex);
+    const before = holdingStateFromPosition(currentPositions[currentIndex]!);
+    const changes = holdingFieldChanges(before, after);
+    const hasMarketObservation = !holding.lineId.startsWith("carried:") &&
+      hasMarketDataDifference(holding, currentPositions[currentIndex]!);
+    return {
+      key: `${draft.sourceAccountId}:${before.instrumentId}`,
+      proposedLineId: holding.lineId,
+      kind: changes.length > 0
+        ? "holding-changed" as const
+        : hasMarketObservation
+          ? "market-data-updated" as const
+          : "unchanged" as const,
+      before,
+      after,
+      changes,
+    };
+  });
+
+  if (mode === "complete") {
+    currentPositions.forEach((position, index) => {
+      if (matchedCurrent.has(index)) return;
+      const before = holdingStateFromPosition(position);
+      holdings.push({
+        key: `${draft.sourceAccountId}:${before.instrumentId}`,
+        kind: "possibly-removed",
+        before,
+        changes: [],
+      });
+    });
+  }
+
+  const cash = cashReconciliation(draft, currentState, mode);
+  const changeKinds = new Set<HoldingReconciliationKind>([
+    "holding-changed",
+    "new",
+    "possibly-removed",
+  ]);
+  const holdingChangeCount = holdings.filter((item) => changeKinds.has(item.kind)).length;
+  const cashChangeCount = cash && cash.kind !== "unchanged" ? 1 : 0;
+  const hasCurrentState = currentPositions.length > 0 ||
+    currentState.cashBalances.some(
+      (balance) => balance.sourceAccountId === draft.sourceAccountId,
+    );
+
+  return {
+    mode,
+    snapshotKind: hasCurrentState ? "holding-state" : "opening",
+    changeCount: holdingChangeCount + cashChangeCount,
+    unchangedCount: holdings.filter((item) => item.kind === "unchanged").length,
+    marketDataUpdatedCount: holdings.filter(
+      (item) => item.kind === "market-data-updated",
+    ).length,
+    holdings,
+    ...(cash ? { cash } : {}),
+  };
 }
 
 function preferUpdatedValue<T>(
@@ -289,6 +551,8 @@ function preserveTrading212Metadata(
   return {
     ...updated,
     ...metadata,
+    instrumentId: previous.instrumentId,
+    reportedPriorReturn: previous.reportedPriorReturn,
     // Once reviewed, classification is owner-controlled. A later API sync can
     // update position values, but it must not undo an ETF correction.
     assetType: previous.assetType.status === "unknown"
@@ -307,8 +571,15 @@ export function prepareImportDraftForReview(
   const currentCash = currentState.cashBalances.find(
     (cash) => cash.sourceAccountId === draft.sourceAccountId,
   );
-  if (currentPositions.length === 0 && !currentCash) return draft;
-
+  if (currentPositions.length === 0 && !currentCash) {
+    return {
+      ...draft,
+      portfolio: {
+        ...draft.portfolio,
+        reconciliation: reconcileImportDraft(draft, currentState),
+      },
+    };
+  }
   const previousPortfolio = draftPortfolioFromOpeningSnapshot({
     id: `carried:${draft.portfolio.snapshotId}`,
     sourceAccountId: draft.sourceAccountId,
@@ -335,8 +606,9 @@ export function prepareImportDraftForReview(
     })),
   }, "manual");
 
+  let preparedDraft = draft;
   if (draft.sourceKind === "trading-212") {
-    return {
+    preparedDraft = {
       ...draft,
       portfolio: {
         ...draft.portfolio,
@@ -348,42 +620,49 @@ export function prepareImportDraftForReview(
         }),
       },
     };
-  }
-  if (!partialImportSourceKinds.has(draft.sourceKind)) return draft;
-
-  const matchedPrevious = new Set<number>();
-  const updatedHoldings = draft.portfolio.holdings.map((updated) => {
-    const previousIndex = previousPortfolio.holdings.findIndex(
-      (previous, index) => !matchedPrevious.has(index) && sameHolding(previous, updated),
+  } else if (partialImportSourceKinds.has(draft.sourceKind)) {
+    const matchedPrevious = new Set<number>();
+    const updatedHoldings = draft.portfolio.holdings.map((updated) => {
+      const previousIndex = previousPortfolio.holdings.findIndex(
+        (previous, index) => !matchedPrevious.has(index) && sameHolding(previous, updated),
+      );
+      if (previousIndex < 0) return updated;
+      matchedPrevious.add(previousIndex);
+      return mergeHolding(previousPortfolio.holdings[previousIndex]!, updated);
+    });
+    const carriedHoldings = previousPortfolio.holdings.filter(
+      (_, index) => !matchedPrevious.has(index),
     );
-    if (previousIndex < 0) return updated;
-    matchedPrevious.add(previousIndex);
-    return mergeHolding(previousPortfolio.holdings[previousIndex]!, updated);
-  });
-  const carriedHoldings = previousPortfolio.holdings.filter(
-    (_, index) => !matchedPrevious.has(index),
-  );
-  const carryWarning = carriedHoldings.length > 0
-    ? `${carriedHoldings.length} previously confirmed holding${carriedHoldings.length === 1 ? " was" : "s were"} carried forward. Remove only holdings that are no longer held.`
-    : undefined;
+    const carryWarning = carriedHoldings.length > 0
+      ? `${carriedHoldings.length} previously confirmed holding${carriedHoldings.length === 1 ? " was" : "s were"} carried forward. Remove only holdings that are no longer held.`
+      : undefined;
+
+    preparedDraft = {
+      ...draft,
+      warnings: [
+        ...draft.warnings,
+        ...(!draft.warnings.includes(completedPartialImportReviewWarning)
+          ? [completedPartialImportReviewWarning]
+          : []),
+        ...(carryWarning && !draft.warnings.includes(carryWarning)
+          ? [carryWarning]
+          : []),
+      ],
+      portfolio: {
+        ...draft.portfolio,
+        portfolioCash: draft.portfolio.portfolioCash.status === "unknown"
+          ? previousPortfolio.portfolioCash
+          : draft.portfolio.portfolioCash,
+        holdings: [...updatedHoldings, ...carriedHoldings],
+      },
+    };
+  }
 
   return {
-    ...draft,
-    warnings: [
-      ...draft.warnings,
-      ...(!draft.warnings.includes(completedPartialImportReviewWarning)
-        ? [completedPartialImportReviewWarning]
-        : []),
-      ...(carryWarning && !draft.warnings.includes(carryWarning)
-        ? [carryWarning]
-        : []),
-    ],
+    ...preparedDraft,
     portfolio: {
-      ...draft.portfolio,
-      portfolioCash: draft.portfolio.portfolioCash.status === "unknown"
-        ? previousPortfolio.portfolioCash
-        : draft.portfolio.portfolioCash,
-      holdings: [...updatedHoldings, ...carriedHoldings],
+      ...preparedDraft.portfolio,
+      reconciliation: reconcileImportDraft(preparedDraft, currentState),
     },
   };
 }
@@ -395,30 +674,28 @@ export interface ConfirmedSnapshotImport {
 }
 
 function positionIdentityKeys(position: OpeningPositionInput): string[] {
-  return [position.instrumentId, position.instrumentCode]
-    .filter((value): value is string => Boolean(value?.trim()))
-    .map((value) => value.trim().toUpperCase());
+  return normalizedIdentityKeys([position.instrumentId, position.instrumentCode]);
 }
 
 function samePosition(
   left: OpeningPositionInput,
   right: OpeningPositionInput,
 ): boolean {
-  const leftKeys = new Set(positionIdentityKeys(left));
-  return positionIdentityKeys(right).some((key) => leftKeys.has(key));
+  return identitiesOverlap(positionIdentityKeys(left), positionIdentityKeys(right));
 }
 
 export function restoreLegacyPartialSnapshots(
   imports: readonly ConfirmedSnapshotImport[],
 ): OpeningSnapshotInput[] {
   const latestByAccount = new Map<string, OpeningSnapshotInput>();
+  const accountsWithSnapshot = new Set<string>();
   return imports.map((record) => {
     const previous = latestByAccount.get(record.snapshot.sourceAccountId);
     const isLegacyPartialUpdate =
       previous &&
       partialImportSourceKinds.has(record.sourceKind) &&
       !record.warnings.includes(completedPartialImportReviewWarning);
-    const snapshot = isLegacyPartialUpdate
+    const restoredSnapshot = isLegacyPartialUpdate
       ? {
           ...record.snapshot,
           ...(!record.snapshot.portfolioCash && previous.portfolioCash
@@ -434,6 +711,14 @@ export function restoreLegacyPartialSnapshots(
           ],
         }
       : record.snapshot;
+    const snapshot = {
+      ...restoredSnapshot,
+      kind: restoredSnapshot.kind ??
+        (accountsWithSnapshot.has(restoredSnapshot.sourceAccountId)
+          ? "holding-state" as const
+          : "opening" as const),
+    };
+    accountsWithSnapshot.add(snapshot.sourceAccountId);
     latestByAccount.set(snapshot.sourceAccountId, snapshot);
     return snapshot;
   });

@@ -5,9 +5,12 @@ import { NextResponse } from "next/server";
 import { createImportDraftReadModel } from "@/application/imports/import-draft-read-model";
 import {
   draftPortfolioFromOpeningSnapshot,
+  materializeOpeningSnapshot,
+  prepareImportDraftForReview,
   type ImportDraftInput,
   type StoredImportDraft,
 } from "@/domain/imports";
+import type { MarketPriceObservation } from "@/domain/market-data";
 import type { OpeningSnapshotInput } from "@/domain/portfolio/types";
 import { findSourceAccount, trading212SourceAccountId } from "@/domain/source-accounts";
 import {
@@ -25,13 +28,37 @@ export const runtime = "nodejs";
 interface Trading212ImportDatabase {
   saveImportDraft(draft: ImportDraftInput): void;
   getImportDraft(id: string): StoredImportDraft | undefined;
+  readPortfolioFacts(): {
+    state: import("@/domain/portfolio/types").PortfolioState;
+  };
+  recordMarketData(input: {
+    observations: readonly MarketPriceObservation[];
+  }): void;
 }
 
 interface Trading212SnapshotClient {
-  fetchOpeningSnapshot(input: {
+  fetchAccountSnapshot(input: {
     id: string;
     sourceAccountId: string;
   }): Promise<OpeningSnapshotInput>;
+}
+
+function marketObservationsFromSnapshot(
+  snapshot: OpeningSnapshotInput,
+): MarketPriceObservation[] {
+  return snapshot.positions.flatMap((position) => {
+    if (!position.observedPrice) return [];
+    return [{
+      sourceAccountId: snapshot.sourceAccountId,
+      instrumentId: position.instrumentId,
+      instrumentCode: position.instrumentCode ?? position.instrumentId,
+      price: position.observedPrice,
+      currency: position.currency,
+      asOf: position.priceAsOf ?? snapshot.asOf,
+      recordedAt: snapshot.asOf,
+      source: position.priceSource ?? "trading212",
+    }];
+  });
 }
 
 export function createTrading212ImportHandler(input: {
@@ -58,11 +85,11 @@ export function createTrading212ImportHandler(input: {
     try {
       const client = input.createClient(config);
       const id = input.newId();
-      const snapshot = await client.fetchOpeningSnapshot({
+      const snapshot = await client.fetchAccountSnapshot({
         id: input.newId(),
         sourceAccountId,
       });
-      const draft: ImportDraftInput = {
+      const draft = prepareImportDraftForReview({
         id,
         sourceAccountId,
         sourceKind: "trading-212",
@@ -72,9 +99,30 @@ export function createTrading212ImportHandler(input: {
           `Trading 212 ${config.environment} account; only the account summary and positions GET endpoints are used.`,
         ],
         portfolio: draftPortfolioFromOpeningSnapshot(snapshot, "api"),
-      };
+      }, input.database.readPortfolioFacts().state);
+      const observations = marketObservationsFromSnapshot(
+        materializeOpeningSnapshot(sourceAccountId, draft.portfolio),
+      );
+      if (observations.length > 0) {
+        input.database.recordMarketData({ observations });
+      }
+      if (
+        draft.portfolio.reconciliation?.snapshotKind === "holding-state" &&
+        draft.portfolio.reconciliation.changeCount === 0
+      ) {
+        const updatedPrices = draft.portfolio.reconciliation.marketDataUpdatedCount;
+        return NextResponse.json({
+          outcome: "market-data-only",
+          holdingChanges: 0,
+          updatedPrices,
+          message: updatedPrices > 0
+            ? "Prices updated. No holding changes need review."
+            : "Account checked. No holding changes need review.",
+        });
+      }
       input.database.saveImportDraft(draft);
       return NextResponse.json({
+        outcome: "review-required",
         draft: createImportDraftReadModel(input.database.getImportDraft(id)!),
       });
     } catch (error) {

@@ -50,6 +50,8 @@ Use **Update assets → Saved holdings CSV** to reopen a locally stored holdings
 
 CSV, screenshot and manual updates are partial by default: previously confirmed holdings from the same Source Account are carried into the review so that updating one holding cannot silently remove the others. Remove a carried holding in the review only when it is genuinely no longer held. Trading 212 API synchronization remains a complete account snapshot.
 
+Trading 212 synchronization reconciles the complete API response against the latest confirmed Holding State by Source Account plus ticker/ISIN identity. If quantity, Cost Basis and Portfolio Cash are unchanged, the app records new prices directly as Market Data and skips the confirmation screen. Real holding changes open a Before/After review: changed and new holdings are expanded, unchanged holdings are collapsed, and a holding absent from the complete API response is marked **Possibly removed** until explicitly confirmed. Repeated price checks never overwrite the Reported Prior Return captured when monitoring began.
+
 Use **Refresh prices** on the portfolio overview to check published NAVs for supported six-digit CNY fund codes held in Alipay or WeChat. Each check fills missing NAV dates since monitoring began, so checking a few times per month can still preserve a near-daily curve. The first provider is the public Eastmoney/Tiantian Fund NAV service. It requires no credential and receives only the public fund code—not account credentials, quantities, costs or portfolio totals. It is a third-party source behind a replaceable provider interface; failures keep the last successful local price.
 
 Use **Update NAV / price** inside an existing holding's detail drawer to record a dated manual observation when an automatic provider is unavailable. This changes Market Data only; it never changes Quantity or Cost Basis. Once a valid baseline exists, the holding row shows the baseline/current dates and separates the EUR price effect from the FX effect.
@@ -62,7 +64,9 @@ FX observations are also stored as dated market data. The overview shows the lat
 
 ## Near-term roadmap
 
-- Refresh supported prices automatically once per Helsinki day when the dashboard opens, while keeping Holding State unchanged. Extend and verify read-only price-provider coverage for Trading 212 ETFs before considering an operating-system background scheduler.
+- Add MinerU-based screenshot OCR behind the existing review-and-confirm gate.
+- Add an optional LLM-generated portfolio brief that clearly separates factual summary from assessment and never presents investment advice.
+- Later, refresh supported prices automatically once per Helsinki day when the dashboard opens, while keeping Holding State unchanged.
 
 Local portfolio records are stored in `data/invest-assets-monitor.sqlite`. The entire `data` database remains ignored by Git.
 

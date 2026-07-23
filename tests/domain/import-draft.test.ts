@@ -1,9 +1,13 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  draftPortfolioFromOpeningSnapshot,
+  prepareImportDraftForReview,
+  reconcileImportDraft,
   restoreLegacyPartialSnapshots,
   materializeOpeningSnapshot,
   type DraftPortfolio,
+  type ImportDraftInput,
 } from "@/domain/imports";
 
 describe("Import Draft materialization", () => {
@@ -100,6 +104,147 @@ describe("Import Draft materialization", () => {
         },
       ],
     });
+  });
+
+  it("separates market observations from holding-state changes in a complete sync", () => {
+    const draft: ImportDraftInput = {
+      id: "draft-resync",
+      sourceAccountId: "trading212-main",
+      sourceKind: "trading-212",
+      createdAt: "2026-07-21T12:00:00.000Z",
+      confidence: "high",
+      warnings: [],
+      portfolio: draftPortfolioFromOpeningSnapshot({
+        id: "snapshot-resync",
+        sourceAccountId: "trading212-main",
+        asOf: "2026-07-21T12:00:00.000Z",
+        positions: [{
+          instrumentId: "NEW_TICKER",
+          displayName: "Synthetic ETF",
+          instrumentCode: "IE00SYNTHETIC",
+          quantity: "2.00",
+          currency: "EUR",
+          costBasis: "100.00",
+          reportedPriorReturn: "12",
+          observedPrice: "56",
+          reportedMarketValue: "112",
+        }],
+      }, "api"),
+    };
+    const currentState = {
+      positions: [{
+        sourceAccountId: "trading212-main",
+        instrumentId: "OLD_TICKER",
+        displayName: "Synthetic ETF",
+        instrumentCode: "IE00SYNTHETIC",
+        assetType: "etf" as const,
+        quantity: "2",
+        currency: "EUR",
+        costBasis: "100",
+        reportedPriorReturn: "8",
+      }],
+      cashBalances: [],
+      appliedEventIds: [],
+    };
+
+    const prepared = prepareImportDraftForReview(draft, currentState);
+
+    expect(prepared.portfolio.reconciliation).toMatchObject({
+      mode: "complete",
+      snapshotKind: "holding-state",
+      changeCount: 0,
+      marketDataUpdatedCount: 1,
+      holdings: [{
+        kind: "market-data-updated",
+        before: { instrumentId: "OLD_TICKER" },
+        after: { instrumentId: "OLD_TICKER" },
+        changes: [],
+      }],
+    });
+    expect(prepared.portfolio.holdings[0]?.instrumentId).toMatchObject({
+      value: "OLD_TICKER",
+    });
+    expect(prepared.portfolio.holdings[0]?.reportedPriorReturn).toMatchObject({
+      value: "8",
+    });
+    expect(prepared.portfolio.holdings[0]?.assetType).toMatchObject({
+      value: "etf",
+    });
+
+    expect(reconcileImportDraft(prepared, {
+      ...currentState,
+      positions: [{
+        ...currentState.positions[0]!,
+        observedPrice: "56",
+        reportedMarketValue: "112",
+      }],
+    }).holdings[0]?.kind).toBe("unchanged");
+  });
+
+  it("marks changed, new and missing holdings for complete-snapshot review", () => {
+    const draft: ImportDraftInput = {
+      id: "draft-changes",
+      sourceAccountId: "trading212-main",
+      sourceKind: "trading-212",
+      createdAt: "2026-07-22T12:00:00.000Z",
+      confidence: "high",
+      warnings: [],
+      portfolio: draftPortfolioFromOpeningSnapshot({
+        id: "snapshot-changes",
+        sourceAccountId: "trading212-main",
+        asOf: "2026-07-22T12:00:00.000Z",
+        positions: [
+          {
+            instrumentId: "ETF-A",
+            quantity: "3",
+            currency: "EUR",
+            costBasis: "160",
+          },
+          {
+            instrumentId: "ETF-C",
+            quantity: "1",
+            currency: "EUR",
+            costBasis: "25",
+          },
+        ],
+      }, "api"),
+    };
+
+    const reconciliation = reconcileImportDraft(draft, {
+      positions: [
+        {
+          sourceAccountId: "trading212-main",
+          instrumentId: "ETF-A",
+          quantity: "2",
+          currency: "EUR",
+          costBasis: "100",
+          reportedPriorReturn: "0",
+        },
+        {
+          sourceAccountId: "trading212-main",
+          instrumentId: "ETF-B",
+          quantity: "1",
+          currency: "EUR",
+          costBasis: "50",
+          reportedPriorReturn: "0",
+        },
+      ],
+      cashBalances: [],
+      appliedEventIds: [],
+    });
+
+    expect(reconciliation.changeCount).toBe(3);
+    expect(reconciliation.holdings).toEqual([
+      expect.objectContaining({
+        kind: "holding-changed",
+        changes: [
+          { field: "quantity", before: "2", after: "3" },
+          { field: "costBasis", before: "100", after: "160" },
+        ],
+      }),
+      expect.objectContaining({ kind: "new", after: { instrumentId: "ETF-C", quantity: "1", currency: "EUR", costBasis: "25" } }),
+      expect.objectContaining({ kind: "possibly-removed", before: { instrumentId: "ETF-B", quantity: "1", currency: "EUR", costBasis: "50" } }),
+    ]);
   });
 
   it("rejects confirmation while a required portfolio fact is unknown", () => {

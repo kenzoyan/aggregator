@@ -328,6 +328,13 @@ export function createPortfolioDatabase(filename: string): PortfolioDatabase {
         : materializeOpeningSnapshot(
             reviewedDraft.sourceAccountId,
             reviewedDraft.portfolio,
+            existing.portfolio.reconciliation?.snapshotKind ??
+              (readOpeningSnapshots().some(
+                (candidate) =>
+                  candidate.sourceAccountId === reviewedDraft.sourceAccountId,
+              )
+                ? "holding-state"
+                : "opening"),
           );
 
       database.exec("BEGIN IMMEDIATE");

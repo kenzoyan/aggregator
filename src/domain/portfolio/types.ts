@@ -34,6 +34,7 @@ export interface OpeningSnapshotInput {
   id: string;
   sourceAccountId: string;
   asOf: string;
+  kind?: "opening" | "holding-state";
   portfolioCash?: MoneyInput;
   positions: readonly OpeningPositionInput[];
 }

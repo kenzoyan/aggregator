@@ -97,7 +97,7 @@ export class Trading212Client {
     return response.json();
   }
 
-  async fetchOpeningSnapshot(input: {
+  async fetchAccountSnapshot(input: {
     id: string;
     sourceAccountId: string;
   }): Promise<OpeningSnapshotInput> {

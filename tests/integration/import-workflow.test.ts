@@ -120,6 +120,7 @@ describe("screenshot import confirmation workflow", () => {
       },
     ]);
     expect(database.getImportDraft(importDraft.id)?.status).toBe("confirmed");
+    expect(database.readPortfolioFacts().openingSnapshots[0]?.kind).toBe("opening");
     database.close();
   });
 
@@ -239,6 +240,9 @@ describe("screenshot import confirmation workflow", () => {
 
     confirm(database, savedResync, "2026-07-22T19:29:00.000Z");
     expect(database.readPortfolioFacts().state.positions).toHaveLength(1);
+    expect(
+      database.readPortfolioFacts().openingSnapshots.map((snapshot) => snapshot.kind),
+    ).toEqual(["opening", "holding-state"]);
     expect(database.readPortfolioFacts().state.positions[0]).toMatchObject({
       instrumentId: "T212-ETF-FIXTURE",
       assetType: "etf",

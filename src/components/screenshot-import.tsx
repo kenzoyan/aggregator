@@ -18,10 +18,45 @@ import {
   sourceAccounts,
   trading212SourceAccountId,
 } from "@/domain/source-accounts";
+import type {
+  HoldingStateComparison,
+  ImportReconciliation,
+} from "@/domain/imports";
 
 type ImportDraftView = ImportDraftReadModel;
 
 type AccountOption = Pick<SourceAccountView, "id" | "provider" | "label" | "connector">;
+
+function recountReconciliation(
+  reconciliation: ImportReconciliation,
+): ImportReconciliation {
+  const changeKinds = new Set(["holding-changed", "new", "possibly-removed"]);
+  return {
+    ...reconciliation,
+    changeCount: reconciliation.holdings.filter(
+      (item) => changeKinds.has(item.kind),
+    ).length + (reconciliation.cash && reconciliation.cash.kind !== "unchanged" ? 1 : 0),
+    unchangedCount: reconciliation.holdings.filter(
+      (item) => item.kind === "unchanged",
+    ).length,
+    marketDataUpdatedCount: reconciliation.holdings.filter(
+      (item) => item.kind === "market-data-updated",
+    ).length,
+  };
+}
+
+function comparisonFromEditableHolding(
+  holding: ImportDraftView["portfolio"]["holdings"][number],
+): HoldingStateComparison {
+  return {
+    instrumentId: holding.instrumentId,
+    ...(holding.displayName ? { displayName: holding.displayName } : {}),
+    ...(holding.instrumentCode ? { instrumentCode: holding.instrumentCode } : {}),
+    quantity: holding.quantity,
+    costBasis: holding.costBasis,
+    currency: holding.currency,
+  };
+}
 
 export function AssetImportWorkflow() {
   const [sourceAccountId, setSourceAccountId] = useState("alipay-main");
@@ -33,6 +68,7 @@ export function AssetImportWorkflow() {
   const [draft, setDraft] = useState<ImportDraftView>();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
 
   useEffect(() => {
     fetch("/api/accounts", { cache: "no-store" })
@@ -57,6 +93,7 @@ export function AssetImportWorkflow() {
   ) {
     setBusy(true);
     setError("");
+    setNotice("");
     try {
       const response = await request();
       const payload = (await response.json()) as { draft?: ImportDraftView; error?: string };
@@ -97,13 +134,39 @@ export function AssetImportWorkflow() {
     const targetAccountId = selectedAccount?.provider === "trading212"
       ? sourceAccountId
       : trading212SourceAccountId;
-    await requestDraft(() => fetch("/api/imports/trading212", {
+    setBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      const response = await fetch("/api/imports/trading212", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ sourceAccountId: targetAccountId }),
-      }), "Trading 212 sync failed.", () => {
+      });
+      const payload = (await response.json()) as {
+        outcome?: "review-required" | "market-data-only";
+        draft?: ImportDraftView;
+        message?: string;
+        error?: string;
+      };
+      if (!response.ok) {
+        throw new Error(payload.error ?? "Trading 212 sync failed.");
+      }
       setSourceAccountId(targetAccountId);
-    });
+      if (payload.outcome === "market-data-only") {
+        setDraft(undefined);
+        setNotice(payload.message ?? "Prices updated. No holding changes need review.");
+        return;
+      }
+      if (!payload.draft) {
+        throw new Error(payload.error ?? "Trading 212 sync failed.");
+      }
+      setDraft(payload.draft);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Trading 212 sync failed.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function startManualEntry() {
@@ -130,22 +193,40 @@ export function AssetImportWorkflow() {
       const currency = selectedAccount?.provider === "alipay" || selectedAccount?.provider === "wechat"
         ? "CNY"
         : "EUR";
+      const addedHolding = {
+        lineId: crypto.randomUUID(),
+        instrumentId: "",
+        displayName: "",
+        assetType: undefined,
+        quantity: "1",
+        currency,
+        costBasis: "",
+        reportedPriorReturn: "0",
+      };
       return {
         ...current,
+        ...(current.reconciliation
+          ? {
+              reconciliation: recountReconciliation({
+                ...current.reconciliation,
+                holdings: [
+                  ...current.reconciliation.holdings,
+                  {
+                    key: addedHolding.lineId,
+                    proposedLineId: addedHolding.lineId,
+                    kind: "new",
+                    after: comparisonFromEditableHolding(addedHolding),
+                    changes: [],
+                  },
+                ],
+              }),
+            }
+          : {}),
         portfolio: {
           ...current.portfolio,
           holdings: [
             ...current.portfolio.holdings,
-            {
-              lineId: crypto.randomUUID(),
-              instrumentId: "",
-              displayName: "",
-              assetType: undefined,
-              quantity: "1",
-              currency,
-              costBasis: "",
-              reportedPriorReturn: "0",
-            },
+            addedHolding,
           ],
         },
       };
@@ -155,8 +236,26 @@ export function AssetImportWorkflow() {
   function removePosition(index: number) {
     setDraft((current) => {
       if (!current || current.status !== "draft") return current;
+      const removed = current.portfolio.holdings[index];
+      const reconciliation = current.reconciliation && removed
+        ? recountReconciliation({
+            ...current.reconciliation,
+            holdings: current.reconciliation.holdings.flatMap((item) => {
+              if (item.proposedLineId !== removed.lineId) return [item];
+              if (!item.before) return [];
+              return [{
+                ...item,
+                proposedLineId: undefined,
+                kind: "possibly-removed" as const,
+                after: undefined,
+                changes: [],
+              }];
+            }),
+          })
+        : current.reconciliation;
       return {
         ...current,
+        ...(reconciliation ? { reconciliation } : {}),
         portfolio: {
           ...current.portfolio,
           holdings: current.portfolio.holdings.filter((_, positionIndex) => positionIndex !== index),
@@ -210,8 +309,24 @@ export function AssetImportWorkflow() {
           return { ...position, [field]: value };
         },
       );
+      const updatedHolding = holdings[index];
+      const reconciliation = current.reconciliation && updatedHolding
+        ? recountReconciliation({
+            ...current.reconciliation,
+            holdings: current.reconciliation.holdings.map((item) =>
+              item.proposedLineId === updatedHolding.lineId
+                ? {
+                    ...item,
+                    kind: item.before ? "holding-changed" as const : "new" as const,
+                    after: comparisonFromEditableHolding(updatedHolding),
+                  }
+                : item
+            ),
+          })
+        : current.reconciliation;
       return {
         ...current,
+        ...(reconciliation ? { reconciliation } : {}),
         portfolio: {
           ...current.portfolio,
           holdings,
@@ -289,6 +404,7 @@ export function AssetImportWorkflow() {
               onChange={(event) => {
                 setSourceAccountId(event.target.value);
                 setDraft(undefined);
+                setNotice("");
               }}
               disabled={busy}
             >
@@ -370,6 +486,7 @@ export function AssetImportWorkflow() {
           </div>
           <Link className="manage-accounts-link" href="/accounts">Manage account names and connection status →</Link>
           {error && <p className="error-message" role="alert">{error}</p>}
+          {notice && <p className="success-message" role="status">{notice}</p>}
         </section>
 
         <section className="import-card review-card">
@@ -409,15 +526,80 @@ export function AssetImportWorkflow() {
                   {draft.warnings.map((warning, index) => <p key={`${warning}-${index}`}>◷ {warning}</p>)}
                 </div>
               )}
+              {draft.reconciliation && (
+                <div className="reconciliation-summary">
+                  <div>
+                    <strong>
+                      {draft.reconciliation.snapshotKind === "opening"
+                        ? "Opening snapshot"
+                        : "Holding changes"}
+                    </strong>
+                    <small>
+                      {draft.reconciliation.mode === "complete"
+                        ? "Complete account snapshot"
+                        : "Partial account update"}
+                    </small>
+                  </div>
+                  <span>{draft.reconciliation.changeCount} to review</span>
+                  {draft.reconciliation.marketDataUpdatedCount > 0 && (
+                    <span>{draft.reconciliation.marketDataUpdatedCount} price-only</span>
+                  )}
+                  {draft.reconciliation.unchangedCount > 0 && (
+                    <span>{draft.reconciliation.unchangedCount} unchanged</span>
+                  )}
+                </div>
+              )}
               {draft.portfolio.portfolioCash && (
-                <div className="cash-review">
+                <div className={`cash-review ${draft.reconciliation?.cash?.kind ?? ""}`}>
                   <span>Portfolio cash</span>
-                  <strong>{draft.portfolio.portfolioCash.amount} {draft.portfolio.portfolioCash.currency}</strong>
+                  <strong>
+                    {draft.reconciliation?.cash?.before &&
+                      draft.reconciliation.cash.kind !== "unchanged" &&
+                      `${draft.reconciliation.cash.before.amount} ${draft.reconciliation.cash.before.currency} → `}
+                    {draft.portfolio.portfolioCash.amount} {draft.portfolio.portfolioCash.currency}
+                  </strong>
                 </div>
               )}
               <div className="review-positions">
-                {draft.portfolio.holdings.map((position, index) => (
-                  <fieldset key={`${draft.id}-holding-${index}`}>
+                {draft.portfolio.holdings
+                  .map((position, index) => ({
+                    position,
+                    index,
+                    reconciliation: draft.reconciliation?.holdings.find(
+                      (item) => item.proposedLineId === position.lineId,
+                    ),
+                  }))
+                  .filter(({ reconciliation }) =>
+                    reconciliation?.kind !== "market-data-updated"
+                  )
+                  .map(({ position, index, reconciliation }) => {
+                  const collapsed = reconciliation?.kind === "unchanged";
+                  return (
+                  <details
+                    className={`review-position ${reconciliation?.kind ?? ""}`}
+                    key={`${draft.id}-holding-${index}`}
+                    open={!collapsed}
+                  >
+                    <summary>
+                      <span>
+                        <strong>{position.displayName ?? position.instrumentId}</strong>
+                        <small>{position.instrumentCode ?? position.instrumentId}</small>
+                      </span>
+                      {reconciliation && (
+                        <em>{reconciliation.kind.replaceAll("-", " ")}</em>
+                      )}
+                    </summary>
+                    {reconciliation?.changes.length ? (
+                      <div className="before-after-list">
+                        {reconciliation.changes.map((change) => (
+                          <span key={change.field}>
+                            <small>{change.field === "costBasis" ? "Cost basis" : change.field}</small>
+                            <strong>{change.before} → {change.after}</strong>
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
+                    <fieldset>
                     <legend><span>Holding {index + 1}</span><button type="button" onClick={() => removePosition(index)}>Remove</button></legend>
                     <div className="field-grid">
                       <label className="field-label">Name
@@ -462,12 +644,30 @@ export function AssetImportWorkflow() {
                       </label>
                     </div>
                     {position.quantity === "1" && <small className="whole-holding-note">When the screenshot does not show units, 1 represents the whole holding—not one actual fund unit.</small>}
-                  </fieldset>
-                ))}
+                    </fieldset>
+                  </details>
+                  );
+                })}
+                {draft.reconciliation?.holdings
+                  .filter((item) => item.kind === "possibly-removed")
+                  .map((item) => (
+                    <div className="removed-holding-review" key={item.key}>
+                      <span>
+                        <strong>{item.before?.displayName ?? item.before?.instrumentId}</strong>
+                        <small>{item.before?.instrumentCode ?? item.before?.instrumentId}</small>
+                      </span>
+                      <div>
+                        <em>Possibly removed</em>
+                        <small>This holding is absent from the complete Trading 212 snapshot and will be removed only if you confirm.</small>
+                      </div>
+                    </div>
+                  ))}
               </div>
               <button className="add-holding-button" type="button" disabled={busy} onClick={addPosition}>+ Add holding</button>
               <button className="primary-button confirm-button" disabled={busy || (draft.portfolio.holdings.length === 0 && !draft.portfolio.portfolioCash)} type="submit">
-                {busy ? "Saving…" : `Confirm ${draft.portfolio.holdings.length} holdings`}
+                {busy
+                  ? "Saving…"
+                  : `Confirm ${draft.reconciliation?.changeCount ?? draft.portfolio.holdings.length} changes`}
               </button>
             </form>
           )}
