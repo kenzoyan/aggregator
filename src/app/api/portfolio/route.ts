@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import {
+  createEurCnyOverview,
   createFxRateObservations,
   eurPerUnitAt,
 } from "@/application/fx-history";
@@ -72,6 +73,7 @@ export function createPortfolioHandler(input: {
 
     const portfolio = createDashboardReadModel({
       state,
+      snapshots,
       asOf: now,
       snapshotTimes,
       marketPrices,
@@ -97,6 +99,7 @@ export function createPortfolioHandler(input: {
       fxObservations,
       asOf: now,
     });
+    const fxOverview = createEurCnyOverview(fxObservations, now);
     const history = Object.fromEntries(
       (["today", "week", "month"] as const).map((period) => {
         const holdingPeriods = Object.values(holdingHistory)
@@ -131,6 +134,7 @@ export function createPortfolioHandler(input: {
             : {}),
         })),
         history,
+        ...(fxOverview ? { fxOverview } : {}),
         accounts: createSourceAccountStatusReadModel({
           accounts: sourceAccounts,
           confirmedSnapshots: facts.confirmedSnapshots,

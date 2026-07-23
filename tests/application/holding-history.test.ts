@@ -48,6 +48,23 @@ describe("holding history read model", () => {
       baselineAsOf: "2026-07-20T23:59:59.999Z",
       currentAsOf: "2026-07-21T23:59:59.999Z",
     });
+    expect(history["trading212-main:T212-ETF-FIXTURE"].week).toMatchObject({
+      available: true,
+      coverage: "partial",
+      change: 20,
+      percent: 10,
+      points: [200, 220],
+      baselineAsOf: "2026-07-20T23:59:59.999Z",
+      currentAsOf: "2026-07-21T23:59:59.999Z",
+    });
+    expect(history["trading212-main:T212-ETF-FIXTURE"].month)
+      .toMatchObject({
+        available: true,
+        coverage: "partial",
+        change: 20,
+        percent: 10,
+        points: [200, 220],
+      });
   });
 
   it("includes dated FX movement in a non-EUR holding's change", () => {
@@ -271,6 +288,7 @@ describe("holding history read model", () => {
     });
 
     expect(history["trading212-main:sparse-etf"].today.available).toBe(false);
+    expect(history["trading212-main:sparse-etf"].week.available).toBe(false);
   });
 
   it("gives non-zero portfolio cash an FX history without treating cash additions as gain", () => {

@@ -1,3 +1,6 @@
+import Decimal from "decimal.js";
+
+import type { FxOverviewReadModel } from "@/application/portfolio-read-model";
 import type { FxRateObservation } from "@/domain/market-data";
 
 export interface DatedFxRates {
@@ -49,4 +52,45 @@ export function eurPerUnitAt(
       ]),
     ),
   };
+}
+
+export function createEurCnyOverview(
+  observations: readonly FxRateObservation[],
+  asOf: string,
+): FxOverviewReadModel | undefined {
+  const latestByDate = new Map<string, FxRateObservation>();
+  for (const observation of observations) {
+    if (
+      observation.currency !== "CNY" ||
+      observation.asOf > asOf.slice(0, 10)
+    ) {
+      continue;
+    }
+    const current = latestByDate.get(observation.asOf);
+    if (!current || observation.recordedAt > current.recordedAt) {
+      latestByDate.set(observation.asOf, observation);
+    }
+  }
+
+  const history = [...latestByDate.values()]
+    .sort((left, right) => left.asOf.localeCompare(right.asOf))
+    .flatMap((observation) => {
+      const eurPerCny = new Decimal(observation.eurPerUnit);
+      return eurPerCny.gt(0)
+        ? [{
+            asOf: observation.asOf,
+            rate: new Decimal(1).div(eurPerCny).toNumber(),
+          }]
+        : [];
+    });
+  const current = history.at(-1);
+  return current
+    ? {
+        baseCurrency: "EUR",
+        quoteCurrency: "CNY",
+        currentRate: current.rate,
+        asOf: current.asOf,
+        history,
+      }
+    : undefined;
 }

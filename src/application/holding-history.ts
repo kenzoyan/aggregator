@@ -1,6 +1,8 @@
 import Decimal from "decimal.js";
 
 import { eurPerUnitAt } from "@/application/fx-history";
+import { selectRangeBaseline } from "@/application/period-baseline";
+import { openingPositionUnitPrice } from "@/application/position-price";
 import type {
   Period,
   PeriodPerformanceReadModel,
@@ -37,18 +39,6 @@ function timelineTime(asOf: string, currentAsOf: string): string {
   return endOfDay > currentAsOf ? currentAsOf : endOfDay;
 }
 
-function snapshotUnitPrice(position: OpeningPositionInput): Decimal | undefined {
-  if (position.observedPrice) return new Decimal(position.observedPrice);
-  const quantity = new Decimal(position.quantity);
-  if (quantity.isZero()) return undefined;
-  if (position.reportedMarketValue) {
-    return new Decimal(position.reportedMarketValue).div(quantity);
-  }
-  return new Decimal(position.costBasis)
-    .plus(position.reportedPriorReturn ?? "0")
-    .div(quantity);
-}
-
 function holdingPoints(input: {
   position: Position;
   snapshots: readonly OpeningSnapshotInput[];
@@ -63,7 +53,7 @@ function holdingPoints(input: {
       candidate.instrumentId === input.position.instrumentId
     );
     if (!snapshotPosition) continue;
-    const price = snapshotUnitPrice(snapshotPosition);
+    const price = openingPositionUnitPrice(snapshotPosition);
     if (!price) continue;
     pricePoints.set(
       timelineTime(snapshotPosition.priceAsOf ?? snapshot.asOf, input.asOf),
@@ -172,39 +162,39 @@ function baselineForPeriod(
   period: Period,
   points: readonly HoldingValuePoint[],
   asOf: string,
-): HoldingValuePoint | undefined {
+  monitoringStartedAt?: string,
+): { point: HoldingValuePoint; coverage?: "partial" } | undefined {
   if (period === "today") {
     const current = points.at(-1);
     const baseline = points.at(-2);
     if (!current || !baseline) return undefined;
     return new Date(current.asOf).getTime() - new Date(baseline.asOf).getTime() <=
         4 * 86_400_000
-      ? baseline
+      ? { point: baseline }
       : undefined;
   }
-  const days = period === "week" ? 7 : 30;
-  const toleranceDays = period === "week" ? 3 : 7;
-  const cutoff = new Date(new Date(asOf).getTime() - days * 86_400_000);
-  const tolerance = toleranceDays * 86_400_000;
-  const prior = [...points]
-    .reverse()
-    .find((point) => new Date(point.asOf) <= cutoff);
-  if (prior && cutoff.getTime() - new Date(prior.asOf).getTime() <= tolerance) {
-    return prior;
-  }
-  const next = points.find((point) => new Date(point.asOf) >= cutoff);
-  return next && new Date(next.asOf).getTime() - cutoff.getTime() <= tolerance
-    ? next
-    : undefined;
+  return selectRangeBaseline({
+    period,
+    points,
+    asOf,
+    monitoringStartedAt,
+  });
 }
 
 function periodPerformance(
   period: Period,
   points: readonly HoldingValuePoint[],
   asOf: string,
+  monitoringStartedAt?: string,
 ): PeriodPerformanceReadModel {
   const current = points.at(-1);
-  const baseline = baselineForPeriod(period, points, asOf);
+  const baselineResult = baselineForPeriod(
+    period,
+    points,
+    asOf,
+    monitoringStartedAt,
+  );
+  const baseline = baselineResult?.point;
   const available = Boolean(
     current && baseline && current.asOf !== baseline.asOf && !baseline.valueEur.isZero(),
   );
@@ -227,6 +217,7 @@ function periodPerformance(
     .mul(current.fxRate.minus(baseline.fxRate));
   return {
     available: true,
+    ...(baselineResult.coverage ? { coverage: baselineResult.coverage } : {}),
     change: change.toNumber(),
     percent: change.div(baseline.valueEur).mul(100).toNumber(),
     points: points
@@ -253,18 +244,51 @@ export function createHoldingHistoryReadModel(input: {
       ...input.state.positions.map((position) => ({
         id: `${position.sourceAccountId}:${position.instrumentId}`,
         points: holdingPoints({ ...input, position }),
+        monitoringStartedAt: input.snapshots
+          .filter((snapshot) =>
+            snapshot.sourceAccountId === position.sourceAccountId &&
+            snapshot.positions.some((candidate) =>
+              candidate.instrumentId === position.instrumentId
+            )
+          )
+          .map((snapshot) => snapshot.asOf)
+          .sort()
+          .at(0),
       })),
       ...input.state.cashBalances.map((cash) => ({
         id: `${cash.sourceAccountId}:cash:${cash.currency}`,
         points: cashPoints({ ...input, cash, events }),
+        monitoringStartedAt: input.snapshots
+          .filter((snapshot) =>
+            snapshot.sourceAccountId === cash.sourceAccountId &&
+            snapshot.portfolioCash?.currency === cash.currency
+          )
+          .map((snapshot) => snapshot.asOf)
+          .sort()
+          .at(0),
       })),
-    ].map(({ id, points }) => {
+    ].map(({ id, points, monitoringStartedAt }) => {
       return [
         id,
         {
-          today: periodPerformance("today", points, input.asOf),
-          week: periodPerformance("week", points, input.asOf),
-          month: periodPerformance("month", points, input.asOf),
+          today: periodPerformance(
+            "today",
+            points,
+            input.asOf,
+            monitoringStartedAt,
+          ),
+          week: periodPerformance(
+            "week",
+            points,
+            input.asOf,
+            monitoringStartedAt,
+          ),
+          month: periodPerformance(
+            "month",
+            points,
+            input.asOf,
+            monitoringStartedAt,
+          ),
         },
       ];
     }),

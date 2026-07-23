@@ -1,7 +1,13 @@
 import Decimal from "decimal.js";
 
 import { eurPerUnitAt } from "@/application/fx-history";
-import type { HoldingReadModel } from "@/application/portfolio-read-model";
+import { formatOriginalMoney } from "@/application/money-format";
+import { selectRangeBaseline } from "@/application/period-baseline";
+import { openingPositionUnitPrice } from "@/application/position-price";
+import type {
+  HoldingPriceHistoryReadModel,
+  HoldingReadModel,
+} from "@/application/portfolio-read-model";
 import type {
   FxRateObservation,
   MarketPriceObservation,
@@ -48,8 +54,108 @@ function marketPriceFreshness(priceAsOf: string, asOf: string) {
   return age <= fundNavFreshnessWindowMs ? "fresh" as const : "stale" as const;
 }
 
+function holdingPriceHistory(
+  position: Position,
+  snapshots: readonly OpeningSnapshotInput[],
+  observations: readonly MarketPriceObservation[],
+  asOf: string,
+): HoldingPriceHistoryReadModel[] {
+  const byDate = new Map<string, HoldingPriceHistoryReadModel>();
+  const currentPositionPrice = openingPositionUnitPrice(position);
+  if (currentPositionPrice && position.priceAsOf) {
+    byDate.set(position.priceAsOf.slice(0, 10), {
+      price: currentPositionPrice.toString(),
+      currency: position.currency,
+      asOf: position.priceAsOf.slice(0, 10),
+      source: position.priceSource ?? "confirmed-snapshot",
+    });
+  }
+  for (const snapshot of [...snapshots].sort((left, right) =>
+    left.asOf.localeCompare(right.asOf)
+  )) {
+    if (snapshot.sourceAccountId !== position.sourceAccountId) continue;
+    const snapshotPosition = snapshot.positions.find((candidate) =>
+      candidate.instrumentId === position.instrumentId
+    );
+    if (!snapshotPosition || snapshotPosition.currency !== position.currency) continue;
+    const price = openingPositionUnitPrice(snapshotPosition);
+    const priceAsOf = (snapshotPosition.priceAsOf ?? snapshot.asOf).slice(0, 10);
+    if (!price || priceAsOf > asOf.slice(0, 10)) continue;
+    byDate.set(priceAsOf, {
+      price: price.toString(),
+      currency: snapshotPosition.currency,
+      asOf: priceAsOf,
+      source: snapshotPosition.priceSource ?? "confirmed-snapshot",
+    });
+  }
+  for (const observation of observations
+    .filter((candidate) =>
+      candidate.sourceAccountId === position.sourceAccountId &&
+      candidate.instrumentId === position.instrumentId &&
+      candidate.currency === position.currency &&
+      candidate.asOf <= asOf.slice(0, 10)
+    )
+    .sort((left, right) =>
+      left.asOf.localeCompare(right.asOf) ||
+      left.recordedAt.localeCompare(right.recordedAt)
+    )) {
+    byDate.set(observation.asOf.slice(0, 10), {
+      price: observation.price,
+      currency: observation.currency,
+      asOf: observation.asOf.slice(0, 10),
+      source: observation.source,
+    });
+  }
+  return [...byDate.values()].sort((left, right) =>
+    right.asOf.localeCompare(left.asOf)
+  );
+}
+
+interface ResolvedPositionPrice {
+  unitPrice: string;
+  asOf: string;
+  source: string;
+  freshness: HoldingReadModel["freshness"];
+  marketPrice?: MarketPriceObservation;
+}
+
+function resolvePositionPrice(input: {
+  position: Position;
+  marketPrices: readonly MarketPriceObservation[];
+  asOf: string;
+  snapshotTimes: Readonly<Record<string, string>>;
+}): ResolvedPositionPrice | undefined {
+  const quantity = new Decimal(input.position.quantity);
+  if (quantity.isZero()) return undefined;
+  const marketPrice = latestMarketPrice(
+    input.position,
+    input.marketPrices,
+    input.asOf,
+  );
+  const unitPrice = marketPrice?.price ??
+    openingPositionUnitPrice(input.position)?.toString();
+  if (!unitPrice) return undefined;
+  const asOf = marketPrice?.asOf ?? input.position.priceAsOf ??
+    input.snapshotTimes[input.position.sourceAccountId] ?? input.asOf;
+  return {
+    unitPrice,
+    asOf,
+    source: marketPrice?.source ?? input.position.priceSource ??
+      "confirmed-snapshot",
+    freshness: marketPrice
+      ? marketPrice.source === "manual"
+        ? "manual"
+        : marketPriceFreshness(marketPrice.asOf, input.asOf)
+      : input.position.sourceAccountId.includes("trading212")
+        ? "fresh"
+        : "manual",
+    ...(marketPrice ? { marketPrice } : {}),
+  };
+}
+
 export function createDashboardReadModel(input: {
   state: PortfolioState;
+  snapshots?: readonly OpeningSnapshotInput[];
   asOf: string;
   snapshotTimes: Readonly<Record<string, string>>;
   marketPrices?: readonly MarketPriceObservation[];
@@ -59,31 +165,37 @@ export function createDashboardReadModel(input: {
   accountLabels?: Readonly<Record<string, string>>;
 }) {
   const marketPrices = input.marketPrices ?? [];
+  const snapshots = input.snapshots ?? [];
+  const resolvedPriceByHolding = new Map(
+    input.state.positions.flatMap((position) => {
+      const resolved = resolvePositionPrice({
+        position,
+        marketPrices,
+        asOf: input.asOf,
+        snapshotTimes: input.snapshotTimes,
+      });
+      return resolved
+        ? [[`${position.sourceAccountId}:${position.instrumentId}`, resolved] as const]
+        : [];
+    }),
+  );
   const prices = input.state.positions.flatMap((position) => {
-    const quantity = new Decimal(position.quantity);
-    if (quantity.eq(0)) return [];
-    const marketPrice = latestMarketPrice(position, marketPrices, input.asOf);
-    return [{
+    const resolved = resolvedPriceByHolding.get(
+      `${position.sourceAccountId}:${position.instrumentId}`,
+    );
+    return resolved
+      ? [{
       instrumentId: position.instrumentId,
-      price: marketPrice?.price ?? position.observedPrice ?? new Decimal(position.costBasis)
-          .plus(position.reportedPriorReturn)
-          .div(quantity)
-          .toString(),
-      ...(!marketPrice && position.reportedMarketValue
+      price: resolved.unitPrice,
+      ...(!resolved.marketPrice && position.reportedMarketValue
         ? { reportedMarketValue: position.reportedMarketValue }
         : {}),
       currency: position.currency,
-      asOf: marketPrice?.asOf ?? position.priceAsOf ??
-        input.snapshotTimes[position.sourceAccountId] ?? input.asOf,
-      source: marketPrice?.source ?? position.priceSource ?? "confirmed-snapshot",
-      freshness: marketPrice
-        ? marketPrice.source === "manual"
-          ? "manual" as const
-          : marketPriceFreshness(marketPrice.asOf, input.asOf)
-        : position.sourceAccountId.includes("trading212")
-          ? "fresh" as const
-          : "manual" as const,
-    }];
+      asOf: resolved.asOf,
+      source: resolved.source,
+      freshness: resolved.freshness,
+    }]
+      : [];
   });
   const fxRates: FxObservation[] = Object.entries(input.eurPerUnit).map(
     ([currency, eurPerUnit]) => ({
@@ -109,6 +221,27 @@ export function createDashboardReadModel(input: {
       const category: HoldingReadModel["category"] = sourcePosition?.assetType
         ? assetTypeLabels[sourcePosition.assetType]
         : "Unclassified";
+      const resolvedPrice = resolvedPriceByHolding.get(
+        `${position.sourceAccountId}:${position.instrumentId}`,
+      );
+      const currentValue = new Decimal(position.originalValue);
+      const costBasis = sourcePosition
+        ? new Decimal(sourcePosition.costBasis)
+        : undefined;
+      const eurPerUnit = input.eurPerUnit[position.currency] ??
+        (position.currency === "EUR" ? "1" : undefined);
+      const totalReturn = costBasis && eurPerUnit
+        ? (() => {
+            const originalAmount = currentValue.minus(costBasis);
+            return {
+              originalAmount: originalAmount.toNumber(),
+              eurAmount: originalAmount.mul(eurPerUnit).toNumber(),
+              ...(!costBasis.isZero()
+                ? { percent: originalAmount.div(costBasis).mul(100).toNumber() }
+                : {}),
+            };
+          })()
+        : undefined;
 
       return {
         id: `${position.sourceAccountId}:${position.instrumentId}`,
@@ -121,12 +254,38 @@ export function createDashboardReadModel(input: {
         source: sourceAccountDashboardLabel(position.sourceAccountId, input.accountLabels),
         category,
         currency: position.currency as HoldingReadModel["currency"],
-        originalValue: `${position.originalValue} ${position.currency}`,
+        originalValue: formatOriginalMoney(
+          Number(position.originalValue),
+          position.currency,
+        ),
         eurValue: Number(position.eurValue),
+        ...(totalReturn
+          ? { totalReturn }
+          : {}),
         changeEur: 0,
         changePercent: 0,
         freshness: position.freshness,
         asOf: position.priceAsOf.slice(0, 16).replace("T", " "),
+        ...(sourcePosition && resolvedPrice
+          ? {
+              detail: {
+                quantity: sourcePosition.quantity,
+                costBasis: sourcePosition.costBasis,
+                reportedPriorReturn: sourcePosition.reportedPriorReturn,
+                ...(sourcePosition.averageCost
+                  ? { averageCost: sourcePosition.averageCost }
+                  : {}),
+                currentPrice: resolvedPrice.unitPrice,
+                currentPriceAsOf: resolvedPrice.asOf.slice(0, 10),
+                priceHistory: holdingPriceHistory(
+                  sourcePosition,
+                  snapshots,
+                  marketPrices,
+                  input.asOf,
+                ),
+              },
+            }
+          : {}),
       };
     }),
     ...valuation.cash
@@ -138,7 +297,10 @@ export function createDashboardReadModel(input: {
         source: sourceAccountDashboardLabel(cash.sourceAccountId, input.accountLabels),
         category: "Portfolio cash" as const,
         currency: cash.currency as HoldingReadModel["currency"],
-        originalValue: `${cash.originalValue} ${cash.currency}`,
+        originalValue: formatOriginalMoney(
+          Number(cash.originalValue),
+          cash.currency,
+        ),
         eurValue: Number(cash.eurValue),
         changeEur: 0,
         changePercent: 0,
@@ -176,9 +338,12 @@ export function createDashboardReadModel(input: {
 
 export interface DashboardPeriodHistory {
   available: boolean;
+  coverage?: "partial";
   change: number;
   percent: number;
   points: number[];
+  baselineAsOf?: string;
+  currentAsOf?: string;
 }
 
 export function createPortfolioHistoryReadModel(input: {
@@ -239,6 +404,7 @@ export function createPortfolioHistoryReadModel(input: {
     });
     const readModel = createDashboardReadModel({
       state,
+      snapshots: knownSnapshots,
       asOf,
       snapshotTimes,
       marketPrices,
@@ -275,24 +441,8 @@ export function createPortfolioHistoryReadModel(input: {
     }];
   });
 
-  const now = new Date(input.asOf);
-  const todayCutoff = new Date(Date.UTC(
-    now.getUTCFullYear(),
-    now.getUTCMonth(),
-    now.getUTCDate(),
-  ));
-  const cutoffs = {
-    today: todayCutoff,
-    week: new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000),
-    month: new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000),
-  };
-  const maximumBaselineAge = {
-    week: 3 * 24 * 60 * 60 * 1000,
-    month: 7 * 24 * 60 * 60 * 1000,
-  };
-
   return Object.fromEntries(
-    Object.entries(cutoffs).map(([period, cutoff]) => {
+    (["today", "week", "month"] as const).map((period) => {
       const current = points.at(-1);
       const previousPublishedObservationTime = publishedObservationTimeline.at(-2);
       let baseline = period === "today"
@@ -301,15 +451,8 @@ export function createPortfolioHistoryReadModel(input: {
           : publishedObservationTimeline.length > 0
             ? points.at(0)
             : points.at(-2)
-        : [...points]
-            .reverse()
-            .find((point) => new Date(point.asOf) <= cutoff);
-      if (baseline && period !== "today") {
-        const maximumAge = maximumBaselineAge[period as "week" | "month"];
-        if (cutoff.getTime() - new Date(baseline.asOf).getTime() > maximumAge) {
-          baseline = undefined;
-        }
-      }
+        : undefined;
+      let coverage: "partial" | undefined;
       if (
         baseline &&
         period === "today" &&
@@ -319,15 +462,15 @@ export function createPortfolioHistoryReadModel(input: {
       ) {
         baseline = undefined;
       }
-      if (!baseline && period !== "today") {
-        const next = points.find((point) => new Date(point.asOf) >= cutoff);
-        if (
-          next &&
-          new Date(next.asOf).getTime() - cutoff.getTime() <=
-            maximumBaselineAge[period as "week" | "month"]
-        ) {
-          baseline = next;
-        }
+      if (period !== "today") {
+        const result = selectRangeBaseline({
+          period,
+          points,
+          asOf: input.asOf,
+          monitoringStartedAt: snapshots[0]?.asOf,
+        });
+        baseline = result?.point;
+        coverage = result?.coverage;
       }
       const available = Boolean(
         current &&
@@ -368,24 +511,34 @@ export function createPortfolioHistoryReadModel(input: {
         ? (change / capitalBase) * 100
         : 0;
       const chartPoints = finalAvailable
-        ? periodPoints.map((point) =>
-            baseline!.total + currentHoldingIds.reduce((total, holdingId) => {
+        ? [...periodPoints.reduce((dailyPoints, point) => {
+            const value = baseline!.total +
+              currentHoldingIds.reduce((total, holdingId) => {
               const holdingBaseline = holdingBaselines[holdingId];
               const holdingValue = point.holdingTotals[holdingId];
               if (holdingBaseline === undefined || holdingValue === undefined) {
                 return total;
               }
               return total + holdingValue - holdingBaseline;
-            }, 0)
-          )
+              }, 0);
+            dailyPoints.set(point.asOf.slice(0, 10), value);
+            return dailyPoints;
+          }, new Map<string, number>()).values()]
         : current
           ? [current.total]
           : [];
       return [period, {
         available: finalAvailable,
+        ...(finalAvailable && coverage ? { coverage } : {}),
         change: finalAvailable ? change : 0,
         percent,
         points: chartPoints,
+        ...(finalAvailable && baseline && current
+          ? {
+              baselineAsOf: baseline.asOf,
+              currentAsOf: current.asOf,
+            }
+          : {}),
       }];
     }),
   ) as Record<"today" | "week" | "month", DashboardPeriodHistory>;

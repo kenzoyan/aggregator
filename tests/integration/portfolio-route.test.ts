@@ -21,18 +21,37 @@ describe("GET /api/portfolio", () => {
         priceAsOf: "2026-07-20",
       }],
     };
+    const earlierSnapshot = {
+      ...snapshot,
+      id: "opening-fund-earlier",
+      asOf: "2026-07-19T09:00:00.000Z",
+      positions: snapshot.positions.map((position) => ({
+        ...position,
+        observedPrice: "9",
+        priceAsOf: "2026-07-19",
+      })),
+    };
     const recordMarketData = vi.fn();
     const handler = createPortfolioHandler({
       database: {
         readPortfolioFacts: () => ({
-          openingSnapshots: [snapshot],
+          openingSnapshots: [earlierSnapshot, snapshot],
           events: [],
           confirmedImports: [],
-          confirmedSnapshots: [{
-            snapshot,
-            confirmedAt: "2026-07-20T09:05:00.000Z",
-          }],
-          state: buildPortfolioState({ openingSnapshots: [snapshot], events: [] }),
+          confirmedSnapshots: [
+            {
+              snapshot: earlierSnapshot,
+              confirmedAt: "2026-07-19T09:05:00.000Z",
+            },
+            {
+              snapshot,
+              confirmedAt: "2026-07-20T09:05:00.000Z",
+            },
+          ],
+          state: buildPortfolioState({
+            openingSnapshots: [earlierSnapshot, snapshot],
+            events: [],
+          }),
         }),
         readMarketData: () => ({
           observations: [{
@@ -89,10 +108,48 @@ describe("GET /api/portfolio", () => {
         sourceAccountId: "alipay-main",
         instrumentId: "040046",
       },
+      totalReturn: {
+        originalAmount: 30,
+        eurAmount: 3.75,
+        percent: 37.5,
+      },
+      detail: {
+        quantity: "10",
+        costBasis: "80",
+        currentPrice: "11",
+        currentPriceAsOf: "2026-07-21",
+        priceHistory: [
+          {
+            price: "11",
+            asOf: "2026-07-21",
+            source: "eastmoney",
+          },
+          {
+            price: "10",
+            asOf: "2026-07-20",
+            source: "confirmed-snapshot",
+          },
+          {
+            price: "9",
+            asOf: "2026-07-19",
+            source: "confirmed-snapshot",
+          },
+        ],
+      },
     });
     expect(payload.portfolio.history.today).toMatchObject({
       priceChange: 1.2,
       fxChange: 0.55,
+    });
+    expect(payload.portfolio.fxOverview).toEqual({
+      baseCurrency: "EUR",
+      quoteCurrency: "CNY",
+      currentRate: 8,
+      asOf: "2026-07-21",
+      history: [
+        { asOf: "2026-07-20", rate: 8.333333333333334 },
+        { asOf: "2026-07-21", rate: 8 },
+      ],
     });
   });
 });

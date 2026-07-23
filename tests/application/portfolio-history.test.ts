@@ -46,7 +46,12 @@ describe("portfolio dashboard history", () => {
       change: 1.25,
       percent: 10,
     });
-    expect(history.month.available).toBe(false);
+    expect(history.month).toMatchObject({
+      available: true,
+      coverage: "partial",
+      change: 1.25,
+      percent: 10,
+    });
     expect(history.week.points).toEqual([12.5, 13.75]);
   });
 
@@ -88,6 +93,18 @@ describe("portfolio dashboard history", () => {
 
     expect(history.today).toMatchObject({
       available: true,
+      change: 0.5,
+      points: [12, 12.5],
+    });
+    expect(history.week).toMatchObject({
+      available: true,
+      coverage: "partial",
+      change: 0.5,
+      points: [12, 12.5],
+    });
+    expect(history.month).toMatchObject({
+      available: true,
+      coverage: "partial",
       change: 0.5,
       points: [12, 12.5],
     });
@@ -344,5 +361,6 @@ describe("portfolio dashboard history", () => {
     });
 
     expect(history.today.available).toBe(false);
+    expect(history.week.available).toBe(false);
   });
 });

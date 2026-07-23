@@ -118,10 +118,39 @@ describe("market-priced dashboard", () => {
 
     expect(readModel.totalValueEur).toBe(15);
     expect(readModel.holdings[0]).toMatchObject({
-      originalValue: "120 CNY",
+      originalValue: "120.00 CNY",
       eurValue: 15,
+      totalReturn: {
+        originalAmount: 40,
+        eurAmount: 5,
+        percent: 50,
+      },
       freshness: "fresh",
       asOf: "2026-07-19",
+      detail: {
+        quantity: "10",
+        costBasis: "80",
+        reportedPriorReturn: "20",
+        currentPrice: "12",
+        currentPriceAsOf: "2026-07-19",
+        priceHistory: [
+          {
+            price: "12",
+            asOf: "2026-07-19",
+            source: "eastmoney",
+          },
+          {
+            price: "11",
+            asOf: "2026-07-18",
+            source: "eastmoney",
+          },
+          {
+            price: "10",
+            asOf: "2026-07-11",
+            source: "csv",
+          },
+        ],
+      },
     });
     expect(readModel.marketData).toMatchObject({
       lastRefreshedAt: "2026-07-19T11:00:00.000Z",
@@ -142,7 +171,7 @@ describe("market-priced dashboard", () => {
     expect(readModel.holdings[0]?.freshness).toBe("manual");
   });
 
-  it("calculates today and 7-day change from recorded prices without inventing 30-day history", () => {
+  it("calculates period changes and labels a not-yet-30-day history as partial", () => {
     const history = createPortfolioHistoryReadModel({
       snapshots: [openingSnapshot],
       marketPrices,
@@ -162,7 +191,13 @@ describe("market-priced dashboard", () => {
       percent: 20,
       points: [12.5, 13.75, 15],
     });
-    expect(history.month.available).toBe(false);
+    expect(history.month).toMatchObject({
+      available: true,
+      coverage: "partial",
+      change: 2.5,
+      percent: 20,
+      points: [12.5, 13.75, 15],
+    });
   });
 
   it("uses the confirmed import as the first monitored baseline", () => {
@@ -269,7 +304,7 @@ describe("market-priced dashboard", () => {
       change: 0,
       percent: 0,
     });
-    expect(history.today.points).toEqual([100, 100, 100]);
+    expect(history.today.points).toEqual([100, 100]);
 
     const historyAfterPriceMove = createPortfolioHistoryReadModel({
       snapshots: [unchangedFundSnapshot, newlyTrackedAccount],
@@ -350,6 +385,6 @@ describe("market-priced dashboard", () => {
       change: 10,
       percent: 4,
     });
-    expect(history.today.points).toEqual([100, 110, 110]);
+    expect(history.today.points).toEqual([100, 110]);
   });
 });

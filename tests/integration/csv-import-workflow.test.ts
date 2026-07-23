@@ -51,7 +51,7 @@ alipay-main,Synthetic Index Fund,001234,fund,CNY,10,12.5,2026-07-16,10,125,25,10
       name: "Synthetic Index Fund",
       symbol: "001234",
       category: "Fund",
-      originalValue: "125 CNY",
+      originalValue: "125.00 CNY",
       eurValue: 15.625,
     });
     database.close();

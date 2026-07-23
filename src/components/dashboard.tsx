@@ -5,6 +5,7 @@ import {
   useEffect,
   useId,
   useMemo,
+  useRef,
   useState,
   type CSSProperties,
   type FormEvent,
@@ -14,8 +15,10 @@ import {
   demoHoldings,
   periodData,
 } from "@/application/demo-dashboard";
+import { formatSignedOriginalMoney } from "@/application/money-format";
 import { portfolioCalendarDate } from "@/application/portfolio-calendar";
 import type {
+  FxOverviewReadModel,
   HoldingReadModel,
   Period,
   PortfolioOverviewReadModel,
@@ -37,6 +40,11 @@ const eur = new Intl.NumberFormat("en-FI", {
   minimumFractionDigits: 2,
 });
 
+const fxRate = new Intl.NumberFormat("en-FI", {
+  minimumFractionDigits: 4,
+  maximumFractionDigits: 4,
+});
+
 const freshnessLabels: Record<HoldingReadModel["freshness"], string> = {
   fresh: "Updated",
   manual: "Manual",
@@ -45,6 +53,30 @@ const freshnessLabels: Record<HoldingReadModel["freshness"], string> = {
 };
 
 const allAccounts = "All accounts";
+
+const focusableSelector = [
+  "button:not([disabled])",
+  "[href]",
+  "input:not([disabled])",
+  "select:not([disabled])",
+  "[tabindex]:not([tabindex='-1'])",
+].join(",");
+
+function keepTabFocusInside(
+  event: KeyboardEvent,
+  focusable: readonly HTMLElement[],
+) {
+  if (event.key !== "Tab" || focusable.length === 0) return;
+  const first = focusable[0]!;
+  const last = focusable.at(-1)!;
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault();
+    first.focus();
+  }
+}
 
 function formatRefreshFailures(
   failures: readonly { instrumentCode: string; message: string }[],
@@ -58,12 +90,14 @@ function Sparkline({
   points,
   negative,
   compact = false,
+  detail = false,
   label = "Portfolio value trend",
   comparableModel,
 }: {
   points: number[];
   negative: boolean;
   compact?: boolean;
+  detail?: boolean;
   label?: string;
   comparableModel?: ComparableSparklineModel;
 }) {
@@ -85,7 +119,7 @@ function Sparkline({
   const fillBottom = zeroY ?? 64;
 
   return (
-    <svg className={compact ? "holding-sparkline" : "sparkline"} viewBox="0 0 100 64" preserveAspectRatio="none" aria-label={label}>
+    <svg className={compact ? "holding-sparkline" : detail ? "detail-sparkline" : "sparkline"} viewBox="0 0 100 64" preserveAspectRatio="none" aria-label={label}>
       <defs>
         <linearGradient id={gradientId} x1="0" x2="0" y1="0" y2="1">
           <stop offset="0%" stopColor={negative ? "#e26d76" : "#13a779"} stopOpacity="0.3" />
@@ -114,6 +148,11 @@ function signedEur(value: number) {
   return `${value >= 0 ? "+" : "−"}${eur.format(Math.abs(value))}`;
 }
 
+function returnPercent(percent?: number) {
+  if (percent === undefined) return "";
+  return ` · ${percent >= 0 ? "+" : "−"}${Math.abs(percent).toFixed(2)}%`;
+}
+
 export function Dashboard() {
   const [period, setPeriod] = useState<Period>("today");
   const [source, setSource] = useState(allAccounts);
@@ -121,6 +160,7 @@ export function Dashboard() {
   const [reviewedDemoHoldings, setReviewedDemoHoldings] = useState<HoldingReadModel[]>();
   const [loading, setLoading] = useState(true);
   const [localPortfolio, setLocalPortfolio] = useState<PortfolioOverviewReadModel>();
+  const [localFxOverview, setLocalFxOverview] = useState<FxOverviewReadModel>();
   const [refreshingPrices, setRefreshingPrices] = useState(false);
   const [refreshMessage, setRefreshMessage] = useState<string>();
   const [priceEditor, setPriceEditor] = useState<HoldingReadModel>();
@@ -128,6 +168,12 @@ export function Dashboard() {
   const [manualPriceDate, setManualPriceDate] = useState("");
   const [savingManualPrice, setSavingManualPrice] = useState(false);
   const [manualPriceError, setManualPriceError] = useState<string>();
+  const [selectedHoldingId, setSelectedHoldingId] = useState<string>();
+  const [drawerPeriod, setDrawerPeriod] = useState<Period>("today");
+  const holdingDrawerRef = useRef<HTMLElement>(null);
+  const holdingDrawerTriggerRef = useRef<HTMLElement | null>(null);
+  const priceEditorRef = useRef<HTMLFormElement>(null);
+  const priceEditorTriggerRef = useRef<HTMLElement | null>(null);
 
   async function loadLocalPortfolio(signal?: AbortSignal) {
     const response = await fetch("/api/portfolio", { signal });
@@ -136,7 +182,8 @@ export function Dashboard() {
       hasPortfolioData: boolean;
       portfolio: PortfolioOverviewReadModel;
     };
-    if (payload.hasPortfolioData) setLocalPortfolio(payload.portfolio);
+    setLocalFxOverview(payload.portfolio.fxOverview);
+    setLocalPortfolio(payload.hasPortfolioData ? payload.portfolio : undefined);
   }
 
   useEffect(() => {
@@ -153,6 +200,44 @@ export function Dashboard() {
       .finally(() => setLoading(false));
     return () => controller.abort();
   }, []);
+
+  useEffect(() => {
+    if (!selectedHoldingId && !priceEditor) return;
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key !== "Escape") return;
+      if (priceEditor) {
+        closePriceEditor();
+      } else {
+        closeHoldingDrawer();
+      }
+    }
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [priceEditor, selectedHoldingId]);
+
+  useEffect(() => {
+    const drawer = holdingDrawerRef.current;
+    if (!selectedHoldingId || priceEditor || !drawer) return;
+    const focusable = [...drawer.querySelectorAll<HTMLElement>(focusableSelector)];
+    focusable[0]?.focus();
+    function keepFocusInside(event: KeyboardEvent) {
+      keepTabFocusInside(event, focusable);
+    }
+    window.addEventListener("keydown", keepFocusInside);
+    return () => window.removeEventListener("keydown", keepFocusInside);
+  }, [priceEditor, selectedHoldingId]);
+
+  useEffect(() => {
+    const editor = priceEditorRef.current;
+    if (!priceEditor || !editor) return;
+    const focusable = [...editor.querySelectorAll<HTMLElement>(focusableSelector)];
+    focusable[0]?.focus();
+    function keepFocusInside(event: KeyboardEvent) {
+      keepTabFocusInside(event, focusable);
+    }
+    window.addEventListener("keydown", keepFocusInside);
+    return () => window.removeEventListener("keydown", keepFocusInside);
+  }, [priceEditor]);
 
   function setDemoMode(enabled: boolean) {
     setDemoEnabled(enabled);
@@ -188,11 +273,37 @@ export function Dashboard() {
     }
   }
 
-  function openPriceEditor(holding: HoldingReadModel) {
+  function openPriceEditor(
+    holding: HoldingReadModel,
+    trigger?: HTMLElement,
+  ) {
+    priceEditorTriggerRef.current = trigger ?? null;
+    trigger?.blur();
     setPriceEditor(holding);
     setManualPrice("");
     setManualPriceDate(portfolioCalendarDate());
     setManualPriceError(undefined);
+  }
+
+  function closePriceEditor() {
+    setPriceEditor(undefined);
+    window.requestAnimationFrame(() => priceEditorTriggerRef.current?.focus());
+  }
+
+  function openHoldingDrawer(
+    holding: HoldingReadModel,
+    trigger?: HTMLElement,
+  ) {
+    if (!holding.detail) return;
+    holdingDrawerTriggerRef.current = trigger ?? null;
+    trigger?.blur();
+    setSelectedHoldingId(holding.id);
+    setDrawerPeriod(period);
+  }
+
+  function closeHoldingDrawer() {
+    setSelectedHoldingId(undefined);
+    window.requestAnimationFrame(() => holdingDrawerTriggerRef.current?.focus());
   }
 
   async function saveManualPrice(event: FormEvent) {
@@ -215,7 +326,7 @@ export function Dashboard() {
       if (!response.ok) throw new Error(payload.error ?? "Price update failed");
       await loadLocalPortfolio();
       setRefreshMessage(`Saved ${priceEditor.name} price for ${manualPriceDate}`);
-      setPriceEditor(undefined);
+      closePriceEditor();
     } catch (error) {
       setManualPriceError(error instanceof Error ? error.message : "Price update failed");
     } finally {
@@ -250,6 +361,16 @@ export function Dashboard() {
         : []
     ),
   );
+  const selectedHolding = isLocal
+    ? holdings.find((holding) => holding.id === selectedHoldingId)
+    : undefined;
+  const selectedPerformance = selectedHolding?.history?.[drawerPeriod];
+  const drawerSparkline = selectedHolding && selectedPerformance?.available
+    ? comparableSparklineModels([{
+        id: selectedHolding.id,
+        points: selectedPerformance.points,
+      }])[selectedHolding.id]
+    : undefined;
   const sources = [allAccounts, ...new Set(holdings.map((holding) => holding.source))];
   const sourceTotals = Array.from(
     holdings.reduce((totals, holding) => {
@@ -267,6 +388,10 @@ export function Dashboard() {
       }).join(", ")})`
     : undefined;
   const latestMarketResult = localPortfolio?.marketData.latestResult;
+  const eurCnyOverview = localFxOverview;
+  const eurCnyPoints = eurCnyOverview?.history.map((point) => point.rate) ?? [];
+  const eurCnyDeclined = eurCnyPoints.length > 1 &&
+    eurCnyPoints.at(-1)! < eurCnyPoints[0]!;
   const persistedMarketMessage = latestMarketResult
     ? latestMarketResult.failed > 0
       ? `Last check failed: ${formatRefreshFailures(latestMarketResult.failures)}; previous prices kept`
@@ -277,7 +402,7 @@ export function Dashboard() {
 
   return (
     <div className="app-shell">
-      <aside className="sidebar">
+      <aside className="sidebar" aria-hidden={Boolean(selectedHolding || priceEditor)}>
         <div className="brand-mark" aria-hidden="true">IM</div>
         <nav aria-label="Main navigation">
           <a className="nav-item active" href="#overview"><span>◫</span>Overview</a>
@@ -288,7 +413,7 @@ export function Dashboard() {
         <div className="privacy-note"><span className="status-dot" />Local portfolio<br /><small>Confirmed records stay on this device</small></div>
       </aside>
 
-      <main className="main-content" id="overview">
+      <main className="main-content" id="overview" aria-hidden={Boolean(selectedHolding || priceEditor)}>
         <header className="topbar">
           <div>
             <p className="eyebrow">INVEST ASSETS MONITOR</p>
@@ -346,9 +471,9 @@ export function Dashboard() {
             </div>
             <strong className="total-value">{eur.format(total)}</strong>
             <p className="subtle">EUR base currency · original currencies retained</p>
-            <div className="period-tabs" role="tablist" aria-label="Select performance period">
+            <div className="period-tabs" role="group" aria-label="Select performance period">
               {(Object.keys(periodData) as Period[]).map((key) => (
-                <button key={key} className={period === key ? "selected" : ""} onClick={() => setPeriod(key)} role="tab" aria-selected={period === key}>
+                <button key={key} className={period === key ? "selected" : ""} onClick={() => setPeriod(key)} aria-pressed={period === key}>
                   {periodData[key].label}
                 </button>
               ))}
@@ -369,6 +494,11 @@ export function Dashboard() {
                   <small className={current.percent >= 0 ? "positive" : "negative"}>
                     {current.percent >= 0 ? "+" : "−"}{Math.abs(current.percent).toFixed(2)}%
                   </small>
+                  {localHistory?.coverage === "partial" && (
+                    <small className="partial-range-note">
+                      Since tracking began · full {periodData[period].label.toLowerCase()} baseline pending
+                    </small>
+                  )}
                 </div>
               )}
               <span className="market-note">{isLocal ? `ECB rates ${localPortfolio?.fxAsOf}` : usingReviewedDemo ? "Confirmed demo review" : demoEnabled ? "Synthetic valuation" : "EUR base currency"}<br />{isLocal
@@ -400,7 +530,30 @@ export function Dashboard() {
         <section className="insight-strip" aria-label="Data status">
           <div><span className="insight-icon">✓</span><p><strong>{isLocal ? "Local ledger connected" : usingReviewedDemo ? "Confirmed demo review" : demoEnabled ? "Synthetic example" : "Local ledger ready"}</strong><small>{isLocal ? "Confirmed snapshots are active" : demoEnabled ? "Never mixed with your assets" : "Add a confirmed snapshot to begin"}</small></p></div>
           <div><span className="insight-icon amber">◷</span><p><strong>{isLocal ? "Market price history" : demoEnabled ? "2 funds awaiting NAV" : "No performance baseline"}</strong><small>{isLocal ? refreshMessage ?? persistedMarketMessage : demoEnabled ? "Missing data is never shown as zero" : "Starts after two confirmed snapshots"}</small></p></div>
-          <div><span className="insight-icon blue">€</span><p><strong>EUR overview</strong><small>{isLocal ? `ECB reference rates · ${localPortfolio?.missingInputs.length ?? 0} missing` : "Price and FX are calculated separately"}</small></p></div>
+          <div className="fx-insight-card">
+            <span className="insight-icon blue">¥</span>
+            <p>
+              <strong>EUR / CNY</strong>
+              {eurCnyOverview ? (
+                <>
+                  <span className="fx-current-rate">€1 = ¥{fxRate.format(eurCnyOverview.currentRate)}</span>
+                  <small>ECB · {eurCnyOverview.asOf} · {eurCnyOverview.history.length} saved {eurCnyOverview.history.length === 1 ? "rate" : "rates"}</small>
+                </>
+              ) : (
+                <small>{isLocal ? "CNY reference rate unavailable" : "ECB history appears with local data"}</small>
+              )}
+            </p>
+            {eurCnyOverview && eurCnyPoints.length > 1 ? (
+              <Sparkline
+                compact
+                points={eurCnyPoints}
+                negative={eurCnyDeclined}
+                label={`EUR to CNY exchange-rate history from ${eurCnyOverview.history[0]?.asOf} to ${eurCnyOverview.asOf}`}
+              />
+            ) : eurCnyOverview ? (
+              <span className="fx-history-empty">History<br />building</span>
+            ) : null}
+          </div>
         </section>
 
         <section className="holdings-section" id="holdings">
@@ -415,12 +568,42 @@ export function Dashboard() {
           <div className="holdings-card">
             <div className="holding-row holding-header"><span>Asset</span><span>Status</span><span>Current value</span><span>Period change</span></div>
             {filtered.map((holding) => (
-              <article className="holding-row" key={holding.id}>
-                <div className="asset-cell"><span className="asset-icon">{holding.category === "Bond" ? "B" : holding.category === "Fund" ? "F" : holding.category === "ETF" ? "E" : holding.category === "Portfolio cash" ? "€" : holding.category === "Stock" ? "S" : "?"}</span><p><strong>{holding.name}</strong><small>{holding.source} · {holding.symbol} · {holding.category}</small></p></div>
-                <div className="holding-status"><span className={`freshness ${holding.freshness}`}>{freshnessLabels[holding.freshness]}</span><small className="as-of">{holding.asOf}</small>{isLocal && holding.holdingKey && (
-                  <button type="button" className="update-price-button" onClick={() => openPriceEditor(holding)}>Update NAV / price</button>
-                )}</div>
-                <div className="value-cell"><strong>{eur.format(holding.eurValue)}</strong><small>{holding.originalValue}</small></div>
+              <article
+                className={`holding-row${isLocal && holding.detail ? " holding-row-interactive" : ""}`}
+                key={holding.id}
+                onClick={isLocal && holding.detail
+                  ? (event) => openHoldingDrawer(
+                      holding,
+                      event.currentTarget.querySelector<HTMLElement>(".asset-cell") ??
+                        event.currentTarget,
+                    )
+                  : undefined}
+              >
+                <div
+                  className="asset-cell"
+                  {...(isLocal && holding.detail
+                    ? {
+                        role: "button",
+                        tabIndex: 0,
+                        onKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => {
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            openHoldingDrawer(holding, event.currentTarget);
+                          }
+                        },
+                      }
+                    : {})}
+                ><span className="asset-icon">{holding.category === "Bond" ? "B" : holding.category === "Fund" ? "F" : holding.category === "ETF" ? "E" : holding.category === "Portfolio cash" ? "€" : holding.category === "Stock" ? "S" : "?"}</span><p><strong>{holding.name}</strong><small>{holding.source} · {holding.symbol} · {holding.category}</small></p></div>
+                <div className="holding-status"><span className={`freshness ${holding.freshness}`}>{freshnessLabels[holding.freshness]}</span><small className="as-of">{holding.asOf}</small></div>
+                <div className="value-cell">
+                  <strong>{eur.format(holding.eurValue)}</strong>
+                  <small>{holding.originalValue}</small>
+                  {holding.totalReturn && (
+                    <small className={holding.totalReturn.eurAmount >= 0 ? "total-return positive" : "total-return negative"}>
+                      Total {signedEur(holding.totalReturn.eurAmount)}{returnPercent(holding.totalReturn.percent)}
+                    </small>
+                  )}
+                </div>
                 <div className="change-cell">
                   {isLocal ? holding.history?.[period]?.available ? (
                     <div className="holding-change">
@@ -430,7 +613,7 @@ export function Dashboard() {
                           percent={holding.history[period].percent}
                         />
                         <small>Price {signedEur(holding.history[period].priceChange ?? 0)} · FX {signedEur(holding.history[period].fxChange ?? 0)}</small>
-                        <small>{holding.history[period].baselineAsOf?.slice(0, 10)} → {holding.history[period].currentAsOf?.slice(0, 10)}</small>
+                        <small>{holding.history[period].coverage === "partial" ? "Partial range · " : ""}{holding.history[period].baselineAsOf?.slice(0, 10)} → {holding.history[period].currentAsOf?.slice(0, 10)}</small>
                       </div>
                       <Sparkline
                         compact
@@ -455,9 +638,116 @@ export function Dashboard() {
         </section>
       </main>
 
+      {selectedHolding?.detail && (
+        <div className="holding-drawer-backdrop" role="presentation" onMouseDown={closeHoldingDrawer}>
+          <aside
+            ref={holdingDrawerRef}
+            className="holding-drawer"
+            role="dialog"
+            aria-modal={priceEditor ? undefined : true}
+            aria-hidden={Boolean(priceEditor)}
+            aria-labelledby="holding-drawer-title"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <header className="holding-drawer-header">
+              <div>
+                <p className="eyebrow">HOLDING DETAIL</p>
+                <h2 id="holding-drawer-title">{selectedHolding.name}</h2>
+                <p>{selectedHolding.source} · {selectedHolding.symbol} · {selectedHolding.category}</p>
+              </div>
+              <button type="button" className="drawer-close" aria-label="Close holding detail" onClick={closeHoldingDrawer}>×</button>
+            </header>
+
+            <section className="drawer-value-card">
+              <span>Current value</span>
+              <strong>{eur.format(selectedHolding.eurValue)}</strong>
+              <small>{selectedHolding.originalValue}</small>
+              {selectedHolding.totalReturn && (
+                <small className={selectedHolding.totalReturn.eurAmount >= 0 ? "drawer-total-return positive" : "drawer-total-return negative"}>
+                  Total return {signedEur(selectedHolding.totalReturn.eurAmount)}{returnPercent(selectedHolding.totalReturn.percent)}
+                </small>
+              )}
+            </section>
+
+            <dl className="holding-facts">
+              <div><dt>Quantity</dt><dd>{selectedHolding.detail.quantity}</dd></div>
+              <div><dt>Cost Basis</dt><dd>{selectedHolding.detail.costBasis} {selectedHolding.currency}</dd></div>
+              <div><dt>Current NAV / price</dt><dd>{selectedHolding.detail.currentPrice} {selectedHolding.currency}</dd></div>
+              <div><dt>NAV / price date</dt><dd>{selectedHolding.detail.currentPriceAsOf}</dd></div>
+              {selectedHolding.detail.averageCost && (
+                <div><dt>Average cost</dt><dd>{selectedHolding.detail.averageCost} {selectedHolding.currency}</dd></div>
+              )}
+              {selectedHolding.totalReturn && (
+                <div>
+                  <dt>Calculated total return</dt>
+                  <dd className={selectedHolding.totalReturn.originalAmount >= 0 ? "positive" : "negative"}>
+                    {formatSignedOriginalMoney(selectedHolding.totalReturn.originalAmount, selectedHolding.currency)}
+                    {returnPercent(selectedHolding.totalReturn.percent)}
+                  </dd>
+                </div>
+              )}
+              <div><dt>Reported at last holding update</dt><dd>{selectedHolding.detail.reportedPriorReturn} {selectedHolding.currency}</dd></div>
+            </dl>
+
+            <section className="drawer-performance">
+              <div className="drawer-section-heading">
+                <div><p className="eyebrow">MONITORED PERFORMANCE</p><h3>{periodData[drawerPeriod].label}</h3></div>
+                <div className="period-tabs drawer-period-tabs" role="group" aria-label="Select holding detail period">
+                  {(Object.keys(periodData) as Period[]).map((key) => (
+                    <button key={key} className={drawerPeriod === key ? "selected" : ""} type="button" onClick={() => setDrawerPeriod(key)} aria-pressed={drawerPeriod === key}>
+                      {periodData[key].label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {selectedPerformance?.available && drawerSparkline ? (
+                <>
+                  <div className="drawer-change-summary">
+                    <Change value={selectedPerformance.change} percent={selectedPerformance.percent} />
+                    <small>Price {signedEur(selectedPerformance.priceChange ?? 0)} · FX {signedEur(selectedPerformance.fxChange ?? 0)}</small>
+                    <small>{selectedPerformance.coverage === "partial" ? "Partial range · " : ""}{selectedPerformance.baselineAsOf?.slice(0, 10)} → {selectedPerformance.currentAsOf?.slice(0, 10)}</small>
+                  </div>
+                  <Sparkline
+                    detail
+                    points={selectedPerformance.points}
+                    negative={selectedPerformance.change < 0}
+                    comparableModel={drawerSparkline}
+                    label={`${selectedHolding.name} ${drawerPeriod} detailed value trend`}
+                  />
+                </>
+              ) : (
+                <div className="drawer-awaiting">
+                  <strong>Awaiting baseline</strong>
+                  <span>Record another dated NAV / price for this period.</span>
+                </div>
+              )}
+            </section>
+
+            <section className="price-history-section">
+              <div className="drawer-section-heading">
+                <div><p className="eyebrow">MARKET DATA</p><h3>Saved NAV / price history</h3></div>
+                <button type="button" className="drawer-update-price" onClick={(event) => openPriceEditor(selectedHolding, event.currentTarget)}>Update NAV / price</button>
+              </div>
+              {selectedHolding.detail.priceHistory.length > 0 ? (
+                <div className="price-history-list">
+                  {selectedHolding.detail.priceHistory.map((observation) => (
+                    <div key={`${observation.asOf}:${observation.source}`}>
+                      <span><strong>{observation.asOf}</strong><small>{observation.source}</small></span>
+                      <strong>{observation.price} {observation.currency}</strong>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="drawer-empty-copy">No saved price observations yet.</p>
+              )}
+            </section>
+          </aside>
+        </div>
+      )}
+
       {priceEditor && (
-        <div className="price-editor-backdrop" role="presentation" onMouseDown={() => !savingManualPrice && setPriceEditor(undefined)}>
-          <form className="price-editor" role="dialog" aria-modal="true" aria-labelledby="price-editor-title" onSubmit={saveManualPrice} onMouseDown={(event) => event.stopPropagation()}>
+        <div className="price-editor-backdrop" role="presentation" onMouseDown={() => !savingManualPrice && closePriceEditor()}>
+          <form ref={priceEditorRef} className="price-editor" role="dialog" aria-modal="true" aria-labelledby="price-editor-title" onSubmit={saveManualPrice} onMouseDown={(event) => event.stopPropagation()}>
             <div>
               <p className="eyebrow">MARKET DATA ONLY</p>
               <h2 id="price-editor-title">Update NAV / price</h2>
@@ -472,14 +762,14 @@ export function Dashboard() {
             <p className="price-editor-note">This records Market Data only. Quantity and Cost Basis will not change.</p>
             {manualPriceError && <p className="error-message" role="alert">{manualPriceError}</p>}
             <div className="price-editor-actions">
-              <button type="button" disabled={savingManualPrice} onClick={() => setPriceEditor(undefined)}>Cancel</button>
+              <button type="button" disabled={savingManualPrice} onClick={closePriceEditor}>Cancel</button>
               <button type="submit" disabled={savingManualPrice}>{savingManualPrice ? "Saving…" : "Save price"}</button>
             </div>
           </form>
         </div>
       )}
 
-      <nav className="mobile-nav" aria-label="Mobile navigation">
+      <nav className="mobile-nav" aria-label="Mobile navigation" aria-hidden={Boolean(selectedHolding || priceEditor)}>
         <a className="active" href="#overview"><span>◫</span>Overview</a>
         <a href="#holdings"><span>◎</span>Holdings</a>
         <Link href="/accounts"><span>⌁</span>Accounts</Link>
