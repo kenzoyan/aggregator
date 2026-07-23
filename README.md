@@ -52,14 +52,15 @@ CSV, screenshot and manual updates are partial by default: previously confirmed 
 
 Use **Refresh prices** on the portfolio overview to check published NAVs for supported six-digit CNY fund codes held in Alipay or WeChat. Each check fills missing NAV dates since monitoring began, so checking a few times per month can still preserve a near-daily curve. The first provider is the public Eastmoney/Tiantian Fund NAV service. It requires no credential and receives only the public fund code—not account credentials, quantities, costs or portfolio totals. It is a third-party source behind a replaceable provider interface; failures keep the last successful local price.
 
+Use **Update NAV / price** on an existing holding to record a dated manual observation when an automatic provider is unavailable. This changes Market Data only; it never changes Quantity or Cost Basis. Once a valid baseline exists, the holding row shows the baseline/current dates and separates the EUR price effect from the FX effect.
+
 Price observations are stored separately from Holding State. A refresh never changes quantity, Cost Basis or Reported Prior Return. Today, 7-day and 30-day monitored performance becomes available only as new NAV observations accumulate after the Opening Snapshot; the app does not invent pre-monitoring portfolio history.
 
 FX observations are also stored as dated market data. Portfolio and holding history use only prices and ECB rates known at each valuation date. Each holding shows its selected-period EUR change and a compact trend once a valid baseline exists; otherwise it explicitly stays in **Awaiting baseline**. Additional units, newly imported holdings and sale proceeds are treated as capital changes rather than investment return.
 
 ## Near-term roadmap
 
-- Surface the stored price-effect and FX-effect breakdown in a holding detail view.
-- Complete and verify Trading 212 read-only synchronization before adding scheduled background refreshes.
+- Refresh supported prices automatically once per Helsinki day when the dashboard opens, while keeping Holding State unchanged. Extend and verify read-only price-provider coverage for Trading 212 ETFs before considering an operating-system background scheduler.
 
 Local portfolio records are stored in `data/invest-assets-monitor.sqlite`. The entire `data` database remains ignored by Git.
 

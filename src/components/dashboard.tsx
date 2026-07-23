@@ -7,17 +7,23 @@ import {
   useMemo,
   useState,
   type CSSProperties,
+  type FormEvent,
 } from "react";
 
 import {
   demoHoldings,
   periodData,
 } from "@/application/demo-dashboard";
+import { portfolioCalendarDate } from "@/application/portfolio-calendar";
 import type {
   HoldingReadModel,
   Period,
   PortfolioOverviewReadModel,
 } from "@/application/portfolio-read-model";
+import {
+  comparableSparklineModels,
+  type ComparableSparklineModel,
+} from "@/application/sparkline-model";
 import {
   demoPortfolioStorageKey,
   parseDemoPortfolioRecord,
@@ -53,14 +59,17 @@ function Sparkline({
   negative,
   compact = false,
   label = "Portfolio value trend",
+  comparableModel,
 }: {
   points: number[];
   negative: boolean;
   compact?: boolean;
   label?: string;
+  comparableModel?: ComparableSparklineModel;
 }) {
   const gradientId = `chart-fill-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
   const path = useMemo(() => {
+    if (comparableModel) return comparableModel.path;
     const max = Math.max(...points);
     const min = Math.min(...points);
     const range = max - min || 1;
@@ -71,7 +80,9 @@ function Sparkline({
         return `${index === 0 ? "M" : "L"}${x.toFixed(2)},${y.toFixed(2)}`;
       })
       .join(" ");
-  }, [points]);
+  }, [comparableModel, points]);
+  const zeroY = comparableModel?.zeroY;
+  const fillBottom = zeroY ?? 64;
 
   return (
     <svg className={compact ? "holding-sparkline" : "sparkline"} viewBox="0 0 100 64" preserveAspectRatio="none" aria-label={label}>
@@ -81,7 +92,10 @@ function Sparkline({
           <stop offset="100%" stopColor={negative ? "#e26d76" : "#13a779"} stopOpacity="0" />
         </linearGradient>
       </defs>
-      <path d={`${path} L100,64 L0,64 Z`} fill={`url(#${gradientId})`} />
+      {zeroY !== undefined && (
+        <line className="sparkline-baseline" x1="0" x2="100" y1={zeroY} y2={zeroY} />
+      )}
+      <path d={`${path} L100,${fillBottom} L0,${fillBottom} Z`} fill={`url(#${gradientId})`} />
       <path d={path} fill="none" stroke={negative ? "#d95763" : "#078d68"} strokeWidth="2.2" vectorEffect="non-scaling-stroke" />
     </svg>
   );
@@ -96,6 +110,10 @@ function Change({ value, percent }: { value: number; percent: number }) {
   );
 }
 
+function signedEur(value: number) {
+  return `${value >= 0 ? "+" : "−"}${eur.format(Math.abs(value))}`;
+}
+
 export function Dashboard() {
   const [period, setPeriod] = useState<Period>("today");
   const [source, setSource] = useState(allAccounts);
@@ -105,6 +123,11 @@ export function Dashboard() {
   const [localPortfolio, setLocalPortfolio] = useState<PortfolioOverviewReadModel>();
   const [refreshingPrices, setRefreshingPrices] = useState(false);
   const [refreshMessage, setRefreshMessage] = useState<string>();
+  const [priceEditor, setPriceEditor] = useState<HoldingReadModel>();
+  const [manualPrice, setManualPrice] = useState("");
+  const [manualPriceDate, setManualPriceDate] = useState("");
+  const [savingManualPrice, setSavingManualPrice] = useState(false);
+  const [manualPriceError, setManualPriceError] = useState<string>();
 
   async function loadLocalPortfolio(signal?: AbortSignal) {
     const response = await fetch("/api/portfolio", { signal });
@@ -165,6 +188,41 @@ export function Dashboard() {
     }
   }
 
+  function openPriceEditor(holding: HoldingReadModel) {
+    setPriceEditor(holding);
+    setManualPrice("");
+    setManualPriceDate(portfolioCalendarDate());
+    setManualPriceError(undefined);
+  }
+
+  async function saveManualPrice(event: FormEvent) {
+    event.preventDefault();
+    if (!priceEditor?.holdingKey) return;
+    setSavingManualPrice(true);
+    setManualPriceError(undefined);
+    try {
+      const response = await fetch("/api/market-data/manual", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          sourceAccountId: priceEditor.holdingKey.sourceAccountId,
+          instrumentId: priceEditor.holdingKey.instrumentId,
+          price: manualPrice,
+          asOf: manualPriceDate,
+        }),
+      });
+      const payload = (await response.json()) as { error?: string };
+      if (!response.ok) throw new Error(payload.error ?? "Price update failed");
+      await loadLocalPortfolio();
+      setRefreshMessage(`Saved ${priceEditor.name} price for ${manualPriceDate}`);
+      setPriceEditor(undefined);
+    } catch (error) {
+      setManualPriceError(error instanceof Error ? error.message : "Price update failed");
+    } finally {
+      setSavingManualPrice(false);
+    }
+  }
+
   const isLocal = Boolean(localPortfolio) && !demoEnabled;
   const hasVisiblePortfolio = isLocal || demoEnabled;
   const usingReviewedDemo = demoEnabled && Boolean(reviewedDemoHoldings);
@@ -185,6 +243,13 @@ export function Dashboard() {
     ? localPortfolio?.totalValueEur ?? 0
     : holdings.reduce((sum, holding) => sum + holding.eurValue, 0);
   const filtered = source === allAccounts ? holdings : holdings.filter((holding) => holding.source === source);
+  const comparableHoldingSparklines = comparableSparklineModels(
+    filtered.flatMap((holding) =>
+      isLocal && holding.history?.[period]?.available
+        ? [{ id: holding.id, points: holding.history[period].points }]
+        : []
+    ),
+  );
   const sources = [allAccounts, ...new Set(holdings.map((holding) => holding.source))];
   const sourceTotals = Array.from(
     holdings.reduce((totals, holding) => {
@@ -352,24 +417,31 @@ export function Dashboard() {
             {filtered.map((holding) => (
               <article className="holding-row" key={holding.id}>
                 <div className="asset-cell"><span className="asset-icon">{holding.category === "Bond" ? "B" : holding.category === "Fund" ? "F" : holding.category === "ETF" ? "E" : holding.category === "Portfolio cash" ? "€" : holding.category === "Stock" ? "S" : "?"}</span><p><strong>{holding.name}</strong><small>{holding.source} · {holding.symbol} · {holding.category}</small></p></div>
-                <div><span className={`freshness ${holding.freshness}`}>{freshnessLabels[holding.freshness]}</span><small className="as-of">{holding.asOf}</small></div>
+                <div className="holding-status"><span className={`freshness ${holding.freshness}`}>{freshnessLabels[holding.freshness]}</span><small className="as-of">{holding.asOf}</small>{isLocal && holding.holdingKey && (
+                  <button type="button" className="update-price-button" onClick={() => openPriceEditor(holding)}>Update NAV / price</button>
+                )}</div>
                 <div className="value-cell"><strong>{eur.format(holding.eurValue)}</strong><small>{holding.originalValue}</small></div>
                 <div className="change-cell">
                   {isLocal ? holding.history?.[period]?.available ? (
                     <div className="holding-change">
-                      <Change
-                        value={holding.history[period].change}
-                        percent={holding.history[period].percent}
-                      />
+                      <div className="holding-performance-copy">
+                        <Change
+                          value={holding.history[period].change}
+                          percent={holding.history[period].percent}
+                        />
+                        <small>Price {signedEur(holding.history[period].priceChange ?? 0)} · FX {signedEur(holding.history[period].fxChange ?? 0)}</small>
+                        <small>{holding.history[period].baselineAsOf?.slice(0, 10)} → {holding.history[period].currentAsOf?.slice(0, 10)}</small>
+                      </div>
                       <Sparkline
                         compact
                         points={holding.history[period].points}
                         negative={holding.history[period].change < 0}
                         label={`${holding.name} ${period} value trend`}
+                        comparableModel={comparableHoldingSparklines[holding.id]}
                       />
                     </div>
                   ) : (
-                    <span className="pending-change-cell">Awaiting baseline</span>
+                    <span className="pending-change-cell">Awaiting baseline<small>Record another dated NAV / price</small></span>
                   ) : (
                     <Change value={holding.changeEur} percent={holding.changePercent} />
                   )}
@@ -382,6 +454,30 @@ export function Dashboard() {
           </div>
         </section>
       </main>
+
+      {priceEditor && (
+        <div className="price-editor-backdrop" role="presentation" onMouseDown={() => !savingManualPrice && setPriceEditor(undefined)}>
+          <form className="price-editor" role="dialog" aria-modal="true" aria-labelledby="price-editor-title" onSubmit={saveManualPrice} onMouseDown={(event) => event.stopPropagation()}>
+            <div>
+              <p className="eyebrow">MARKET DATA ONLY</p>
+              <h2 id="price-editor-title">Update NAV / price</h2>
+              <p>{priceEditor.name} · {priceEditor.currency}</p>
+            </div>
+            <label className="field-label">NAV / price
+              <input required autoFocus inputMode="decimal" value={manualPrice} onChange={(event) => setManualPrice(event.target.value)} placeholder="e.g. 12.345" />
+            </label>
+            <label className="field-label">Price date
+              <input required type="date" value={manualPriceDate} max={portfolioCalendarDate()} onChange={(event) => setManualPriceDate(event.target.value)} />
+            </label>
+            <p className="price-editor-note">This records Market Data only. Quantity and Cost Basis will not change.</p>
+            {manualPriceError && <p className="error-message" role="alert">{manualPriceError}</p>}
+            <div className="price-editor-actions">
+              <button type="button" disabled={savingManualPrice} onClick={() => setPriceEditor(undefined)}>Cancel</button>
+              <button type="submit" disabled={savingManualPrice}>{savingManualPrice ? "Saving…" : "Save price"}</button>
+            </div>
+          </form>
+        </div>
+      )}
 
       <nav className="mobile-nav" aria-label="Mobile navigation">
         <a className="active" href="#overview"><span>◫</span>Overview</a>

@@ -10,7 +10,7 @@ describe("holding history read model", () => {
       sourceAccountId: "trading212-main",
       asOf: "2026-07-20T16:00:00.000Z",
       positions: [{
-        instrumentId: "IE00BYVQTM52",
+        instrumentId: "T212-ETF-FIXTURE",
         assetType: "etf" as const,
         quantity: "2",
         currency: "EUR",
@@ -26,8 +26,8 @@ describe("holding history read model", () => {
       snapshots: [snapshot],
       marketPrices: [{
         sourceAccountId: "trading212-main",
-        instrumentId: "IE00BYVQTM52",
-        instrumentCode: "IE00BYVQTM52",
+        instrumentId: "T212-ETF-FIXTURE",
+        instrumentCode: "T212-ETF-FIXTURE",
         price: "110",
         currency: "EUR",
         asOf: "2026-07-21",
@@ -38,13 +38,15 @@ describe("holding history read model", () => {
       asOf: "2026-07-21T23:59:59.999Z",
     });
 
-    expect(history["trading212-main:IE00BYVQTM52"].today).toEqual({
+    expect(history["trading212-main:T212-ETF-FIXTURE"].today).toEqual({
       available: true,
       change: 20,
       percent: 10,
       points: [200, 220],
       priceChange: 20,
       fxChange: 0,
+      baselineAsOf: "2026-07-20T23:59:59.999Z",
+      currentAsOf: "2026-07-21T23:59:59.999Z",
     });
   });
 
@@ -145,6 +147,58 @@ describe("holding history read model", () => {
       available: true,
       change: 0.5,
       points: [12, 12.5],
+      currentAsOf: "2026-07-20T23:59:59.999Z",
+    });
+  });
+
+  it("labels an FX-driven baseline with the NAV date it actually used", () => {
+    const snapshot = {
+      id: "opening-fx-price-date",
+      sourceAccountId: "fixture-account",
+      asOf: "2026-07-20T09:00:00.000Z",
+      positions: [{
+        instrumentId: "fixture-fund",
+        quantity: "10",
+        currency: "CNY",
+        costBasis: "100",
+        observedPrice: "10",
+        priceAsOf: "2026-07-20",
+      }],
+    };
+    const history = createHoldingHistoryReadModel({
+      state: buildPortfolioState({ openingSnapshots: [snapshot], events: [] }),
+      snapshots: [snapshot],
+      marketPrices: [],
+      fxObservations: [
+        {
+          currency: "CNY",
+          eurPerUnit: "0.12",
+          asOf: "2026-07-20",
+          recordedAt: "2026-07-20T16:00:00.000Z",
+          source: "ecb",
+        },
+        {
+          currency: "CNY",
+          eurPerUnit: "0.125",
+          asOf: "2026-07-21",
+          recordedAt: "2026-07-21T16:00:00.000Z",
+          source: "ecb",
+        },
+        {
+          currency: "CNY",
+          eurPerUnit: "0.13",
+          asOf: "2026-07-22",
+          recordedAt: "2026-07-22T16:00:00.000Z",
+          source: "ecb",
+        },
+      ],
+      asOf: "2026-07-22T23:59:59.999Z",
+    });
+
+    expect(history["fixture-account:fixture-fund"].today).toMatchObject({
+      available: true,
+      baselineAsOf: "2026-07-20T23:59:59.999Z",
+      currentAsOf: "2026-07-20T23:59:59.999Z",
     });
   });
 

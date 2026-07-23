@@ -2,6 +2,10 @@ export type Period = "today" | "week" | "month";
 
 export interface HoldingReadModel {
   id: string;
+  holdingKey?: {
+    sourceAccountId: string;
+    instrumentId: string;
+  };
   name: string;
   symbol: string;
   source: string;
@@ -23,6 +27,8 @@ export interface PeriodPerformanceReadModel {
   points: number[];
   priceChange?: number;
   fxChange?: number;
+  baselineAsOf?: string;
+  currentAsOf?: string;
 }
 
 export interface MarketDataStatusReadModel {

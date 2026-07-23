@@ -56,14 +56,14 @@ describe("market-priced dashboard", () => {
       sourceAccountId: "trading212-main",
       asOf: "2026-07-21T19:28:00.000Z",
       positions: [{
-        instrumentId: "IE00BYVQTM52",
-        displayName: "Invesco EQQQ Nasdaq-100 (Acc)",
-        instrumentCode: "IE00BYVQTM52",
+        instrumentId: "T212-ETF-FIXTURE",
+        displayName: "Synthetic T212 ETF",
+        instrumentCode: "T212-ETF-FIXTURE",
         assetType: "etf" as const,
         quantity: "1",
         currency: "EUR",
-        costBasis: "96.32",
-        reportedMarketValue: "96.32",
+        costBasis: "100",
+        reportedMarketValue: "100",
       }],
     };
 
@@ -127,6 +127,19 @@ describe("market-priced dashboard", () => {
       lastRefreshedAt: "2026-07-19T11:00:00.000Z",
       latestResult: { updated: 1, unchanged: 4, failed: 0, failures: [] },
     });
+  });
+
+  it("labels a user-entered market price as manual", () => {
+    const readModel = createDashboardReadModel({
+      state: buildPortfolioState({ openingSnapshots: [openingSnapshot], events: [] }),
+      asOf: "2026-07-19T23:59:59.999Z",
+      snapshotTimes: { "alipay-main": openingSnapshot.asOf },
+      marketPrices: [{ ...marketPrices[1], source: "manual" }],
+      eurPerUnit: { EUR: "1", CNY: "0.125" },
+      fxAsOf: "2026-07-19",
+    });
+
+    expect(readModel.holdings[0]?.freshness).toBe("manual");
   });
 
   it("calculates today and 7-day change from recorded prices without inventing 30-day history", () => {

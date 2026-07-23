@@ -172,15 +172,26 @@ describe("screenshot import confirmation workflow", () => {
         id: "opening-trading212-etf",
         sourceAccountId: "trading212-main",
         asOf: "2026-07-21T19:28:00.000Z",
-        positions: [{
-          instrumentId: "IE00BYVQTM52",
-          displayName: "Invesco EQQQ Nasdaq-100 (Acc)",
-          instrumentCode: "IE00BYVQTM52",
-          assetType: "stock",
-          quantity: "1",
-          currency: "EUR",
-          costBasis: "96.32",
-        }],
+        positions: [
+          {
+            instrumentId: "T212-ETF-FIXTURE",
+            displayName: "Synthetic T212 ETF",
+            instrumentCode: "T212-ETF-FIXTURE",
+            assetType: "stock",
+            quantity: "1",
+            currency: "EUR",
+            costBasis: "100",
+          },
+          {
+            instrumentId: "REMOVED-BY-COMPLETE-SYNC",
+            displayName: "Synthetic removed position",
+            instrumentCode: "REMOVED-BY-COMPLETE-SYNC",
+            assetType: "stock",
+            quantity: "2",
+            currency: "EUR",
+            costBasis: "40",
+          },
+        ],
       },
     });
     database.saveImportDraft(importDraft);
@@ -197,7 +208,41 @@ describe("screenshot import confirmation workflow", () => {
       review: applyImportDraftReview(importDraft, editable),
     });
 
+    expect(database.readPortfolioFacts().state.positions).toHaveLength(2);
     expect(database.readPortfolioFacts().state.positions[0]?.assetType).toBe("etf");
+
+    const resync = draft({
+      id: "draft-trading212-resync",
+      sourceAccountId: "trading212-main",
+      sourceKind: "trading-212",
+      createdAt: "2026-07-22T19:28:00.000Z",
+      snapshot: {
+        id: "opening-trading212-resync",
+        sourceAccountId: "trading212-main",
+        asOf: "2026-07-22T19:28:00.000Z",
+        positions: [{
+          instrumentId: "T212-ETF-FIXTURE",
+          displayName: "Synthetic T212 ETF",
+          instrumentCode: "T212-ETF-FIXTURE",
+          assetType: "stock",
+          quantity: "1",
+          currency: "EUR",
+          costBasis: "100",
+        }],
+      },
+    });
+    database.saveImportDraft(resync);
+    const savedResync = database.getImportDraft(resync.id)!;
+
+    expect(createImportDraftReadModel(savedResync).portfolio.holdings[0]?.assetType)
+      .toBe("etf");
+
+    confirm(database, savedResync, "2026-07-22T19:29:00.000Z");
+    expect(database.readPortfolioFacts().state.positions).toHaveLength(1);
+    expect(database.readPortfolioFacts().state.positions[0]).toMatchObject({
+      instrumentId: "T212-ETF-FIXTURE",
+      assetType: "etf",
+    });
     database.close();
   });
 

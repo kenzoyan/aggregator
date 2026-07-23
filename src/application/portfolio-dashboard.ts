@@ -77,7 +77,9 @@ export function createDashboardReadModel(input: {
         input.snapshotTimes[position.sourceAccountId] ?? input.asOf,
       source: marketPrice?.source ?? position.priceSource ?? "confirmed-snapshot",
       freshness: marketPrice
-        ? marketPriceFreshness(marketPrice.asOf, input.asOf)
+        ? marketPrice.source === "manual"
+          ? "manual" as const
+          : marketPriceFreshness(marketPrice.asOf, input.asOf)
         : position.sourceAccountId.includes("trading212")
           ? "fresh" as const
           : "manual" as const,
@@ -110,6 +112,10 @@ export function createDashboardReadModel(input: {
 
       return {
         id: `${position.sourceAccountId}:${position.instrumentId}`,
+        holdingKey: {
+          sourceAccountId: position.sourceAccountId,
+          instrumentId: position.instrumentId,
+        },
         name: sourcePosition?.displayName ?? position.instrumentId,
         symbol: sourcePosition?.instrumentCode ?? position.instrumentId,
         source: sourceAccountDashboardLabel(position.sourceAccountId, input.accountLabels),

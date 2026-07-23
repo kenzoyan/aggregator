@@ -1,8 +1,8 @@
 import { DatabaseSync } from "node:sqlite";
 
 import {
-  completePartialImportDraft,
   materializeOpeningSnapshot,
+  prepareImportDraftForReview,
   restoreLegacyPartialSnapshots,
   type ConfirmedImportRecord,
   type ImportDraftInput,
@@ -287,7 +287,7 @@ export function createPortfolioDatabase(filename: string): PortfolioDatabase {
 
   return {
     saveImportDraft(draft) {
-      const completedDraft = completePartialImportDraft(
+      const completedDraft = prepareImportDraftForReview(
         draft,
         buildPortfolioState({
           openingSnapshots: readOpeningSnapshots(),

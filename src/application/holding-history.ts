@@ -25,6 +25,7 @@ export type HoldingHistoryReadModel = Record<
 
 interface HoldingValuePoint {
   asOf: string;
+  priceAsOf: string;
   valueEur: Decimal;
   unitPrice: Decimal;
   fxRate: Decimal;
@@ -97,16 +98,18 @@ function holdingPoints(input: {
   return [...timeline]
     .sort()
     .flatMap((asOf) => {
-      const price = sortedPrices
+      const pricePoint = sortedPrices
         .filter(([priceAsOf]) => priceAsOf <= asOf)
-        .at(-1)?.[1];
+        .at(-1);
+      const price = pricePoint?.[1];
       const eurPerUnit = eurPerUnitAt(input.fxObservations, asOf)[
         input.position.currency
       ];
       const fxRate = eurPerUnit ? new Decimal(eurPerUnit) : undefined;
       return price && fxRate
-        ? [{
+          ? [{
             asOf,
+            priceAsOf: pricePoint[0],
             valueEur: quantity.mul(price).mul(fxRate),
             unitPrice: price,
             fxRate,
@@ -156,6 +159,7 @@ function cashPoints(input: {
     const fxRate = new Decimal(eurPerUnit);
     return [{
       asOf,
+      priceAsOf: asOf,
       valueEur: quantity.mul(fxRate),
       unitPrice: new Decimal(1),
       fxRate,
@@ -230,6 +234,8 @@ function periodPerformance(
       .map((point) => point.valueEur.toNumber()),
     priceChange: priceChange.toNumber(),
     fxChange: fxChange.toNumber(),
+    baselineAsOf: baseline.priceAsOf,
+    currentAsOf: current.priceAsOf,
   };
 }
 

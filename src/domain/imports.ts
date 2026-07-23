@@ -247,13 +247,22 @@ function preferUpdatedValue<T>(
   return updated.status === "unknown" ? previous : updated;
 }
 
+function mergedHoldingMetadata(
+  previous: DraftHolding,
+  updated: DraftHolding,
+): Pick<DraftHolding, "displayName" | "instrumentCode" | "assetType"> {
+  return {
+    displayName: preferUpdatedValue(previous.displayName, updated.displayName),
+    instrumentCode: preferUpdatedValue(previous.instrumentCode, updated.instrumentCode),
+    assetType: preferUpdatedValue(previous.assetType, updated.assetType),
+  };
+}
+
 function mergeHolding(previous: DraftHolding, updated: DraftHolding): DraftHolding {
   return {
     lineId: updated.lineId,
     instrumentId: preferUpdatedValue(previous.instrumentId, updated.instrumentId),
-    displayName: preferUpdatedValue(previous.displayName, updated.displayName),
-    instrumentCode: preferUpdatedValue(previous.instrumentCode, updated.instrumentCode),
-    assetType: preferUpdatedValue(previous.assetType, updated.assetType),
+    ...mergedHoldingMetadata(previous, updated),
     quantity: preferUpdatedValue(previous.quantity, updated.quantity),
     currency: preferUpdatedValue(previous.currency, updated.currency),
     costBasis: preferUpdatedValue(previous.costBasis, updated.costBasis),
@@ -272,12 +281,26 @@ function mergeHolding(previous: DraftHolding, updated: DraftHolding): DraftHoldi
   };
 }
 
-export function completePartialImportDraft(
+function preserveTrading212Metadata(
+  previous: DraftHolding,
+  updated: DraftHolding,
+): DraftHolding {
+  const metadata = mergedHoldingMetadata(previous, updated);
+  return {
+    ...updated,
+    ...metadata,
+    // Once reviewed, classification is owner-controlled. A later API sync can
+    // update position values, but it must not undo an ETF correction.
+    assetType: previous.assetType.status === "unknown"
+      ? updated.assetType
+      : previous.assetType,
+  };
+}
+
+export function prepareImportDraftForReview(
   draft: ImportDraftInput,
   currentState: PortfolioState,
 ): ImportDraftInput {
-  if (!partialImportSourceKinds.has(draft.sourceKind)) return draft;
-
   const currentPositions = currentState.positions.filter(
     (position) => position.sourceAccountId === draft.sourceAccountId,
   );
@@ -311,6 +334,22 @@ export function completePartialImportDraft(
         : {}),
     })),
   }, "manual");
+
+  if (draft.sourceKind === "trading-212") {
+    return {
+      ...draft,
+      portfolio: {
+        ...draft.portfolio,
+        holdings: draft.portfolio.holdings.map((updated) => {
+          const previous = previousPortfolio.holdings.find((candidate) =>
+            sameHolding(candidate, updated)
+          );
+          return previous ? preserveTrading212Metadata(previous, updated) : updated;
+        }),
+      },
+    };
+  }
+  if (!partialImportSourceKinds.has(draft.sourceKind)) return draft;
 
   const matchedPrevious = new Set<number>();
   const updatedHoldings = draft.portfolio.holdings.map((updated) => {

@@ -15,18 +15,18 @@ describe("POST /api/imports/:id/confirm", () => {
           asOf: "2026-07-21T00:00:00.000Z",
           holdings: [{
             lineId: "holding-1",
-            instrumentId: "019172",
-            displayName: "摩根纳斯达克100指数(QDII)A",
-            instrumentCode: "019172",
+            instrumentId: "FIXTURE-FUND",
+            displayName: "Synthetic Validation Fund",
+            instrumentCode: "FIXTURE-FUND",
             assetType: "fund",
-            quantity: "3977.93",
+            quantity: "2",
             currency: "CNY",
-            costBasis: "6360",
-            reportedPriorReturn: "440.38",
-            averageCost: "1.5938",
-            observedPrice: "1.7045",
+            costBasis: "200",
+            reportedPriorReturn: "25",
+            averageCost: "100",
+            observedPrice: "110",
             priceAsOf: "2026-07-20T00:00:00.000Z",
-            reportedMarketValue: "6800.38",
+            reportedMarketValue: "225",
           }],
         },
       }),
@@ -38,10 +38,10 @@ describe("POST /api/imports/:id/confirm", () => {
 
     expect(response.status).toBe(400);
     await expect(response.json()).resolves.toEqual({
-      error: "Quantity × price is 6780.38 CNY, but current value is 6800.38 CNY.",
+      error: "Quantity × price is 220.00 CNY, but current value is 225.00 CNY.",
       fieldErrors: {
         "portfolio.holdings.0.observedPrice":
-          "Quantity × price is 6780.38 CNY, but current value is 6800.38 CNY.",
+          "Quantity × price is 220.00 CNY, but current value is 225.00 CNY.",
       },
     });
   });
@@ -58,13 +58,13 @@ describe("POST /api/imports/:id/confirm", () => {
           asOf: "2026-07-21T00:00:00.000Z",
           holdings: [{
             lineId: "holding-1",
-            instrumentId: "019172",
-            quantity: "3977.93",
+            instrumentId: "FIXTURE-FUND",
+            quantity: "2",
             currency: "CNY",
-            costBasis: "6360",
-            reportedPriorReturn: "440.38",
-            observedPrice: "1.7045",
-            reportedMarketValue: "6780.38",
+            costBasis: "200",
+            reportedPriorReturn: "25",
+            observedPrice: "110",
+            reportedMarketValue: "220",
           }],
         },
       }),
@@ -76,10 +76,10 @@ describe("POST /api/imports/:id/confirm", () => {
 
     expect(response.status).toBe(400);
     await expect(response.json()).resolves.toMatchObject({
-      error: "Cost basis + prior return is 6800.38 CNY, but current value is 6780.38 CNY.",
+      error: "Cost basis + prior return is 225.00 CNY, but current value is 220.00 CNY.",
       fieldErrors: {
         "portfolio.holdings.0.reportedMarketValue":
-          "Cost basis + prior return is 6800.38 CNY, but current value is 6780.38 CNY.",
+          "Cost basis + prior return is 225.00 CNY, but current value is 220.00 CNY.",
       },
     });
   });
