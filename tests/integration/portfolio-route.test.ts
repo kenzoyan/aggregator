@@ -141,6 +141,40 @@ describe("GET /api/portfolio", () => {
       priceChange: 1.2,
       fxChange: 0.55,
     });
+    expect(payload.portfolio.insights).toMatchObject({
+      asOf: "2026-07-21T23:59:59.999Z",
+      summary: {
+        investmentPositionCount: 1,
+        sourceAccountCount: 1,
+        topHolding: {
+          name: "Synthetic Fund",
+          valueEur: 13.75,
+          sharePercent: 100,
+        },
+        topThreeSharePercent: 100,
+      },
+      holdingCurrencyAllocation: [{
+        currency: "CNY",
+        valueEur: 13.75,
+        sharePercent: 100,
+        holdingCount: 1,
+      }],
+      performance: {
+        today: {
+          available: true,
+          changeEur: 1.75,
+          priceChangeEur: 1.2,
+          fxChangeEur: 0.55,
+        },
+      },
+      dataQuality: {
+        valuedHoldingCount: 1,
+        freshCount: 1,
+        staleCount: 0,
+        awaitingNavCount: 0,
+        missingInputCount: 0,
+      },
+    });
     expect(payload.portfolio.fxOverview).toEqual({
       baseCurrency: "EUR",
       quoteCurrency: "CNY",

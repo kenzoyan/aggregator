@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 
 import { createImportDraftReadModel } from "@/application/imports/import-draft-read-model";
+import { marketObservationsFromTrading212Snapshot } from "@/application/trading212-market-data";
 import {
   draftPortfolioFromOpeningSnapshot,
   materializeOpeningSnapshot,
@@ -41,24 +42,6 @@ interface Trading212SnapshotClient {
     id: string;
     sourceAccountId: string;
   }): Promise<OpeningSnapshotInput>;
-}
-
-function marketObservationsFromSnapshot(
-  snapshot: OpeningSnapshotInput,
-): MarketPriceObservation[] {
-  return snapshot.positions.flatMap((position) => {
-    if (!position.observedPrice) return [];
-    return [{
-      sourceAccountId: snapshot.sourceAccountId,
-      instrumentId: position.instrumentId,
-      instrumentCode: position.instrumentCode ?? position.instrumentId,
-      price: position.observedPrice,
-      currency: position.currency,
-      asOf: position.priceAsOf ?? snapshot.asOf,
-      recordedAt: snapshot.asOf,
-      source: position.priceSource ?? "trading212",
-    }];
-  });
 }
 
 export function createTrading212ImportHandler(input: {
@@ -100,7 +83,7 @@ export function createTrading212ImportHandler(input: {
         ],
         portfolio: draftPortfolioFromOpeningSnapshot(snapshot, "api"),
       }, input.database.readPortfolioFacts().state);
-      const observations = marketObservationsFromSnapshot(
+      const observations = marketObservationsFromTrading212Snapshot(
         materializeOpeningSnapshot(sourceAccountId, draft.portfolio),
       );
       if (observations.length > 0) {

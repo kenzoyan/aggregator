@@ -63,7 +63,7 @@ export interface MarketDataStatusReadModel {
     updated: number;
     unchanged: number;
     failed: number;
-    failures: Array<{ instrumentCode: string; message: string }>;
+    failures: ReadonlyArray<{ instrumentCode: string; message: string }>;
   };
 }
 
@@ -78,6 +78,61 @@ export interface FxOverviewReadModel {
   }>;
 }
 
+export interface PortfolioInsightAllocationReadModel {
+  valueEur: number;
+  sharePercent: number;
+  holdingCount: number;
+}
+
+export interface PortfolioInsightMoverReadModel {
+  id: string;
+  name: string;
+  changeEur: number;
+  percent: number;
+}
+
+export interface PortfolioInsightsReadModel {
+  asOf: string;
+  summary: {
+    investmentPositionCount: number;
+    sourceAccountCount: number;
+    topHolding?: {
+      id: string;
+      name: string;
+      valueEur: number;
+      sharePercent: number;
+    };
+    topThreeSharePercent: number;
+  };
+  holdingCurrencyAllocation: Array<PortfolioInsightAllocationReadModel & {
+    currency: string;
+  }>;
+  categoryAllocation: Array<PortfolioInsightAllocationReadModel & {
+    category: HoldingReadModel["category"];
+  }>;
+  performance: Record<Period, {
+    available: boolean;
+    changeEur: number;
+    percent: number;
+    priceChangeEur: number;
+    fxChangeEur: number;
+  }>;
+  recentMovers?: {
+    period: "today";
+    strongest: PortfolioInsightMoverReadModel;
+    weakest: PortfolioInsightMoverReadModel;
+  };
+  dataQuality: {
+    valuedHoldingCount: number;
+    freshCount: number;
+    manualCount: number;
+    staleCount: number;
+    awaitingNavCount: number;
+    missingInputCount: number;
+    availablePerformancePeriods: Period[];
+  };
+}
+
 export interface PortfolioOverviewReadModel {
   holdings: HoldingReadModel[];
   totalValueEur: number;
@@ -86,4 +141,5 @@ export interface PortfolioOverviewReadModel {
   missingInputs: unknown[];
   marketData: MarketDataStatusReadModel;
   history: Record<Period, PeriodPerformanceReadModel>;
+  insights?: PortfolioInsightsReadModel;
 }

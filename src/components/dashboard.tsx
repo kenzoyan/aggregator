@@ -33,6 +33,7 @@ import {
   toDemoDashboardHoldings,
 } from "@/application/demo-portfolio";
 import type { MarketRefreshResult } from "@/application/market-refresh";
+import { PortfolioInsights } from "@/components/portfolio-insights";
 
 const eur = new Intl.NumberFormat("en-FI", {
   style: "currency",
@@ -263,8 +264,8 @@ export function Dashboard() {
         summary.failed.length > 0
           ? `${summary.updated} updated · failed: ${formatRefreshFailures(summary.failed)}; previous prices kept`
           : summary.updated > 0
-            ? `${summary.updated} of ${tracked} fund NAVs updated`
-            : `${tracked} fund NAVs are already current`,
+            ? `${summary.updated} of ${tracked} market prices updated`
+            : `${tracked} market prices are already current`,
       );
     } catch (error) {
       setRefreshMessage(error instanceof Error ? error.message : "Price refresh failed");
@@ -396,8 +397,8 @@ export function Dashboard() {
     ? latestMarketResult.failed > 0
       ? `Last check failed: ${formatRefreshFailures(latestMarketResult.failures)}; previous prices kept`
       : latestMarketResult.updated > 0
-        ? `Last check updated ${latestMarketResult.updated} fund NAVs`
-        : `${latestMarketResult.unchanged} fund NAVs were already current`
+        ? `Last check updated ${latestMarketResult.updated} market prices`
+        : `${latestMarketResult.unchanged} market prices were already current`
     : "Use Refresh prices to begin";
 
   return (
@@ -560,6 +561,10 @@ export function Dashboard() {
             ) : null}
           </div>
         </section>
+
+        {isLocal && localPortfolio?.insights && (
+          <PortfolioInsights insights={localPortfolio.insights} />
+        )}
 
         <section className="holdings-section" id="holdings">
           <div className="section-title">

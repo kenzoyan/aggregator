@@ -6,6 +6,7 @@ import {
   eurPerUnitAt,
 } from "@/application/fx-history";
 import { createHoldingHistoryReadModel } from "@/application/holding-history";
+import { createPortfolioInsightsReadModel } from "@/application/portfolio-insights";
 import {
   createDashboardReadModel,
   createPortfolioHistoryReadModel,
@@ -106,19 +107,28 @@ export function createPortfolioHandler(input: {
       holdingHistory,
       currentTotalValueEur: portfolio.totalValueEur,
     });
+    const holdings = portfolio.holdings.map((holding) => ({
+      ...holding,
+      ...(holdingHistory[holding.id]
+        ? { history: holdingHistory[holding.id] }
+        : {}),
+    }));
+    const portfolioWithHistory = {
+      ...portfolio,
+      holdings,
+      history,
+      ...(fxOverview ? { fxOverview } : {}),
+    };
+    const insights = createPortfolioInsightsReadModel({
+      portfolio: portfolioWithHistory,
+      asOf: now,
+    });
 
     return NextResponse.json({
       hasPortfolioData: state.positions.length > 0 || state.cashBalances.length > 0,
       portfolio: {
-        ...portfolio,
-        holdings: portfolio.holdings.map((holding) => ({
-          ...holding,
-          ...(holdingHistory[holding.id]
-            ? { history: holdingHistory[holding.id] }
-            : {}),
-        })),
-        history,
-        ...(fxOverview ? { fxOverview } : {}),
+        ...portfolioWithHistory,
+        insights,
         accounts: createSourceAccountStatusReadModel({
           accounts: sourceAccounts,
           confirmedSnapshots: facts.confirmedSnapshots,

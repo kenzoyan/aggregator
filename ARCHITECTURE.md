@@ -315,6 +315,9 @@ Portfolio history 会重建每个历史时间点的 state，并把历史 value �
 - source-account status
 - market refresh status
 - EUR/CNY overview
+- locally calculated Portfolio insights：集中度、持仓计价币种/资产类别分布、近期贡献和数据质量
+
+`src/application/portfolio-insights.ts` 只消费已经估值完成的 `PortfolioOverviewReadModel`，不读取 SQLite、截图或 provider credentials。这里的 holding currency 是证券计价币种，不代表基金底层资产的 look-through currency exposure。它生成稳定的结构化事实，首页直接展示；未来 LLM brief 也应只消费这个边界，而不能自行重新计算收益或读取原始个人数据。
 
 `src/components/dashboard.tsx` 负责：
 
@@ -389,6 +392,8 @@ Repository interface 位于 `src/infrastructure/sqlite/portfolio-repository.ts`�
 - 两个只读 endpoint
 - 401/403、429 和通用失败有不同错误说明
 
+首页 `Refresh prices` 也会读取 Trading 212 snapshot，但只将已确认 position 对应的当前价格转换成 Market Data Observation。新持仓、quantity、Cost Basis 与 cash 不会通过价格刷新写入 Holding State；这些变化仍必须走 `Update assets → Sync Trading 212` 的 reconciliation/confirmation gate。
+
 ## 12. 测试策略
 
 测试不使用真实 portfolio data：
@@ -414,6 +419,7 @@ npm run build
 ## 13. 当前限制与后续演进
 
 - 没有后台 scheduler；价格刷新仍由用户触发。
+- Portfolio insights 的确定性事实层已经实现；可选 LLM narrative/provider adapter 尚未接入。
 - QDII 的“Today”是 latest available daily move，不等于尚未发布的实时 7/24 NAV。应用不能计算一个市场尚未公布的价格。
 - Portfolio Event 目前只有 sale domain model，尚无完整 UI/API 工作流。
 - OCR parser 目前只针对 Alipay 中文基金标签。
@@ -428,6 +434,7 @@ npm run build
 - 改 OCR 字段识别：`src/application/imports/alipay-ocr-parser.ts`
 - 改 Today/holding history：`src/application/holding-history.ts`
 - 改 portfolio period 聚合：`src/application/portfolio-periods.ts`
+- 改 Portfolio insights：`src/application/portfolio-insights.ts`
 - 改 7/30 天历史重建：`src/application/portfolio-dashboard.ts`
 - 改 SQLite：`src/infrastructure/sqlite/`
 - 改首页展示：`src/components/dashboard.tsx`

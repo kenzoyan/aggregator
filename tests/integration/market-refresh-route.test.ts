@@ -9,18 +9,32 @@ describe("POST /api/market-data/refresh", () => {
     const saved: MarketPriceObservation[] = [];
     const refreshRuns: unknown[] = [];
     const state: PortfolioState = {
-      positions: [{
-        sourceAccountId: "alipay-main",
-        instrumentId: "alipay-main:040046",
-        instrumentCode: "040046",
-        assetType: "fund",
-        quantity: "10",
-        currency: "CNY",
-        costBasis: "80",
-        reportedPriorReturn: "20",
-        observedPrice: "10",
-        priceAsOf: "2026-07-16",
-      }],
+      positions: [
+        {
+          sourceAccountId: "alipay-main",
+          instrumentId: "alipay-main:040046",
+          instrumentCode: "040046",
+          assetType: "fund",
+          quantity: "10",
+          currency: "CNY",
+          costBasis: "80",
+          reportedPriorReturn: "20",
+          observedPrice: "10",
+          priceAsOf: "2026-07-16",
+        },
+        {
+          sourceAccountId: "trading212-main",
+          instrumentId: "EQQQ_EQ",
+          instrumentCode: "IE00BYVTM552",
+          assetType: "etf",
+          quantity: "1",
+          currency: "EUR",
+          costBasis: "100",
+          reportedPriorReturn: "0",
+          observedPrice: "100",
+          priceAsOf: "2026-07-16T15:00:00.000Z",
+        },
+      ],
       cashBalances: [],
       appliedEventIds: [],
     };
@@ -54,6 +68,22 @@ describe("POST /api/market-data/refresh", () => {
           source: "eastmoney",
         }],
       },
+      refreshTrading212Snapshot: async () => ({
+        id: "trading212-market-refresh",
+        sourceAccountId: "trading212-main",
+        asOf: "2026-07-19T15:00:00.000Z",
+        positions: [{
+          instrumentId: "EQQQ_EQ",
+          instrumentCode: "IE00BYVTM552",
+          assetType: "etf",
+          quantity: "1",
+          currency: "EUR",
+          costBasis: "100",
+          observedPrice: "102",
+          priceAsOf: "2026-07-19T15:00:00.000Z",
+          priceSource: "trading212",
+        }],
+      }),
       now: () => "2026-07-19T15:00:00.000Z",
     });
 
@@ -61,16 +91,29 @@ describe("POST /api/market-data/refresh", () => {
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
-      updated: 1,
+      updated: 2,
       unchanged: 0,
       failed: [],
       refreshedAt: "2026-07-19T15:00:00.000Z",
     });
-    expect(saved).toHaveLength(1);
+    expect(saved).toMatchObject([
+      {
+        sourceAccountId: "alipay-main",
+        instrumentId: "alipay-main:040046",
+        price: "10.5",
+        source: "eastmoney",
+      },
+      {
+        sourceAccountId: "trading212-main",
+        instrumentId: "EQQQ_EQ",
+        price: "102",
+        source: "trading212",
+      },
+    ]);
     expect(refreshRuns).toEqual([{
-      provider: "fixture-provider",
+      provider: "fixture-provider+trading212",
       completedAt: "2026-07-19T15:00:00.000Z",
-      updated: 1,
+      updated: 2,
       unchanged: 0,
       failed: 0,
       failures: [],
