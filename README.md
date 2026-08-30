@@ -66,11 +66,13 @@ Price observations are stored separately from Holding State. A refresh never cha
 
 FX observations are also stored as dated market data. The overview shows the latest ECB EUR/CNY reference rate (`€1` in CNY) and a compact trend built only from locally accumulated observations. Portfolio and holding history use only prices and ECB rates known at each valuation date. Each holding shows its selected-period EUR change and a compact trend once a valid baseline exists; otherwise it explicitly stays in **Awaiting baseline**. Additional units, newly imported holdings and sale proceeds are treated as capital changes rather than investment return.
 
-The overview also derives a local **Portfolio insights** read model from the valued holdings. It summarizes position concentration, holding-currency and asset-category allocation, the latest price/FX contribution, available movers and data-quality gaps. Holding currency means the instrument's quoted currency, not look-through exposure to its underlying assets. These facts are calculated by application code and remain useful without an LLM; a future optional narrative generator will receive this structured read model instead of raw screenshots, credentials or database records.
+The overview also derives a local **Portfolio insights** read model from the valued holdings. It summarizes position concentration, holding-currency and asset-category allocation, the latest price/FX contribution, available movers and data-quality gaps. Holding currency means the instrument's quoted currency, not look-through exposure to its underlying assets. These facts are calculated by application code and remain useful without an LLM.
+
+An optional cloud narrative can explain that read model in English or Simplified Chinese. It is generated only after selecting **Generate narrative**; loading or refreshing the dashboard never calls an LLM. Configure either `OPENAI_API_KEY` or `DEEPSEEK_API_KEY` in `.env.local`, optionally choose models with `OPENAI_NARRATIVE_MODEL` and `DEEPSEEK_NARRATIVE_MODEL`, then restart the app. The defaults are `gpt-5.6-terra` and `deepseek-v4-flash`. The provider receives only aggregate insight facts—not raw holdings, quantities, cost basis, trades, screenshots, credentials or database records. Responses use a strict factual schema and are not stored by this app. Narrative text is informational, may be incorrect, and is never investment advice.
 
 ## Near-term roadmap
 
-- Add an optional LLM narrative on top of the locally calculated Portfolio insights, clearly separating factual summary from neutral assessment and never presenting investment advice.
+- Add optional persistence and a fact-by-fact provenance view for generated narratives without storing prompts or credentials.
 - Later, refresh supported prices automatically once per Helsinki day when the dashboard opens, while keeping Holding State unchanged.
 
 Local portfolio records are stored in `data/invest-assets-monitor.sqlite`. The entire `data` database remains ignored by Git.
