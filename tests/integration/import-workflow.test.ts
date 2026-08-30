@@ -289,4 +289,70 @@ describe("screenshot import confirmation workflow", () => {
     expect(data.confirmedSnapshots.at(-1)?.snapshot.id).toBe("a-second-snapshot");
     database.close();
   });
+
+  it("reviews only screenshot holdings while preserving omitted confirmed holdings", () => {
+    const database = createPortfolioDatabase(":memory:");
+    const first = draft({
+      id: "draft-screenshot-account",
+      sourceAccountId: "alipay-main",
+      sourceKind: "screenshot",
+      createdAt: "2026-07-20T10:00:00.000Z",
+      snapshot: {
+        id: "snapshot-screenshot-account",
+        sourceAccountId: "alipay-main",
+        asOf: "2026-07-20T09:00:00.000Z",
+        positions: [
+          {
+            instrumentId: "fund-a",
+            quantity: "10",
+            currency: "CNY",
+            costBasis: "80",
+            observedPrice: "10",
+          },
+          {
+            instrumentId: "fund-b",
+            quantity: "20",
+            currency: "CNY",
+            costBasis: "80",
+            observedPrice: "5",
+          },
+        ],
+      },
+    });
+    database.saveImportDraft(first);
+    confirm(database, first, "2026-07-20T10:01:00.000Z");
+
+    const update = draft({
+      id: "draft-one-screenshot-holding",
+      sourceAccountId: "alipay-main",
+      sourceKind: "screenshot",
+      createdAt: "2026-07-21T10:00:00.000Z",
+      snapshot: {
+        id: "snapshot-one-screenshot-holding",
+        sourceAccountId: "alipay-main",
+        asOf: "2026-07-21T09:00:00.000Z",
+        positions: [{
+          instrumentId: "fund-a",
+          quantity: "10",
+          currency: "CNY",
+          costBasis: "80",
+          observedPrice: "11",
+        }],
+      },
+    });
+    database.saveImportDraft(update);
+    const savedUpdate = database.getImportDraft(update.id)!;
+
+    expect(savedUpdate.portfolio.holdings).toHaveLength(1);
+    expect(savedUpdate.portfolio.holdings[0]?.instrumentId).toMatchObject({
+      value: "fund-a",
+    });
+
+    confirm(database, savedUpdate, "2026-07-21T10:01:00.000Z");
+    expect(database.readPortfolioFacts().state.positions).toMatchObject([
+      { instrumentId: "fund-a", observedPrice: "11" },
+      { instrumentId: "fund-b", observedPrice: "5" },
+    ]);
+    database.close();
+  });
 });

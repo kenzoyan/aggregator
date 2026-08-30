@@ -171,6 +171,33 @@ describe("market-priced dashboard", () => {
     expect(readModel.holdings[0]?.freshness).toBe("manual");
   });
 
+  it("uses a same-day market observation whose as-of value includes a time", () => {
+    const readModel = createDashboardReadModel({
+      state: buildPortfolioState({ openingSnapshots: [openingSnapshot], events: [] }),
+      asOf: "2026-07-19T23:59:59.999Z",
+      snapshotTimes: { "alipay-main": openingSnapshot.asOf },
+      marketPrices: [{
+        ...marketPrices[1],
+        price: "13",
+        asOf: "2026-07-19T18:00:00.000Z",
+      }],
+      eurPerUnit: { EUR: "1", CNY: "0.125" },
+      fxAsOf: "2026-07-19",
+    });
+
+    expect(readModel.holdings[0]).toMatchObject({
+      originalValue: "130.00 CNY",
+      detail: {
+        currentPrice: "13",
+        currentPriceAsOf: "2026-07-19",
+        priceHistory: [
+          expect.objectContaining({ price: "13", asOf: "2026-07-19" }),
+          expect.objectContaining({ price: "10", asOf: "2026-07-11" }),
+        ],
+      },
+    });
+  });
+
   it("calculates period changes and labels a not-yet-30-day history as partial", () => {
     const history = createPortfolioHistoryReadModel({
       snapshots: [openingSnapshot],

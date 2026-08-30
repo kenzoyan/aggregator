@@ -69,6 +69,7 @@ export function AssetImportWorkflow() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [operationLabel, setOperationLabel] = useState("");
 
   useEffect(() => {
     fetch("/api/accounts", { cache: "no-store" })
@@ -85,6 +86,7 @@ export function AssetImportWorkflow() {
   }, []);
 
   const selectedAccount = accounts.find((account) => account.id === sourceAccountId);
+  const minerUSupported = selectedAccount?.provider === "alipay";
 
   async function requestDraft(
     request: () => Promise<Response>,
@@ -110,24 +112,38 @@ export function AssetImportWorkflow() {
   }
 
   async function analyze(mode: "image" | "demo") {
-    await requestDraft(async () => {
-      const form = new FormData();
-      form.set("sourceAccountId", sourceAccountId);
-      form.set(
-        "sourceAccountHint",
-        selectedAccount?.label ?? "",
-      );
-      form.set("mode", mode);
-      if (mode === "image") {
-        if (!file) throw new Error("Choose a screenshot first.");
-        form.set("image", file);
-      }
+    setOperationLabel(mode === "image"
+      ? "Sending to MinerU Precision…"
+      : "Loading demo…");
+    const phaseTimer = mode === "image"
+      ? window.setTimeout(
+          () => setOperationLabel("Waiting for Precision OCR…"),
+          1_200,
+        )
+      : undefined;
+    try {
+      await requestDraft(async () => {
+        const form = new FormData();
+        form.set("sourceAccountId", sourceAccountId);
+        form.set(
+          "sourceAccountHint",
+          selectedAccount?.label ?? "",
+        );
+        form.set("mode", mode);
+        if (mode === "image") {
+          if (!file) throw new Error("Choose a screenshot first.");
+          form.set("image", file);
+        }
 
-      return fetch("/api/imports/analyze", {
-        method: "POST",
-        body: form,
-      });
-    }, "Image analysis failed.");
+        return fetch("/api/imports/analyze", {
+          method: "POST",
+          body: form,
+        });
+      }, "Image analysis failed.");
+    } finally {
+      if (phaseTimer !== undefined) window.clearTimeout(phaseTimer);
+      setOperationLabel("");
+    }
   }
 
   async function syncTrading212() {
@@ -416,8 +432,12 @@ export function AssetImportWorkflow() {
 
           <label className="upload-zone">
             <span className="upload-icon">↥</span>
-            <strong>{file ? file.name : "Choose an asset screenshot"}</strong>
-            <small>JPEG, PNG or WebP · up to 12 MB</small>
+            <strong>{file ? file.name : "Choose an Alipay fund screenshot"}</strong>
+            <small>
+              {minerUSupported
+                ? "MinerU Precision VLM · JPEG, PNG or WebP · up to 10 MB"
+                : "Select the Alipay Source Account to use MinerU Precision"}
+            </small>
             <input
               type="file"
               accept="image/jpeg,image/png,image/webp"
@@ -426,18 +446,20 @@ export function AssetImportWorkflow() {
           </label>
 
           <div className="privacy-callout">
-            <strong>Before you send</strong>
-            <p>When you click “Analyze screenshot”, the image is temporarily sent to the cloud vision service. This app does not save the original image or need any financial-app password.</p>
+            <strong>MinerU Precision cloud OCR</strong>
+            <p>The screenshot is uploaded to MinerU Precision for VLM extraction. This app does not save the original image, signed upload URL, result ZIP or OCR Markdown, but MinerU does not publish a cloud-retention or deletion guarantee. Review every detected value before confirmation.</p>
           </div>
 
           <div className="import-actions">
             <button
               className="primary-button action-button"
               type="button"
-              disabled={busy || !file}
+              disabled={busy || !file || !minerUSupported}
               onClick={() => analyze("image")}
             >
-              {busy ? "Analyzing…" : "Analyze screenshot"}
+              {busy && operationLabel
+                ? operationLabel
+                : "Analyze with MinerU Precision"}
             </button>
             <button
               className="text-button"
@@ -445,7 +467,7 @@ export function AssetImportWorkflow() {
               disabled={busy}
               onClick={() => analyze("demo")}
             >
-              No API key? Try the demo
+              Try the synthetic demo
             </button>
             <button
               className="text-button"
@@ -456,6 +478,9 @@ export function AssetImportWorkflow() {
               Enter manually
             </button>
           </div>
+          {busy && operationLabel && (
+            <p className="ocr-progress" role="status">{operationLabel}</p>
+          )}
           <div className="connector-divider"><span>or</span></div>
           <div className="csv-import-panel">
             <div>
@@ -570,6 +595,7 @@ export function AssetImportWorkflow() {
                     ),
                   }))
                   .filter(({ reconciliation }) =>
+                    draft.sourceKind !== "trading-212" ||
                     reconciliation?.kind !== "market-data-updated"
                   )
                   .map(({ position, index, reconciliation }) => {

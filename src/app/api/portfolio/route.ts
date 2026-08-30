@@ -10,6 +10,7 @@ import {
   createDashboardReadModel,
   createPortfolioHistoryReadModel,
 } from "@/application/portfolio-dashboard";
+import { combinePortfolioPeriodHistory } from "@/application/portfolio-periods";
 import { createSourceAccountStatusReadModel } from "@/application/source-account-status";
 import { sourceAccounts } from "@/domain/source-accounts";
 import { EcbFxClient, type EcbRates } from "@/infrastructure/ecb/ecb-fx-client";
@@ -100,28 +101,11 @@ export function createPortfolioHandler(input: {
       asOf: now,
     });
     const fxOverview = createEurCnyOverview(fxObservations, now);
-    const history = Object.fromEntries(
-      (["today", "week", "month"] as const).map((period) => {
-        const holdingPeriods = Object.values(holdingHistory)
-          .map((holding) => holding[period])
-          .filter((performance) => performance.available);
-        return [period, {
-          ...portfolioHistory[period],
-          priceChange: portfolioHistory[period].available
-            ? holdingPeriods.reduce(
-                (total, performance) => total + (performance.priceChange ?? 0),
-                0,
-              )
-            : 0,
-          fxChange: portfolioHistory[period].available
-            ? holdingPeriods.reduce(
-                (total, performance) => total + (performance.fxChange ?? 0),
-                0,
-              )
-            : 0,
-        }];
-      }),
-    );
+    const history = combinePortfolioPeriodHistory({
+      portfolioHistory,
+      holdingHistory,
+      currentTotalValueEur: portfolio.totalValueEur,
+    });
 
     return NextResponse.json({
       hasPortfolioData: state.positions.length > 0 || state.cashBalances.length > 0,

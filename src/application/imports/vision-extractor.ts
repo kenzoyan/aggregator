@@ -30,6 +30,9 @@ export const screenshotExtractionSchema = z.object({
       costBasis: nullableMoney,
       reportedPriorReturn: nullableMoney,
       reportedPriorReturnPercent: nullableMoney,
+      averageCost: nullableMoney.optional(),
+      observedPrice: nullableMoney.optional(),
+      priceAsOf: z.string().nullable().optional(),
       confidence: z.enum(["low", "medium", "high"]),
     }),
   ),
@@ -162,10 +165,18 @@ export function prepareScreenshotImport(input: {
         : unknownDraftValue(),
       costBasis: accounting.costBasis,
       reportedPriorReturn: accounting.reportedPriorReturn,
-      averageCost: unknownDraftValue(),
-      observedPrice: unknownDraftValue(),
-      priceAsOf: unknownDraftValue(),
-      priceSource: unknownDraftValue(),
+      averageCost: position.averageCost
+        ? knownDraftValue(position.averageCost, source, position.confidence)
+        : unknownDraftValue(),
+      observedPrice: position.observedPrice
+        ? knownDraftValue(position.observedPrice, source, position.confidence)
+        : unknownDraftValue(),
+      priceAsOf: position.priceAsOf
+        ? knownDraftValue(position.priceAsOf, source, position.confidence)
+        : unknownDraftValue(),
+      priceSource: position.observedPrice
+        ? knownDraftValue("confirmed-screenshot", source, position.confidence)
+        : unknownDraftValue(),
       reportedMarketValue: position.marketValue !== null
         ? knownDraftValue(position.marketValue, source, position.confidence)
         : unknownDraftValue(),

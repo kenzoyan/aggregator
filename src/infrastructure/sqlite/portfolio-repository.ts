@@ -1,7 +1,7 @@
 import { DatabaseSync } from "node:sqlite";
 
 import {
-  materializeOpeningSnapshot,
+  materializeConfirmedImportSnapshot,
   prepareImportDraftForReview,
   restoreLegacyPartialSnapshots,
   type ConfirmedImportRecord,
@@ -323,19 +323,22 @@ export function createPortfolioDatabase(filename: string): PortfolioDatabase {
         warnings: command.review.warnings,
         portfolio: command.review.portfolio,
       };
+      const openingSnapshots = readOpeningSnapshots();
+      const events = readEvents();
+      const snapshotKind = existing.portfolio.reconciliation?.snapshotKind ??
+        (openingSnapshots.some(
+            (candidate) =>
+              candidate.sourceAccountId === reviewedDraft.sourceAccountId,
+          )
+          ? "holding-state"
+          : "opening");
       const snapshot = reviewedDraft.sourceKind === "demo"
         ? undefined
-        : materializeOpeningSnapshot(
-            reviewedDraft.sourceAccountId,
-            reviewedDraft.portfolio,
-            existing.portfolio.reconciliation?.snapshotKind ??
-              (readOpeningSnapshots().some(
-                (candidate) =>
-                  candidate.sourceAccountId === reviewedDraft.sourceAccountId,
-              )
-                ? "holding-state"
-                : "opening"),
-          );
+        : materializeConfirmedImportSnapshot({
+            draft: reviewedDraft,
+            currentState: buildPortfolioState({ openingSnapshots, events }),
+            snapshotKind,
+          });
 
       database.exec("BEGIN IMMEDIATE");
       try {

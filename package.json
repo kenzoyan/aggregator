@@ -12,8 +12,8 @@
   },
   "dependencies": {
     "decimal.js": "10.6.0",
+    "fflate": "^0.8.2",
     "next": "16.2.10",
-    "openai": "6.48.0",
     "react": "19.2.7",
     "react-dom": "19.2.7",
     "zod": "4.4.3"

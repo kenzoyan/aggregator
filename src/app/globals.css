@@ -194,6 +194,7 @@ h2 { margin-bottom: 0; font-size: 25px; letter-spacing: -.03em; }
 .upload-zone small { color: var(--muted); font-size: 11px; }
 .privacy-callout { padding: 14px 15px; border-radius: 13px; background: #eef8f5; color: #30594d; }
 .privacy-callout strong { font-size: 12px; }.privacy-callout p { margin: 5px 0 0; font-size: 11px; line-height: 1.55; }
+.ocr-progress { margin: 10px 0 0; color: #476b61; font-size: 10px; font-weight: 750; }
 .import-actions { display: flex; align-items: center; gap: 12px; margin-top: 18px; }
 .action-button, .confirm-button, .text-button { border: 0; cursor: pointer; }
 .action-button:disabled, .confirm-button:disabled, .text-button:disabled { opacity: .45; cursor: not-allowed; }

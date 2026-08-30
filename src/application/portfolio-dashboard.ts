@@ -3,6 +3,7 @@ import Decimal from "decimal.js";
 import { eurPerUnitAt } from "@/application/fx-history";
 import { formatOriginalMoney } from "@/application/money-format";
 import { selectRangeBaseline } from "@/application/period-baseline";
+import { marketDataTimelineTime } from "@/application/portfolio-calendar";
 import { openingPositionUnitPrice } from "@/application/position-price";
 import type {
   HoldingPriceHistoryReadModel,
@@ -34,18 +35,13 @@ function latestMarketPrice(
       candidate.sourceAccountId === position.sourceAccountId &&
       candidate.instrumentId === position.instrumentId &&
       candidate.currency === position.currency &&
-      candidate.asOf <= priceAsOfLimit.slice(0, 10)
+      candidate.asOf.slice(0, 10) <= priceAsOfLimit.slice(0, 10)
     )
     .sort((left, right) =>
       left.asOf.localeCompare(right.asOf) ||
       left.recordedAt.localeCompare(right.recordedAt)
     )
     .at(-1);
-}
-
-function priceTimelineTime(priceAsOf: string, currentAsOf: string): string {
-  const endOfNavDate = `${priceAsOf}T23:59:59.999Z`;
-  return endOfNavDate > currentAsOf ? currentAsOf : endOfNavDate;
 }
 
 function marketPriceFreshness(priceAsOf: string, asOf: string) {
@@ -93,7 +89,7 @@ function holdingPriceHistory(
       candidate.sourceAccountId === position.sourceAccountId &&
       candidate.instrumentId === position.instrumentId &&
       candidate.currency === position.currency &&
-      candidate.asOf <= asOf.slice(0, 10)
+      candidate.asOf.slice(0, 10) <= asOf.slice(0, 10)
     )
     .sort((left, right) =>
       left.asOf.localeCompare(right.asOf) ||
@@ -185,6 +181,7 @@ export function createDashboardReadModel(input: {
     );
     return resolved
       ? [{
+      sourceAccountId: position.sourceAccountId,
       instrumentId: position.instrumentId,
       price: resolved.unitPrice,
       ...(!resolved.marketPrice && position.reportedMarketValue
@@ -370,15 +367,15 @@ export function createPortfolioHistoryReadModel(input: {
     ),
   ]);
   const publishedObservationTimeline = [...publishedObservationDates]
-    .map((date) => priceTimelineTime(date, input.asOf))
+    .map((date) => marketDataTimelineTime(date, input.asOf))
     .sort();
   const timeline = [...new Set([
     ...snapshots.map((snapshot) => snapshot.asOf),
     ...marketPrices.map((observation) =>
-      priceTimelineTime(observation.asOf, input.asOf)
+      marketDataTimelineTime(observation.asOf, input.asOf)
     ),
     ...(input.fxObservations ?? []).map((observation) =>
-      priceTimelineTime(observation.asOf, input.asOf)
+      marketDataTimelineTime(observation.asOf, input.asOf)
     ),
     ...events.map((event) => event.asOf),
   ])].sort();

@@ -20,6 +20,7 @@ describe("daily portfolio valuation", () => {
       },
       asOf: "2026-07-19",
       prices: [{
+        sourceAccountId: "alipay-main",
         instrumentId: "001234",
         price: "8.0725",
         reportedMarketValue: "330.25",
@@ -69,6 +70,7 @@ describe("daily portfolio valuation", () => {
       asOf: "2026-07-20",
       prices: [
         {
+          sourceAccountId: "alipay",
           instrumentId: "fund-001",
           price: "12.34",
           currency: "CNY",
@@ -146,6 +148,7 @@ describe("daily portfolio valuation", () => {
       asOf: "2026-07-20",
       prices: [
         {
+          sourceAccountId: "danske",
           instrumentId: "bond-eur",
           price: "20",
           currency: "EUR",
@@ -168,5 +171,57 @@ describe("daily portfolio valuation", () => {
     expect(valuation.missingInputs).toEqual([
       { kind: "price", instrumentId: "fund-cny", currency: "CNY" },
     ]);
+  });
+
+  it("does not reuse another Source Account's price for the same instrument id", () => {
+    const valuation = valuePortfolio({
+      state: {
+        positions: [
+          {
+            sourceAccountId: "account-a",
+            instrumentId: "shared-id",
+            quantity: "1",
+            currency: "EUR",
+            costBasis: "10",
+            reportedPriorReturn: "0",
+          },
+          {
+            sourceAccountId: "account-b",
+            instrumentId: "shared-id",
+            quantity: "1",
+            currency: "EUR",
+            costBasis: "20",
+            reportedPriorReturn: "0",
+          },
+        ],
+        cashBalances: [],
+        appliedEventIds: [],
+      },
+      asOf: "2026-07-20",
+      prices: [
+        {
+          sourceAccountId: "account-a",
+          instrumentId: "shared-id",
+          price: "11",
+          currency: "EUR",
+          asOf: "2026-07-20",
+          source: "fixture",
+          freshness: "fresh",
+        },
+        {
+          sourceAccountId: "account-b",
+          instrumentId: "shared-id",
+          price: "22",
+          currency: "EUR",
+          asOf: "2026-07-20",
+          source: "fixture",
+          freshness: "fresh",
+        },
+      ],
+      fxRates: [],
+    });
+
+    expect(valuation.positions.map((position) => position.originalValue))
+      .toEqual(["11", "22"]);
   });
 });

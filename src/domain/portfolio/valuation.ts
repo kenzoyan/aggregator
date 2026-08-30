@@ -5,6 +5,7 @@ import type { CurrencyCode, PortfolioState } from "./types";
 export type Freshness = "fresh" | "awaiting-nav" | "stale" | "manual";
 
 export interface PriceObservation {
+  sourceAccountId: string;
   instrumentId: string;
   price: string;
   reportedMarketValue?: string;
@@ -92,6 +93,7 @@ export function valuePortfolio({
   for (const position of state.positions) {
     const price = prices.find(
       (candidate) =>
+        candidate.sourceAccountId === position.sourceAccountId &&
         candidate.instrumentId === position.instrumentId &&
         candidate.currency === position.currency,
     );

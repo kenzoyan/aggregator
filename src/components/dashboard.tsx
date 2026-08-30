@@ -499,6 +499,11 @@ export function Dashboard() {
                       Since tracking began · full {periodData[period].label.toLowerCase()} baseline pending
                     </small>
                   )}
+                  {isLocal && period === "today" && (
+                    <small className="partial-range-note">
+                      Latest available daily move per holding · QDII NAVs may publish later
+                    </small>
+                  )}
                 </div>
               )}
               <span className="market-note">{isLocal ? `ECB rates ${localPortfolio?.fxAsOf}` : usingReviewedDemo ? "Confirmed demo review" : demoEnabled ? "Synthetic valuation" : "EUR base currency"}<br />{isLocal

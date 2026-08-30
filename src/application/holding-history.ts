@@ -2,6 +2,7 @@ import Decimal from "decimal.js";
 
 import { eurPerUnitAt } from "@/application/fx-history";
 import { selectRangeBaseline } from "@/application/period-baseline";
+import { marketDataTimelineTime } from "@/application/portfolio-calendar";
 import { openingPositionUnitPrice } from "@/application/position-price";
 import type {
   Period,
@@ -13,7 +14,6 @@ import type {
 } from "@/domain/market-data";
 import type {
   CashBalance,
-  OpeningPositionInput,
   OpeningSnapshotInput,
   PortfolioEventInput,
   PortfolioState,
@@ -34,11 +34,6 @@ interface HoldingValuePoint {
   quantity: Decimal;
 }
 
-function timelineTime(asOf: string, currentAsOf: string): string {
-  const endOfDay = `${asOf.slice(0, 10)}T23:59:59.999Z`;
-  return endOfDay > currentAsOf ? currentAsOf : endOfDay;
-}
-
 function holdingPoints(input: {
   position: Position;
   snapshots: readonly OpeningSnapshotInput[];
@@ -56,7 +51,10 @@ function holdingPoints(input: {
     const price = openingPositionUnitPrice(snapshotPosition);
     if (!price) continue;
     pricePoints.set(
-      timelineTime(snapshotPosition.priceAsOf ?? snapshot.asOf, input.asOf),
+      marketDataTimelineTime(
+        snapshotPosition.priceAsOf ?? snapshot.asOf,
+        input.asOf,
+      ),
       price,
     );
   }
@@ -67,7 +65,7 @@ function holdingPoints(input: {
       observation.currency !== input.position.currency
     ) continue;
     pricePoints.set(
-      timelineTime(observation.asOf, input.asOf),
+      marketDataTimelineTime(observation.asOf, input.asOf),
       new Decimal(observation.price),
     );
   }
@@ -79,7 +77,7 @@ function holdingPoints(input: {
   if (input.position.currency !== "EUR" && firstPriceTime) {
     for (const observation of input.fxObservations) {
       if (observation.currency !== input.position.currency) continue;
-      const asOf = timelineTime(observation.asOf, input.asOf);
+      const asOf = marketDataTimelineTime(observation.asOf, input.asOf);
       if (asOf >= firstPriceTime) timeline.add(asOf);
     }
   }
@@ -120,13 +118,13 @@ function cashPoints(input: {
     ...input.snapshots.flatMap((snapshot) =>
       snapshot.sourceAccountId === input.cash.sourceAccountId &&
         snapshot.portfolioCash?.currency === input.cash.currency
-        ? [timelineTime(snapshot.asOf, input.asOf)]
+        ? [marketDataTimelineTime(snapshot.asOf, input.asOf)]
         : []
     ),
     ...input.events.flatMap((event) =>
       event.sourceAccountId === input.cash.sourceAccountId &&
         event.proceeds.currency === input.cash.currency
-        ? [timelineTime(event.asOf, input.asOf)]
+        ? [marketDataTimelineTime(event.asOf, input.asOf)]
         : []
     ),
   ].sort();
@@ -137,7 +135,7 @@ function cashPoints(input: {
   if (input.cash.currency !== "EUR") {
     for (const observation of input.fxObservations) {
       if (observation.currency !== input.cash.currency) continue;
-      const asOf = timelineTime(observation.asOf, input.asOf);
+      const asOf = marketDataTimelineTime(observation.asOf, input.asOf);
       if (asOf >= firstCashTime) timeline.add(asOf);
     }
   }
@@ -166,7 +164,25 @@ function baselineForPeriod(
 ): { point: HoldingValuePoint; coverage?: "partial" } | undefined {
   if (period === "today") {
     const current = points.at(-1);
-    const baseline = points.at(-2);
+    const previousValuationPoint = points.at(-2);
+    const previousPricePoint = current
+      ? points
+          .filter((point) =>
+            point.asOf < current.asOf &&
+            point.priceAsOf !== current.priceAsOf
+          )
+          .at(-1)
+      : undefined;
+    const baseline = previousPricePoint && previousValuationPoint
+      ? {
+          ...previousPricePoint,
+          asOf: previousValuationPoint.asOf,
+          fxRate: previousValuationPoint.fxRate,
+          valueEur: previousPricePoint.quantity
+            .mul(previousPricePoint.unitPrice)
+            .mul(previousValuationPoint.fxRate),
+        }
+      : previousValuationPoint;
     if (!current || !baseline) return undefined;
     return new Date(current.asOf).getTime() - new Date(baseline.asOf).getTime() <=
         4 * 86_400_000
@@ -220,9 +236,14 @@ function periodPerformance(
     ...(baselineResult.coverage ? { coverage: baselineResult.coverage } : {}),
     change: change.toNumber(),
     percent: change.div(baseline.valueEur).mul(100).toNumber(),
-    points: points
-      .filter((point) => point.asOf >= baseline.asOf)
-      .map((point) => point.valueEur.toNumber()),
+    points: [
+      baseline.valueEur.toNumber(),
+      ...points
+        .filter((point) =>
+          point.asOf > baseline.asOf && point.asOf <= current.asOf
+        )
+        .map((point) => point.valueEur.toNumber()),
+    ],
     priceChange: priceChange.toNumber(),
     fxChange: fxChange.toNumber(),
     baselineAsOf: baseline.priceAsOf,

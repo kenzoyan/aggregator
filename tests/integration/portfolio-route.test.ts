@@ -152,4 +152,281 @@ describe("GET /api/portfolio", () => {
       ],
     });
   });
+
+  it("sums each holding's latest available Today move into the portfolio", async () => {
+    const snapshot = {
+      id: "shared-window-opening",
+      sourceAccountId: "alipay-main",
+      asOf: "2026-07-21T09:00:00.000Z",
+      positions: [
+        {
+          instrumentId: "synthetic-cny-fund",
+          displayName: "Synthetic CNY Fund",
+          instrumentCode: "SYN-CNY",
+          assetType: "fund" as const,
+          quantity: "10",
+          currency: "CNY",
+          costBasis: "90",
+          observedPrice: "10",
+          priceAsOf: "2026-07-21",
+        },
+        {
+          instrumentId: "synthetic-eur-etf",
+          displayName: "Synthetic EUR ETF",
+          instrumentCode: "SYN-EUR",
+          assetType: "etf" as const,
+          quantity: "1",
+          currency: "EUR",
+          costBasis: "100",
+          observedPrice: "100",
+          priceAsOf: "2026-07-21",
+        },
+      ],
+    };
+    const handler = createPortfolioHandler({
+      database: {
+        readPortfolioFacts: () => ({
+          openingSnapshots: [snapshot],
+          events: [],
+          confirmedImports: [],
+          confirmedSnapshots: [{
+            snapshot,
+            confirmedAt: "2026-07-21T09:05:00.000Z",
+          }],
+          state: buildPortfolioState({
+            openingSnapshots: [snapshot],
+            events: [],
+          }),
+        }),
+        readMarketData: () => ({
+          observations: [
+            {
+              sourceAccountId: "alipay-main",
+              instrumentId: "synthetic-cny-fund",
+              instrumentCode: "SYN-CNY",
+              price: "10",
+              currency: "CNY",
+              asOf: "2026-07-23",
+              recordedAt: "2026-07-23T18:00:00.000Z",
+              source: "fixture",
+            },
+            {
+              sourceAccountId: "alipay-main",
+              instrumentId: "synthetic-eur-etf",
+              instrumentCode: "SYN-EUR",
+              price: "90",
+              currency: "EUR",
+              asOf: "2026-07-23",
+              recordedAt: "2026-07-23T18:00:00.000Z",
+              source: "fixture",
+            },
+          ],
+          fxObservations: [
+            {
+              currency: "CNY",
+              eurPerUnit: "0.1",
+              asOf: "2026-07-21",
+              recordedAt: "2026-07-21T16:00:00.000Z",
+              source: "ecb",
+            },
+            {
+              currency: "CNY",
+              eurPerUnit: "0.1",
+              asOf: "2026-07-23",
+              recordedAt: "2026-07-23T16:00:00.000Z",
+              source: "ecb",
+            },
+          ],
+        }),
+        readSourceAccountLabels: () => ({}),
+        recordMarketData: vi.fn(),
+      },
+      fetchLatestRates: async () => ({
+        asOf: "2026-07-24",
+        eurPerUnit: { EUR: "1", CNY: "0.101" },
+      }),
+      now: () => "2026-07-24T18:00:00.000Z",
+    });
+
+    const response = await handler();
+    const payload = await response.json();
+    const availableHoldingChanges = payload.portfolio.holdings
+      .map((holding: {
+        history?: { today?: { available: boolean; change: number } };
+      }) => holding.history?.today)
+      .filter((today: { available: boolean } | undefined) => today?.available)
+      .reduce(
+        (total: number, today: { change: number }) => total + today.change,
+        0,
+      );
+
+    expect(payload.portfolio.history.today.available).toBe(true);
+    expect(availableHoldingChanges)
+      .toBeCloseTo(payload.portfolio.history.today.change, 8);
+  });
+
+  it("does not leak a later snapshot into Today's earlier baseline", async () => {
+    const openingSnapshot = {
+      id: "snapshot-knowledge-opening",
+      sourceAccountId: "trading212-main",
+      asOf: "2026-07-21T09:00:00.000Z",
+      positions: [{
+        instrumentId: "snapshot-priced-etf",
+        displayName: "Snapshot Priced ETF",
+        instrumentCode: "SYN-SNAPSHOT",
+        assetType: "etf" as const,
+        quantity: "1",
+        currency: "EUR",
+        costBasis: "100",
+        observedPrice: "100",
+        priceAsOf: "2026-07-21",
+      }],
+    };
+    const laterSnapshot = {
+      ...openingSnapshot,
+      id: "snapshot-knowledge-later",
+      asOf: "2026-07-24T12:00:00.000Z",
+      positions: openingSnapshot.positions.map((position) => ({
+        ...position,
+        observedPrice: "90",
+        priceAsOf: "2026-07-23",
+      })),
+    };
+    const snapshots = [openingSnapshot, laterSnapshot];
+    const handler = createPortfolioHandler({
+      database: {
+        readPortfolioFacts: () => ({
+          openingSnapshots: snapshots,
+          events: [],
+          confirmedImports: [],
+          confirmedSnapshots: [],
+          state: buildPortfolioState({
+            openingSnapshots: snapshots,
+            events: [],
+          }),
+        }),
+        readMarketData: () => ({
+          observations: [],
+          fxObservations: [
+            {
+              currency: "CNY",
+              eurPerUnit: "0.1",
+              asOf: "2026-07-23",
+              recordedAt: "2026-07-23T16:00:00.000Z",
+              source: "ecb",
+            },
+            {
+              currency: "CNY",
+              eurPerUnit: "0.101",
+              asOf: "2026-07-24",
+              recordedAt: "2026-07-24T16:00:00.000Z",
+              source: "ecb",
+            },
+          ],
+        }),
+        readSourceAccountLabels: () => ({}),
+        recordMarketData: vi.fn(),
+      },
+      fetchLatestRates: async () => ({
+        asOf: "2026-07-24",
+        eurPerUnit: { EUR: "1", CNY: "0.101" },
+      }),
+      now: () => "2026-07-24T18:00:00.000Z",
+    });
+
+    const response = await handler();
+    const payload = await response.json();
+    const holdingToday = payload.portfolio.holdings[0].history.today;
+
+    expect(holdingToday).toMatchObject({
+      available: true,
+      change: -10,
+      baselineAsOf: "2026-07-21T23:59:59.999Z",
+      currentAsOf: "2026-07-23T23:59:59.999Z",
+    });
+    expect(holdingToday.change)
+      .toBeCloseTo(payload.portfolio.history.today.change, 8);
+  });
+
+  it("includes the latest QDII NAV move when today's FX is newer than the NAV", async () => {
+    const snapshot = {
+      id: "qdii-lag-opening",
+      sourceAccountId: "alipay-main",
+      asOf: "2026-07-22T09:00:00.000Z",
+      positions: [{
+        instrumentId: "synthetic-qdii",
+        displayName: "Synthetic QDII Fund",
+        instrumentCode: "000001",
+        assetType: "fund" as const,
+        quantity: "10",
+        currency: "CNY",
+        costBasis: "100",
+        observedPrice: "10",
+        priceAsOf: "2026-07-22",
+      }],
+    };
+    const handler = createPortfolioHandler({
+      database: {
+        readPortfolioFacts: () => ({
+          openingSnapshots: [snapshot],
+          events: [],
+          confirmedImports: [],
+          confirmedSnapshots: [],
+          state: buildPortfolioState({
+            openingSnapshots: [snapshot],
+            events: [],
+          }),
+        }),
+        readMarketData: () => ({
+          observations: [{
+            sourceAccountId: "alipay-main",
+            instrumentId: "synthetic-qdii",
+            instrumentCode: "000001",
+            price: "11",
+            currency: "CNY",
+            asOf: "2026-07-23",
+            recordedAt: "2026-07-24T09:00:00.000Z",
+            source: "fixture",
+          }],
+          fxObservations: [
+            {
+              currency: "CNY",
+              eurPerUnit: "0.09",
+              asOf: "2026-07-22",
+              recordedAt: "2026-07-22T16:00:00.000Z",
+              source: "ecb",
+            },
+            {
+              currency: "CNY",
+              eurPerUnit: "0.1",
+              asOf: "2026-07-23",
+              recordedAt: "2026-07-23T16:00:00.000Z",
+              source: "ecb",
+            },
+          ],
+        }),
+        readSourceAccountLabels: () => ({}),
+        recordMarketData: vi.fn(),
+      },
+      fetchLatestRates: async () => ({
+        asOf: "2026-07-24",
+        eurPerUnit: { EUR: "1", CNY: "0.101" },
+      }),
+      now: () => "2026-07-24T18:00:00.000Z",
+    });
+
+    const response = await handler();
+    const payload = await response.json();
+    const holdingToday = payload.portfolio.holdings[0].history.today;
+
+    expect(holdingToday).toMatchObject({
+      available: true,
+      change: 1.11,
+      priceChange: 1,
+      fxChange: 0.11,
+      baselineAsOf: "2026-07-22T23:59:59.999Z",
+      currentAsOf: "2026-07-23T23:59:59.999Z",
+    });
+    expect(payload.portfolio.history.today.change).toBeCloseTo(1.11, 8);
+  });
 });

@@ -28,6 +28,10 @@ test-results/
 /imports/
 /exports/
 /data/imports/
+/data/*.jpg
+/data/*.jpeg
+/data/*.png
+/data/*.webp
 
 # Local product thinking and working notes
 CONTEXT.md

@@ -289,6 +289,9 @@ const partialImportSourceKinds = new Set<ImportSourceKind>([
 export const completedPartialImportReviewWarning =
   "Previously confirmed holdings were included in this review. Removing one records that it is no longer held.";
 
+export const partialImportPreservationWarning =
+  "This partial update shows only detected holdings. Other confirmed holdings stay unchanged.";
+
 function holdingIdentityKeys(holding: DraftHolding): string[] {
   return normalizedIdentityKeys([
     draftValue(holding.instrumentId),
@@ -636,24 +639,35 @@ export function prepareImportDraftForReview(
     const carryWarning = carriedHoldings.length > 0
       ? `${carriedHoldings.length} previously confirmed holding${carriedHoldings.length === 1 ? " was" : "s were"} carried forward. Remove only holdings that are no longer held.`
       : undefined;
+    const reviewOnlyDetectedHoldings = draft.sourceKind === "screenshot";
 
     preparedDraft = {
       ...draft,
       warnings: [
         ...draft.warnings,
-        ...(!draft.warnings.includes(completedPartialImportReviewWarning)
+        ...(reviewOnlyDetectedHoldings &&
+            !draft.warnings.includes(partialImportPreservationWarning)
+          ? [partialImportPreservationWarning]
+          : []),
+        ...(!reviewOnlyDetectedHoldings &&
+            !draft.warnings.includes(completedPartialImportReviewWarning)
           ? [completedPartialImportReviewWarning]
           : []),
-        ...(carryWarning && !draft.warnings.includes(carryWarning)
+        ...(!reviewOnlyDetectedHoldings &&
+            carryWarning &&
+            !draft.warnings.includes(carryWarning)
           ? [carryWarning]
           : []),
       ],
       portfolio: {
         ...draft.portfolio,
-        portfolioCash: draft.portfolio.portfolioCash.status === "unknown"
-          ? previousPortfolio.portfolioCash
-          : draft.portfolio.portfolioCash,
-        holdings: [...updatedHoldings, ...carriedHoldings],
+        portfolioCash: reviewOnlyDetectedHoldings ||
+            draft.portfolio.portfolioCash.status !== "unknown"
+          ? draft.portfolio.portfolioCash
+          : previousPortfolio.portfolioCash,
+        holdings: reviewOnlyDetectedHoldings
+          ? updatedHoldings
+          : [...updatedHoldings, ...carriedHoldings],
       },
     };
   }
@@ -682,6 +696,66 @@ function samePosition(
   right: OpeningPositionInput,
 ): boolean {
   return identitiesOverlap(positionIdentityKeys(left), positionIdentityKeys(right));
+}
+
+function openingPositionFromState(
+  position: PortfolioState["positions"][number],
+): OpeningPositionInput {
+  return {
+    instrumentId: position.instrumentId,
+    ...(position.displayName ? { displayName: position.displayName } : {}),
+    ...(position.instrumentCode ? { instrumentCode: position.instrumentCode } : {}),
+    ...(position.assetType ? { assetType: position.assetType } : {}),
+    quantity: position.quantity,
+    currency: position.currency,
+    costBasis: position.costBasis,
+    reportedPriorReturn: position.reportedPriorReturn,
+    ...(position.averageCost ? { averageCost: position.averageCost } : {}),
+    ...(position.observedPrice ? { observedPrice: position.observedPrice } : {}),
+    ...(position.priceAsOf ? { priceAsOf: position.priceAsOf } : {}),
+    ...(position.priceSource ? { priceSource: position.priceSource } : {}),
+    ...(position.reportedMarketValue
+      ? { reportedMarketValue: position.reportedMarketValue }
+      : {}),
+  };
+}
+
+export function materializeConfirmedImportSnapshot(input: {
+  draft: ImportDraftInput;
+  currentState: PortfolioState;
+  snapshotKind: ImportReconciliation["snapshotKind"];
+}): OpeningSnapshotInput {
+  const snapshot = materializeOpeningSnapshot(
+    input.draft.sourceAccountId,
+    input.draft.portfolio,
+    input.snapshotKind,
+  );
+  if (input.draft.sourceKind !== "screenshot") return snapshot;
+
+  const currentPositions = input.currentState.positions
+    .filter((position) =>
+      position.sourceAccountId === input.draft.sourceAccountId
+    )
+    .map(openingPositionFromState);
+  const omittedPositions = currentPositions.filter((position) =>
+    !snapshot.positions.some((updated) => samePosition(position, updated))
+  );
+  const currentCash = input.currentState.cashBalances.find((cash) =>
+    cash.sourceAccountId === input.draft.sourceAccountId
+  );
+
+  return {
+    ...snapshot,
+    ...(!snapshot.portfolioCash && currentCash
+      ? {
+          portfolioCash: {
+            amount: currentCash.amount,
+            currency: currentCash.currency,
+          },
+        }
+      : {}),
+    positions: [...snapshot.positions, ...omittedPositions],
+  };
 }
 
 export function restoreLegacyPartialSnapshots(

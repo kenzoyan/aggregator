@@ -1,5 +1,7 @@
-import type { OpeningSnapshotInput } from "@/domain/portfolio/types";
-import type { PortfolioState } from "@/domain/portfolio/types";
+import type {
+  OpeningSnapshotInput,
+  PortfolioState,
+} from "@/domain/portfolio/types";
 import { selectLatestSnapshotsByAccount } from "@/domain/portfolio/ledger";
 import type { SourceAccountDefinition } from "@/domain/source-accounts";
 
