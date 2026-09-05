@@ -75,14 +75,29 @@ const insights: PortfolioInsightsReadModel = {
 };
 
 const content = {
-  headline: "Portfolio movement remained limited",
-  overview: "The latest available move was small and mostly driven by FX.",
+  headline: {
+    text: "Portfolio movement remained limited",
+    evidence: ["performance-today"],
+  },
+  overview: {
+    text: "The latest available move was small and mostly driven by FX.",
+    evidence: ["performance-today"],
+  },
   observations: [
-    "Holding currencies are concentrated in CNY.",
-    "The seven-day period remains positive.",
+    {
+      text: "Holding currencies are concentrated in CNY.",
+      evidence: ["holding-currency"],
+    },
+    {
+      text: "The seven-day period remains positive.",
+      evidence: ["performance-week"],
+    },
   ],
-  dataQuality: "All three valued holdings are current.",
-};
+  dataQuality: {
+    text: "All three valued holdings are current.",
+    evidence: ["data-quality"],
+  },
+} as const;
 
 function completedResponse(model: string) {
   return Response.json({
@@ -133,9 +148,14 @@ describe("cloud portfolio narrative providers", () => {
         },
       },
     });
+    expect(
+      body.text.format.schema.properties.headline.properties.evidence,
+    ).not.toHaveProperty("uniqueItems");
     expect(body.instructions).toContain("not investment advice");
     expect(body.instructions).toContain("untrusted data");
+    expect(body.instructions).toContain("factKey");
     expect(body.input).toContain("Synthetic Global Fund");
+    expect(body.input).not.toContain("account-a:fund-1");
   });
 
   it("uses DeepSeek's native Responses API without unsupported storage", async () => {

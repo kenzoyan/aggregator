@@ -2,10 +2,18 @@
 
 import { useEffect, useState } from "react";
 
+import {
+  portfolioNarrativeFreshness,
+  type NarrativeFactKey,
+  type PortfolioNarrativeFact,
+} from "@/application/portfolio-narrative-facts";
+import type {
+  NarrativeLanguage,
+  NarrativeProviderId as ProviderId,
+  PortfolioNarrativeReport as NarrativeResult,
+  PortfolioNarrativeStatement as NarrativeStatement,
+} from "@/application/portfolio-narrative";
 import type { PortfolioInsightsReadModel } from "@/application/portfolio-read-model";
-
-type ProviderId = "openai" | "deepseek";
-type NarrativeLanguage = "en" | "zh-CN";
 
 interface NarrativeConfiguration {
   defaultProvider: ProviderId;
@@ -14,18 +22,7 @@ interface NarrativeConfiguration {
     configured: boolean;
     model: string;
   }>;
-}
-
-interface NarrativeResult {
-  provider: ProviderId;
-  model: string;
-  language: NarrativeLanguage;
-  generatedAt: string;
-  headline: string;
-  overview: string;
-  observations: string[];
-  dataQuality: string;
-  disclaimer: string;
+  latestNarrative?: NarrativeResult;
 }
 
 const providerNames: Record<ProviderId, string> = {
@@ -69,6 +66,12 @@ export function PortfolioInsights({
   const selectedProvider = narrativeConfiguration?.providers.find(
     (provider) => provider.id === providerId,
   );
+  const narrativeOutdated = narrative
+    ? portfolioNarrativeFreshness(narrative.factsFingerprint, insights) === "previous"
+    : false;
+  const narrativeFacts = new Map(
+    narrative?.provenance.map((fact) => [fact.key, fact]) ?? [],
+  );
 
   useEffect(() => {
     let active = true;
@@ -80,6 +83,7 @@ export function PortfolioInsights({
       .then((configuration) => {
         if (!active) return;
         setNarrativeConfiguration(configuration);
+        setNarrative(configuration.latestNarrative);
         const preferred = configuration.providers.find((provider) =>
           provider.id === configuration.defaultProvider && provider.configured
         ) ?? configuration.providers.find((provider) => provider.configured);
@@ -93,11 +97,6 @@ export function PortfolioInsights({
     };
   }, []);
 
-  useEffect(() => {
-    setNarrative(undefined);
-    setNarrativeError(undefined);
-  }, [insights.asOf]);
-
   async function generateNarrative() {
     if (!selectedProvider?.configured || narrativeLoading) return;
     setNarrativeLoading(true);
@@ -106,7 +105,7 @@ export function PortfolioInsights({
       const response = await fetch("/api/portfolio/narrative", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ provider: providerId, language, insights }),
+        body: JSON.stringify({ provider: providerId, language }),
       });
       const result = await response.json() as {
         narrative?: NarrativeResult;
@@ -223,7 +222,6 @@ export function PortfolioInsights({
               value={providerId}
               onChange={(event) => {
                 setProviderId(event.target.value as ProviderId);
-                setNarrative(undefined);
                 setNarrativeError(undefined);
               }}
             >
@@ -243,7 +241,6 @@ export function PortfolioInsights({
               value={language}
               onChange={(event) => {
                 setLanguage(event.target.value as NarrativeLanguage);
-                setNarrative(undefined);
               }}
             >
               <option value="en">English</option>
@@ -273,24 +270,58 @@ export function PortfolioInsights({
         )}
         {narrative && (
           <article className="portfolio-narrative-result">
-            <div>
+            <div className="portfolio-narrative-meta">
               <span>{providerNames[narrative.provider]} · {narrative.model}</span>
               <time dateTime={narrative.generatedAt}>
                 {new Date(narrative.generatedAt).toLocaleString()}
               </time>
+              <span className={narrativeOutdated ? "narrative-previous" : "narrative-current"}>
+                Saved locally · {narrativeOutdated ? "previous facts" : "current facts"}
+              </span>
             </div>
-            <h3>{narrative.headline}</h3>
-            <p>{narrative.overview}</p>
+            <h3>{narrative.headline.text}</h3>
+            <Evidence statement={narrative.headline} facts={narrativeFacts} />
+            <p>{narrative.overview.text}</p>
+            <Evidence statement={narrative.overview} facts={narrativeFacts} />
             <ul>
-              {narrative.observations.map((observation) => (
-                <li key={observation}>{observation}</li>
+              {narrative.observations.map((observation, index) => (
+                <li key={`${index}-${observation.text}`}>
+                  {observation.text}
+                  <Evidence statement={observation} facts={narrativeFacts} />
+                </li>
               ))}
             </ul>
-            <p><b>Data note:</b> {narrative.dataQuality}</p>
+            <p><b>Data note:</b> {narrative.dataQuality.text}</p>
+            <Evidence statement={narrative.dataQuality} facts={narrativeFacts} />
+            <details className="portfolio-narrative-provenance">
+              <summary>View saved fact sources</summary>
+              <dl>
+                {narrative.provenance.map((fact) => (
+                  <div key={fact.key} id={`narrative-fact-${fact.key}`}>
+                    <dt>{fact.label}</dt>
+                    <dd>{fact.value}</dd>
+                  </div>
+                ))}
+              </dl>
+            </details>
             <small>{narrative.disclaimer}</small>
           </article>
         )}
       </section>
     </section>
+  );
+}
+
+function Evidence({
+  statement,
+  facts,
+}: {
+  statement: NarrativeStatement;
+  facts: Map<NarrativeFactKey, PortfolioNarrativeFact>;
+}) {
+  return (
+    <small className="narrative-evidence">
+      Based on: {statement.evidence.map((key) => facts.get(key)?.label ?? key).join(" · ")}
+    </small>
   );
 }

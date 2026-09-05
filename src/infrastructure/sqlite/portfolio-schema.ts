@@ -1,6 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
 
-export const portfolioSchemaVersion = 2;
+export const portfolioSchemaVersion = 3;
 
 export class LegacyPortfolioDatabaseError extends Error {
   constructor() {
@@ -10,6 +10,24 @@ export class LegacyPortfolioDatabaseError extends Error {
     this.name = "LegacyPortfolioDatabaseError";
   }
 }
+
+const portfolioNarrativesSchema = `
+  CREATE TABLE portfolio_narratives (
+    id TEXT PRIMARY KEY,
+    provider TEXT NOT NULL,
+    model TEXT NOT NULL,
+    language TEXT NOT NULL,
+    generated_at TEXT NOT NULL,
+    portfolio_as_of TEXT NOT NULL,
+    facts_fingerprint TEXT NOT NULL,
+    content_json TEXT NOT NULL,
+    provenance_json TEXT NOT NULL,
+    disclaimer TEXT NOT NULL
+  );
+
+  CREATE INDEX portfolio_narratives_latest
+    ON portfolio_narratives(generated_at DESC);
+`;
 
 function tableExists(database: DatabaseSync, table: string): boolean {
   return Boolean(
@@ -124,6 +142,8 @@ export function initializePortfolioSchema(database: DatabaseSync) {
           source_account_id TEXT PRIMARY KEY,
           custom_label TEXT NOT NULL
         );
+
+        ${portfolioNarrativesSchema}
       `);
       database.exec("COMMIT");
     } catch (error) {
@@ -137,7 +157,20 @@ export function initializePortfolioSchema(database: DatabaseSync) {
   const row = database.prepare(
     "SELECT version FROM schema_metadata LIMIT 1",
   ).get() as { version: number } | undefined;
-  if (row?.version !== portfolioSchemaVersion) {
-    throw new LegacyPortfolioDatabaseError();
+  if (row?.version === 2) {
+    database.exec("BEGIN IMMEDIATE");
+    try {
+      database.exec(`
+        ${portfolioNarrativesSchema}
+
+        UPDATE schema_metadata SET version = ${portfolioSchemaVersion};
+      `);
+      database.exec("COMMIT");
+    } catch (error) {
+      database.exec("ROLLBACK");
+      throw error;
+    }
+    return;
   }
+  if (row?.version !== portfolioSchemaVersion) throw new LegacyPortfolioDatabaseError();
 }

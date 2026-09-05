@@ -33,14 +33,14 @@ Open [http://localhost:3000](http://localhost:3000). A new local database starts
 
 ### Rebuild the local test database
 
-Schema v2 separates editable Import Drafts, Confirmed Imports and portfolio facts. The pre-v2 local database contained test data only and is intentionally not migrated. If startup reports a disposable pre-v2 schema, stop the app and move the old file out of the active path:
+Schema v3 separates editable Import Drafts, Confirmed Imports and portfolio facts, and adds locally saved narrative reports. Existing v2 databases upgrade to v3 in place without rebuilding portfolio data. The pre-v2 local database contained test data only and is intentionally not migrated. If startup reports a disposable pre-v2 schema, stop the app and move the old file out of the active path:
 
 ```bash
 mkdir -p data/pre-v2
 mv data/invest-assets-monitor.sqlite* data/pre-v2/
 ```
 
-If `.env.local` sets `PORTFOLIO_DB_FILENAME`, replace `invest-assets-monitor.sqlite` in the command with that configured basename. Start the app again to create a clean v2 database, then import `data/imports/alipay-funds.csv` and sync Trading 212 again. The moved database remains local and ignored by Git, so the reset is recoverable.
+If `.env.local` sets `PORTFOLIO_DB_FILENAME`, replace `invest-assets-monitor.sqlite` in the command with that configured basename. Start the app again to create a clean v3 database, then import `data/imports/alipay-funds.csv` and sync Trading 212 again. The moved database remains local and ignored by Git, so the reset is recoverable.
 
 Real integrations are enabled only through `.env.local`:
 
@@ -72,11 +72,12 @@ FX observations are also stored as dated market data. The overview shows the lat
 
 The overview also derives a local **Portfolio insights** read model from the valued holdings. It summarizes position concentration, holding-currency and asset-category allocation, the latest price/FX contribution, available movers and data-quality gaps. Holding currency means the instrument's quoted currency, not look-through exposure to its underlying assets. These facts are calculated by application code and remain useful without an LLM.
 
-An optional cloud narrative can explain that read model in English or Simplified Chinese. It is generated only after selecting **Generate narrative**; loading or refreshing the dashboard never calls an LLM. Configure either `OPENAI_API_KEY` or `DEEPSEEK_API_KEY` in `.env.local`, optionally choose models with `OPENAI_NARRATIVE_MODEL` and `DEEPSEEK_NARRATIVE_MODEL`, then restart the app. The defaults are `gpt-5.6-terra` and `deepseek-v4-flash`. The provider receives only aggregate insight facts—not raw holdings, quantities, cost basis, trades, screenshots, credentials or database records. Responses use a strict factual schema and are not stored by this app. Narrative text is informational, may be incorrect, and is never investment advice.
+An optional cloud narrative can explain that read model in English or Simplified Chinese. It is generated only after selecting **Generate narrative**; loading or refreshing the dashboard never calls an LLM. The browser sends only the selected provider and language, and the server rebuilds current insights from the local ledger and Market Data before contacting the provider. Configure either `OPENAI_API_KEY` or `DEEPSEEK_API_KEY` in `.env.local`, optionally choose models with `OPENAI_NARRATIVE_MODEL` and `DEEPSEEK_NARRATIVE_MODEL`, then restart the app. The defaults are `gpt-5.6-terra` and `deepseek-v4-flash`. The provider receives only aggregate insight facts, including the display names of the largest holding and recent movers when available. It does not receive internal holding IDs, the full holding list, quantities, cost basis, trades, screenshots, credentials or database records.
+
+Each generated statement must cite one or more server-defined fact keys. The completed report, model metadata, an aggregate-facts fingerprint and only the cited fact summaries are saved in the ignored local SQLite database. The latest report returns after a page reload; it is marked **current facts** while its fingerprint matches the current local insights, and **previous facts** after the portfolio facts change. Expand **View saved fact sources** to inspect the exact aggregate facts supporting each statement. API keys and raw prompts are never stored. Narrative text remains informational, may be incorrect, and is never investment advice.
 
 ## Near-term roadmap
 
-- Add optional persistence and a fact-by-fact provenance view for generated narratives without storing prompts or credentials.
 - Add a small refresh-history view so provider failures and manual/automatic runs can be inspected without opening the local database.
 
 Local portfolio records are stored in `data/invest-assets-monitor.sqlite`. The entire `data` database remains ignored by Git.

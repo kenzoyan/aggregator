@@ -1,17 +1,9 @@
 import { NextResponse } from "next/server";
 
 import {
-  createEurCnyOverview,
   createFxRateObservations,
-  eurPerUnitAt,
 } from "@/application/fx-history";
-import { createHoldingHistoryReadModel } from "@/application/holding-history";
-import { createPortfolioInsightsReadModel } from "@/application/portfolio-insights";
-import {
-  createDashboardReadModel,
-  createPortfolioHistoryReadModel,
-} from "@/application/portfolio-dashboard";
-import { combinePortfolioPeriodHistory } from "@/application/portfolio-periods";
+import { createPortfolioOverviewReadModel } from "@/application/portfolio-overview";
 import { createSourceAccountStatusReadModel } from "@/application/source-account-status";
 import { sourceAccounts } from "@/domain/source-accounts";
 import { EcbFxClient, type EcbRates } from "@/infrastructure/ecb/ecb-fx-client";
@@ -54,10 +46,6 @@ export function createPortfolioHandler(input: {
     const marketPrices = marketData.observations;
     const latestMarketRefresh = marketData.latestMarketRefresh;
     const accountLabels = database.readSourceAccountLabels();
-    const snapshotTimes = Object.fromEntries(
-      snapshots.map((snapshot) => [snapshot.sourceAccountId, snapshot.asOf]),
-    );
-
     let fxObservations = marketData.fxObservations;
     try {
       const rates = await input.fetchLatestRates();
@@ -67,68 +55,21 @@ export function createPortfolioHandler(input: {
     } catch (error) {
       (input.logError ?? console.error)("ECB FX refresh failed", error);
     }
-    const eurPerUnit = eurPerUnitAt(fxObservations, now);
-    const fxAsOf = fxObservations
-      .map((observation) => observation.asOf)
-      .sort()
-      .at(-1) ?? now;
-
-    const portfolio = createDashboardReadModel({
+    const portfolio = createPortfolioOverviewReadModel({
       state,
       snapshots,
+      events: facts.events,
       asOf: now,
-      snapshotTimes,
       marketPrices,
+      fxObservations,
       latestMarketRefresh,
-      eurPerUnit,
-      fxAsOf,
       accountLabels,
-    });
-    const portfolioHistory = createPortfolioHistoryReadModel({
-      snapshots,
-      events: facts.events,
-      marketPrices,
-      fxObservations,
-      asOf: now,
-      eurPerUnit,
-      fxAsOf,
-    });
-    const holdingHistory = createHoldingHistoryReadModel({
-      state,
-      snapshots,
-      events: facts.events,
-      marketPrices,
-      fxObservations,
-      asOf: now,
-    });
-    const fxOverview = createEurCnyOverview(fxObservations, now);
-    const history = combinePortfolioPeriodHistory({
-      portfolioHistory,
-      holdingHistory,
-      currentTotalValueEur: portfolio.totalValueEur,
-    });
-    const holdings = portfolio.holdings.map((holding) => ({
-      ...holding,
-      ...(holdingHistory[holding.id]
-        ? { history: holdingHistory[holding.id] }
-        : {}),
-    }));
-    const portfolioWithHistory = {
-      ...portfolio,
-      holdings,
-      history,
-      ...(fxOverview ? { fxOverview } : {}),
-    };
-    const insights = createPortfolioInsightsReadModel({
-      portfolio: portfolioWithHistory,
-      asOf: now,
     });
 
     return NextResponse.json({
       hasPortfolioData: state.positions.length > 0 || state.cashBalances.length > 0,
       portfolio: {
-        ...portfolioWithHistory,
-        insights,
+        ...portfolio,
         accounts: createSourceAccountStatusReadModel({
           accounts: sourceAccounts,
           confirmedSnapshots: facts.confirmedSnapshots,

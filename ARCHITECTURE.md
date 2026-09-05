@@ -319,7 +319,13 @@ Portfolio history 会重建每个历史时间点的 state，并把历史 value �
 - EUR/CNY overview
 - locally calculated Portfolio insights：集中度、持仓计价币种/资产类别分布、近期贡献和数据质量
 
-`src/application/portfolio-insights.ts` 只消费已经估值完成的 `PortfolioOverviewReadModel`，不读取 SQLite、截图或 provider credentials。这里的 holding currency 是证券计价币种，不代表基金底层资产的 look-through currency exposure。它生成稳定的结构化事实，首页直接展示；未来 LLM brief 也应只消费这个边界，而不能自行重新计算收益或读取原始个人数据。
+`src/application/portfolio-insights.ts` 只消费已经估值完成的 `PortfolioOverviewReadModel`，不读取 SQLite、截图或 provider credentials。这里的 holding currency 是证券计价币种，不代表基金底层资产的 look-through currency exposure。它生成稳定的结构化事实，首页与可选 LLM narrative 共用这个边界；LLM 不能自行重新计算收益或读取原始 portfolio records。
+
+`src/application/portfolio-narrative-facts.ts` 再把 insights 投影成有限的 cloud facts 和 provenance catalogue。发送给 provider 的每组事实都有 server-defined `factKey`；模型的 headline、overview、每条 observation 和 data-quality note 都必须返回受 schema 限制的 evidence keys。服务端过滤这些 keys，再保存对应的本地事实摘要，因此 UI 展示的是可校验映射，而不是模型自行编造的“引用”。
+
+浏览器生成请求只包含 provider 和 language，不上传一份可自行修改的 insights。Narrative route 会通过 `createPortfolioOverviewReadModel` 从当前 SQLite ledger 与 Market Data 重建 insights；portfolio overview route 也复用同一 application seam。因此旧标签页不能把过时或任意构造的 aggregate facts 保存成 current report。
+
+Narrative fingerprint 覆盖所有会影响报告内容的 aggregate facts，但忽略单纯的 dashboard request time。相同事实重新加载页面时报告仍标为 current；持仓构成、配置比例、performance 或 data-quality 改变后，旧报告保留并标为 previous facts。
 
 `src/components/dashboard.tsx` 负责：
 
@@ -358,10 +364,13 @@ Portfolio history 会重建每个历史时间点的 state，并把历史 value �
 | `market_refresh_runs` | 最近刷新统计和失败信息 |
 | `source_account_labels` | 用户自定义账户名称 |
 | `source_sync_state` | connector cursor/状态预留；当前尚未使用 |
+| `portfolio_narratives` | 已生成报告、模型元数据、facts fingerprint 与引用的聚合事实摘要 |
 
 Repository interface 位于 `src/infrastructure/sqlite/portfolio-repository.ts`。它把 SQL、JSON encode/decode、transaction 和 legacy partial snapshot 恢复隐藏在一个模块内。
 
-当前 schema version 是 v2。pre-v2 测试数据库不自动迁移，以避免对早期 disposable 测试数据做不可靠转换。
+当前 schema version 是 v3。v2 数据库会在一个 transaction 中增加 narrative table 和 index，再更新 schema version；既有 portfolio/market/import facts 不变。pre-v2 测试数据库仍不自动迁移，以避免对早期 disposable 测试数据做不可靠转换。
+
+Narrative table 不保存 API key、原始 prompt、截图或 provider request。每次主动生成都会新增一行，repository 目前只向首页返回最新一份；这保留了将来增加历史列表的可能，但没有提前引入报告管理 UI。
 
 ## 11. 外部适配器
 
@@ -423,7 +432,7 @@ npm run build
 ## 13. 当前限制与后续演进
 
 - 没有后台 scheduler；价格刷新仍由用户触发。
-- Portfolio insights 的确定性事实层已经实现；可选 LLM narrative/provider adapter 尚未接入。
+- 可选 LLM narrative 已支持 OpenAI/DeepSeek、SQLite persistence、outdated detection 和 fact-level provenance；它仍只在用户主动点击时调用云端。
 - QDII 的“Today”是 latest available daily move，不等于尚未发布的实时 7/24 NAV。应用不能计算一个市场尚未公布的价格。
 - Portfolio Event 目前只有 sale domain model，尚无完整 UI/API 工作流。
 - OCR parser 目前只针对 Alipay 中文基金标签。
@@ -439,6 +448,9 @@ npm run build
 - 改 Today/holding history：`src/application/holding-history.ts`
 - 改 portfolio period 聚合：`src/application/portfolio-periods.ts`
 - 改 Portfolio insights：`src/application/portfolio-insights.ts`
+- 改 portfolio overview 组装：`src/application/portfolio-overview.ts`
+- 改 narrative facts/provenance：`src/application/portfolio-narrative-facts.ts`
+- 改 narrative schema/provider contract：`src/application/portfolio-narrative.ts`
 - 改 7/30 天历史重建：`src/application/portfolio-dashboard.ts`
 - 改 SQLite：`src/infrastructure/sqlite/`
 - 改首页展示：`src/components/dashboard.tsx`
