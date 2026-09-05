@@ -206,6 +206,8 @@ API response 被转换成一个完整 account snapshot，然后与最新 Holding
 - 旧持仓在完整 API snapshot 中缺失：`possibly-removed`。
 - 用户修正过的 ETF/asset type 和 Reported Prior Return 不会被下一次 sync 覆盖。
 
+当同一次完整 snapshot 包含新 holding 或 cash change 时，既有的 price-only holding 仍会随 draft 一起 materialize，以免完整 snapshot 丢失它们。它们的 `Reported Prior Return` 是开始监控时冻结的历史事实，而 `reportedMarketValue` 是最新值，因此两者在后续价格变化后不再满足 `costBasis + reportedPriorReturn = reportedMarketValue`。Confirm route 仍校验每行 `quantity × price`，并继续对新 holding 执行完整 accounting 校验，但不会用首次导入等式拒绝已经跟踪的 Trading 212 holding。
+
 ## 6. Snapshot、reconciliation 与确认
 
 `prepareImportDraftForReview` 负责把新 draft 与 current Portfolio State 比较。匹配身份使用：
@@ -393,6 +395,8 @@ Repository interface 位于 `src/infrastructure/sqlite/portfolio-repository.ts`�
 - 401/403、429 和通用失败有不同错误说明
 
 首页 `Refresh prices` 也会读取 Trading 212 snapshot，但只将已确认 position 对应的当前价格转换成 Market Data Observation。新持仓、quantity、Cost Basis 与 cash 不会通过价格刷新写入 Holding State；这些变化仍必须走 `Update assets → Sync Trading 212` 的 reconciliation/confirmation gate。
+
+Dashboard 首次读取到非空本地组合后，会调用 `/api/market-data/refresh?mode=automatic`。Route 使用 `MarketRefreshRecord.completedAt` 的 Helsinki 日历日期作为幂等门槛：当天已有完成记录则立即返回，不调用 Eastmoney 或 Trading 212；跨入新的 Helsinki 日期后才再次执行。手工刷新使用 `mode=manual`，明确绕过该门槛。两种模式最终进入同一个 refresh implementation，因此自动化没有另一套估值或写入规则。
 
 ## 12. 测试策略
 

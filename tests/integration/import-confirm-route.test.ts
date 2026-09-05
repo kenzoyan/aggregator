@@ -1,6 +1,14 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-import { POST } from "@/app/api/imports/[id]/confirm/route";
+import {
+  createImportConfirmHandler,
+} from "@/app/api/imports/[id]/confirm/route";
+import { createImportDraftReadModel } from "@/application/imports/import-draft-read-model";
+import {
+  draftPortfolioFromOpeningSnapshot,
+  prepareImportDraftForReview,
+  type StoredImportDraft,
+} from "@/domain/imports";
 
 describe("POST /api/imports/:id/confirm", () => {
   it("explains the exact inconsistent holding values instead of returning a generic 400", async () => {
@@ -32,9 +40,37 @@ describe("POST /api/imports/:id/confirm", () => {
       }),
     });
 
-    const response = await POST(request, {
-      params: Promise.resolve({ id: "draft" }),
-    });
+    const stored: StoredImportDraft = {
+      id: "draft",
+      sourceAccountId: "alipay-main",
+      sourceKind: "manual",
+      createdAt: "2026-07-21T00:00:00.000Z",
+      confidence: "high",
+      warnings: [],
+      portfolio: draftPortfolioFromOpeningSnapshot({
+        id: "snapshot-second-day",
+        sourceAccountId: "alipay-main",
+        asOf: "2026-07-21T00:00:00.000Z",
+        positions: [{
+          instrumentId: "FIXTURE-FUND",
+          quantity: "2",
+          currency: "CNY",
+          costBasis: "200",
+          reportedPriorReturn: "25",
+          observedPrice: "110",
+          reportedMarketValue: "220",
+        }],
+      }, "manual"),
+      status: "draft",
+    };
+    const response = await createImportConfirmHandler({
+      database: {
+        getImportDraft: () => stored,
+        confirmImport: vi.fn(),
+      },
+      newId: () => "unused",
+      now: () => "2026-07-21T00:01:00.000Z",
+    })(request, "draft");
 
     expect(response.status).toBe(400);
     await expect(response.json()).resolves.toEqual({
@@ -70,9 +106,37 @@ describe("POST /api/imports/:id/confirm", () => {
       }),
     });
 
-    const response = await POST(request, {
-      params: Promise.resolve({ id: "draft" }),
-    });
+    const stored: StoredImportDraft = {
+      id: "draft",
+      sourceAccountId: "alipay-main",
+      sourceKind: "manual",
+      createdAt: "2026-07-21T00:00:00.000Z",
+      confidence: "high",
+      warnings: [],
+      portfolio: draftPortfolioFromOpeningSnapshot({
+        id: "snapshot-second-day",
+        sourceAccountId: "alipay-main",
+        asOf: "2026-07-21T00:00:00.000Z",
+        positions: [{
+          instrumentId: "FIXTURE-FUND",
+          quantity: "2",
+          currency: "CNY",
+          costBasis: "200",
+          reportedPriorReturn: "25",
+          observedPrice: "110",
+          reportedMarketValue: "220",
+        }],
+      }, "manual"),
+      status: "draft",
+    };
+    const response = await createImportConfirmHandler({
+      database: {
+        getImportDraft: () => stored,
+        confirmImport: vi.fn(),
+      },
+      newId: () => "unused",
+      now: () => "2026-07-21T00:01:00.000Z",
+    })(request, "draft");
 
     expect(response.status).toBe(400);
     await expect(response.json()).resolves.toMatchObject({
@@ -82,5 +146,124 @@ describe("POST /api/imports/:id/confirm", () => {
           "Cost basis + prior return is 225.00 CNY, but current value is 220.00 CNY.",
       },
     });
+  });
+
+  it("allows a tracked Trading 212 holding's frozen prior return beside a newer price", async () => {
+    const currentState = {
+      positions: [{
+        sourceAccountId: "trading212-main",
+        instrumentId: "TRACKED-ETF",
+        displayName: "Synthetic Tracked ETF",
+        instrumentCode: "IE00TRACKED",
+        assetType: "etf" as const,
+        quantity: "0.2",
+        currency: "EUR",
+        costBasis: "100",
+        reportedPriorReturn: "-3.68",
+        observedPrice: "481.6",
+        priceAsOf: "2026-08-30T12:00:00.000Z",
+        reportedMarketValue: "96.32",
+      }],
+      cashBalances: [{
+        sourceAccountId: "trading212-main",
+        amount: "0",
+        currency: "EUR",
+      }],
+      appliedEventIds: [],
+    };
+    const prepared = prepareImportDraftForReview({
+      id: "draft-trading-change",
+      sourceAccountId: "trading212-main",
+      sourceKind: "trading-212",
+      createdAt: "2026-09-05T12:00:00.000Z",
+      confidence: "high",
+      warnings: [],
+      portfolio: draftPortfolioFromOpeningSnapshot({
+        id: "snapshot-trading-change",
+        sourceAccountId: "trading212-main",
+        asOf: "2026-09-05T12:00:00.000Z",
+        portfolioCash: { amount: "300", currency: "EUR" },
+        positions: [
+          {
+            instrumentId: "TRACKED-ETF",
+            displayName: "Synthetic Tracked ETF",
+            instrumentCode: "IE00TRACKED",
+            assetType: "etf",
+            quantity: "0.2",
+            currency: "EUR",
+            costBasis: "100",
+            reportedPriorReturn: "-2.75",
+            observedPrice: "486.25",
+            priceAsOf: "2026-09-05T12:00:00.000Z",
+            reportedMarketValue: "97.25",
+          },
+          {
+            instrumentId: "NEW-ETF",
+            displayName: "Synthetic New ETF",
+            instrumentCode: "IE00NEWETF",
+            assetType: "etf",
+            quantity: "0.1",
+            currency: "EUR",
+            costBasis: "50",
+            reportedPriorReturn: "0.38",
+            observedPrice: "503.8",
+            priceAsOf: "2026-09-05T12:00:00.000Z",
+            reportedMarketValue: "50.38",
+          },
+        ],
+      }, "api"),
+    }, currentState);
+    const stored: StoredImportDraft = { ...prepared, status: "draft" };
+    const editable = createImportDraftReadModel(stored);
+    const confirmImport = vi.fn(() => ({
+      ...stored,
+      status: "confirmed" as const,
+      confirmedAt: "2026-09-05T12:01:00.000Z",
+    }));
+    const handler = createImportConfirmHandler({
+      database: {
+        getImportDraft: () => stored,
+        confirmImport,
+      },
+      newId: () => "confirmed-import",
+      now: () => "2026-09-05T12:01:00.000Z",
+    });
+    const request = new Request(
+      "http://localhost/api/imports/draft-trading-change/confirm",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          confidence: editable.confidence,
+          warnings: editable.warnings,
+          portfolio: editable.portfolio,
+        }),
+      },
+    );
+
+    const response = await handler(request, "draft-trading-change");
+
+    expect(response.status).toBe(200);
+    expect(confirmImport).toHaveBeenCalledOnce();
+
+    const invalidNewHolding = structuredClone(editable);
+    invalidNewHolding.portfolio.holdings[1]!.reportedPriorReturn = "0";
+    const invalidResponse = await handler(new Request(
+      "http://localhost/api/imports/draft-trading-change/confirm",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          confidence: invalidNewHolding.confidence,
+          warnings: invalidNewHolding.warnings,
+          portfolio: invalidNewHolding.portfolio,
+        }),
+      },
+    ), "draft-trading-change");
+    expect(invalidResponse.status).toBe(400);
+    await expect(invalidResponse.json()).resolves.toMatchObject({
+      error: "Cost basis + prior return is 50.00 EUR, but current value is 50.38 EUR.",
+    });
+    expect(confirmImport).toHaveBeenCalledOnce();
   });
 });

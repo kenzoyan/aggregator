@@ -291,6 +291,47 @@ describe("holding history read model", () => {
     expect(history["trading212-main:sparse-etf"].week.available).toBe(false);
   });
 
+  it("keeps a six-day price gap out of Today while retaining a seven-day baseline", () => {
+    const snapshot = {
+      id: "weekly-etf",
+      sourceAccountId: "trading212-main",
+      asOf: "2026-08-30T12:00:00.000Z",
+      positions: [{
+        instrumentId: "weekly-etf",
+        quantity: "1",
+        currency: "EUR",
+        costBasis: "100",
+        observedPrice: "100",
+        priceAsOf: "2026-08-30T12:00:00.000Z",
+      }],
+    };
+    const history = createHoldingHistoryReadModel({
+      state: buildPortfolioState({ openingSnapshots: [snapshot], events: [] }),
+      snapshots: [snapshot],
+      marketPrices: [{
+        sourceAccountId: "trading212-main",
+        instrumentId: "weekly-etf",
+        instrumentCode: "IE00WEEKLY",
+        price: "105",
+        currency: "EUR",
+        asOf: "2026-09-05T12:00:00.000Z",
+        recordedAt: "2026-09-05T12:00:00.000Z",
+        source: "trading212",
+      }],
+      fxObservations: [],
+      asOf: "2026-09-05T18:00:00.000Z",
+    });
+
+    expect(history["trading212-main:weekly-etf"].today.available).toBe(false);
+    expect(history["trading212-main:weekly-etf"].week).toMatchObject({
+      available: true,
+      change: 5,
+      percent: 5,
+      baselineAsOf: "2026-08-30T23:59:59.999Z",
+      currentAsOf: "2026-09-05T18:00:00.000Z",
+    });
+  });
+
   it("gives non-zero portfolio cash an FX history without treating cash additions as gain", () => {
     const snapshot = {
       id: "cash-cny",

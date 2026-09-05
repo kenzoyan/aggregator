@@ -2,7 +2,11 @@ import { randomUUID } from "node:crypto";
 
 import { NextResponse } from "next/server";
 
-import { refreshFundNavs } from "@/application/market-refresh";
+import {
+  refreshFundNavs,
+  supportsFundNavRefresh,
+} from "@/application/market-refresh";
+import { portfolioCalendarDate } from "@/application/portfolio-calendar";
 import { marketObservationsFromTrading212Snapshot } from "@/application/trading212-market-data";
 import type { FundNavProvider, MarketPriceObservation } from "@/domain/market-data";
 import type { OpeningSnapshotInput } from "@/domain/portfolio/types";
@@ -27,10 +31,41 @@ export function createMarketRefreshHandler(input: {
   refreshTrading212Snapshot?: () => Promise<OpeningSnapshotInput | undefined>;
   now?: () => string;
 }) {
-  return async function handleMarketRefresh() {
+  let automaticRefreshTail = Promise.resolve();
+
+  async function performMarketRefresh(options: {
+    mode?: "manual" | "automatic";
+  } = {}) {
     try {
-      const facts = input.database.readPortfolioFacts();
+      const now = input.now?.() ?? new Date().toISOString();
+      const automatic = options.mode === "automatic";
       const marketData = input.database.readMarketData();
+      if (
+        automatic &&
+        marketData.latestMarketRefresh &&
+        portfolioCalendarDate(marketData.latestMarketRefresh.completedAt) ===
+          portfolioCalendarDate(now)
+      ) {
+        return NextResponse.json({
+          automatic: true,
+          skipped: true,
+          reason: "already-refreshed-today",
+          lastRefreshedAt: marketData.latestMarketRefresh.completedAt,
+        });
+      }
+      const facts = input.database.readPortfolioFacts();
+      const hasRefreshablePosition = facts.state.positions.some((position) =>
+        supportsFundNavRefresh(position) ||
+        (Boolean(input.refreshTrading212Snapshot) &&
+          position.sourceAccountId === trading212SourceAccountId)
+      );
+      if (automatic && !hasRefreshablePosition) {
+        return NextResponse.json({
+          automatic: true,
+          skipped: true,
+          reason: "no-refreshable-positions",
+        });
+      }
       const observations: MarketPriceObservation[] = [];
       const result = await refreshFundNavs({
         state: facts.state,
@@ -48,7 +83,7 @@ export function createMarketRefreshHandler(input: {
         record: (recorded) => {
           observations.push(...recorded);
         },
-        now: input.now?.() ?? new Date().toISOString(),
+        now,
       });
       let trading212Updated = 0;
       let trading212Included = false;
@@ -84,6 +119,7 @@ export function createMarketRefreshHandler(input: {
       }
       const combinedResult = {
         ...result,
+        automatic,
         updated: result.updated + trading212Updated,
         recordedPrices: result.recordedPrices + trading212Updated,
         skipped: Math.max(0, result.skipped - trading212Updated),
@@ -108,20 +144,51 @@ export function createMarketRefreshHandler(input: {
         { status: 500 },
       );
     }
+  }
+
+  return async function handleMarketRefresh(options: {
+    mode?: "manual" | "automatic";
+  } = {}) {
+    if (options.mode !== "automatic") return performMarketRefresh(options);
+
+    const previousAutomaticRefresh = automaticRefreshTail;
+    let releaseAutomaticRefresh!: () => void;
+    automaticRefreshTail = new Promise<void>((resolve) => {
+      releaseAutomaticRefresh = resolve;
+    });
+    await previousAutomaticRefresh;
+    try {
+      return await performMarketRefresh(options);
+    } finally {
+      releaseAutomaticRefresh();
+    }
   };
 }
 
-export async function POST() {
-  return createMarketRefreshHandler({
+let marketRefreshHandler: ReturnType<typeof createMarketRefreshHandler> | undefined;
+
+function getMarketRefreshHandler() {
+  if (marketRefreshHandler) return marketRefreshHandler;
+  const trading212Config = getTrading212ConnectionConfig(trading212SourceAccountId);
+  marketRefreshHandler = createMarketRefreshHandler({
     database: getPortfolioDatabase(),
     provider: new EastmoneyFundNavClient(),
-    refreshTrading212Snapshot: async () => {
-      const config = getTrading212ConnectionConfig(trading212SourceAccountId);
-      if (!config) return undefined;
-      return new Trading212Client(config).fetchAccountSnapshot({
-        id: randomUUID(),
-        sourceAccountId: trading212SourceAccountId,
-      });
-    },
-  })();
+    ...(trading212Config
+      ? {
+          refreshTrading212Snapshot: () =>
+            new Trading212Client(trading212Config).fetchAccountSnapshot({
+              id: randomUUID(),
+              sourceAccountId: trading212SourceAccountId,
+            }),
+        }
+      : {}),
+  });
+  return marketRefreshHandler;
+}
+
+export async function POST(request: Request) {
+  const mode = new URL(request.url).searchParams.get("mode") === "automatic"
+    ? "automatic"
+    : "manual";
+  return getMarketRefreshHandler()({ mode });
 }

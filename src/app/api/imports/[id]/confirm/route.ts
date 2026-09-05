@@ -8,13 +8,17 @@ import {
   applyImportDraftReview,
   createImportDraftReadModel,
 } from "@/application/imports/import-draft-read-model";
-import { materializeOpeningSnapshot } from "@/domain/imports";
+import {
+  materializeOpeningSnapshot,
+  type StoredImportDraft,
+} from "@/domain/imports";
 import {
   assetTypeSchema,
   currencyCodeSchema,
   decimalStringSchema,
   positiveDecimalStringSchema,
 } from "@/domain/portfolio/schemas";
+import type { PortfolioDatabase } from "@/infrastructure/sqlite/portfolio-repository";
 import { getPortfolioDatabase } from "@/server/portfolio-db";
 
 export const runtime = "nodejs";
@@ -56,16 +60,6 @@ const reviewSchema = z.object({
     });
   }
   portfolio.holdings.forEach((position, index) => {
-    if (position.reportedMarketValue) {
-      const accountedValue = new Decimal(position.costBasis).plus(position.reportedPriorReturn ?? "0");
-      if (accountedValue.minus(position.reportedMarketValue).abs().gt("0.02")) {
-        context.addIssue({
-          code: "custom",
-          path: ["portfolio", "holdings", index, "reportedMarketValue"],
-          message: `Cost basis + prior return is ${accountedValue.toFixed(2)} ${position.currency}, but current value is ${new Decimal(position.reportedMarketValue).toFixed(2)} ${position.currency}.`,
-        });
-      }
-    }
     if (position.reportedMarketValue && position.observedPrice) {
       const pricedValue = new Decimal(position.quantity).mul(position.observedPrice);
       if (pricedValue.minus(position.reportedMarketValue).abs().gt("0.02")) {
@@ -79,48 +73,97 @@ const reviewSchema = z.object({
   });
 });
 
+function reviewSchemaFor(existing: StoredImportDraft) {
+  const trackedTrading212Lines = new Set(
+    existing.sourceKind === "trading-212"
+      ? existing.portfolio.reconciliation?.holdings.flatMap((holding) =>
+          holding.before && holding.proposedLineId
+            ? [holding.proposedLineId]
+            : []
+        ) ?? []
+      : [],
+  );
+  return reviewSchema.superRefine((review, context) => {
+    review.portfolio.holdings.forEach((position, index) => {
+      if (
+        !position.reportedMarketValue ||
+        trackedTrading212Lines.has(position.lineId)
+      ) return;
+      const accountedValue = new Decimal(position.costBasis)
+        .plus(position.reportedPriorReturn ?? "0");
+      if (accountedValue.minus(position.reportedMarketValue).abs().lte("0.02")) {
+        return;
+      }
+      context.addIssue({
+        code: "custom",
+        path: ["portfolio", "holdings", index, "reportedMarketValue"],
+        message: `Cost basis + prior return is ${accountedValue.toFixed(2)} ${position.currency}, but current value is ${new Decimal(position.reportedMarketValue).toFixed(2)} ${position.currency}.`,
+      });
+    });
+  });
+}
+
+type ImportConfirmDatabase = Pick<
+  PortfolioDatabase,
+  "getImportDraft" | "confirmImport"
+>;
+
+export function createImportConfirmHandler(input: {
+  database: ImportConfirmDatabase;
+  newId: () => string;
+  now: () => string;
+}) {
+  return async function handleImportConfirm(request: Request, id: string) {
+    try {
+      const shapedReview = reviewSchema.parse(await request.json());
+      const existing = input.database.getImportDraft(id);
+
+      if (!existing) {
+        return NextResponse.json({ error: "Import draft not found." }, { status: 404 });
+      }
+      const editableReview = reviewSchemaFor(existing).parse(shapedReview);
+      const review = applyImportDraftReview(existing, editableReview);
+      const confirmed = input.database.confirmImport({
+        draftId: id,
+        confirmedImportId: input.newId(),
+        confirmedAt: input.now(),
+        review,
+      });
+
+      return NextResponse.json({
+        draft: createImportDraftReadModel(confirmed),
+        confirmedSnapshot: materializeOpeningSnapshot(
+          confirmed.sourceAccountId,
+          confirmed.portfolio,
+        ),
+      });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        const fieldErrors = Object.fromEntries(
+          error.issues.map((issue) => [issue.path.join("."), issue.message]),
+        );
+        return NextResponse.json(
+          {
+            error: error.issues[0]?.message ?? "Review the import values.",
+            fieldErrors,
+          },
+          { status: 400 },
+        );
+      }
+      console.error("Import confirmation failed", error);
+      return NextResponse.json({ error: "Confirmation failed. Try again." }, { status: 500 });
+    }
+  };
+}
+
 export async function POST(
   request: Request,
   context: { params: Promise<{ id: string }> },
 ) {
-  try {
-    const { id } = await context.params;
-    const editableReview = reviewSchema.parse(await request.json());
-    const database = getPortfolioDatabase();
-    const existing = database.getImportDraft(id);
-
-    if (!existing) {
-      return NextResponse.json({ error: "Import draft not found." }, { status: 404 });
-    }
-    const review = applyImportDraftReview(existing, editableReview);
-    const confirmed = database.confirmImport({
-      draftId: id,
-      confirmedImportId: randomUUID(),
-      confirmedAt: new Date().toISOString(),
-      review,
-    });
-
-    return NextResponse.json({
-      draft: createImportDraftReadModel(confirmed),
-      confirmedSnapshot: materializeOpeningSnapshot(
-        confirmed.sourceAccountId,
-        confirmed.portfolio,
-      ),
-    });
-  } catch (error) {
-    if (error instanceof z.ZodError) {
-      const fieldErrors = Object.fromEntries(
-        error.issues.map((issue) => [issue.path.join("."), issue.message]),
-      );
-      return NextResponse.json(
-        {
-          error: error.issues[0]?.message ?? "Review the import values.",
-          fieldErrors,
-        },
-        { status: 400 },
-      );
-    }
-    console.error("Import confirmation failed", error);
-    return NextResponse.json({ error: "Confirmation failed. Try again." }, { status: 500 });
-  }
+  const { id } = await context.params;
+  return createImportConfirmHandler({
+    database: getPortfolioDatabase(),
+    newId: randomUUID,
+    now: () => new Date().toISOString(),
+  })(request, id);
 }

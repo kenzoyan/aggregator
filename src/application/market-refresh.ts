@@ -15,7 +15,7 @@ export interface MarketRefreshResult {
   failed: MarketRefreshFailure[];
 }
 
-function supportsFundNavRefresh(position: Position): position is Position & {
+export function supportsFundNavRefresh(position: Position): position is Position & {
   instrumentCode: string;
 } {
   const accountProvider = findSourceAccount(position.sourceAccountId)?.provider;

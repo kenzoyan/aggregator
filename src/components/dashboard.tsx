@@ -55,6 +55,13 @@ const freshnessLabels: Record<HoldingReadModel["freshness"], string> = {
 
 const allAccounts = "All accounts";
 
+interface AutomaticRefreshSkip {
+  automatic: true;
+  skipped: true;
+  reason: "already-refreshed-today" | "no-refreshable-positions";
+  lastRefreshedAt?: string;
+}
+
 const focusableSelector = [
   "button:not([disabled])",
   "[href]",
@@ -185,10 +192,10 @@ export function Dashboard() {
     };
     setLocalFxOverview(payload.portfolio.fxOverview);
     setLocalPortfolio(payload.hasPortfolioData ? payload.portfolio : undefined);
+    return payload.hasPortfolioData;
   }
 
   useEffect(() => {
-    setDemoEnabled(new URLSearchParams(window.location.search).get("demo") === "1");
     try {
       const savedDemo = parseDemoPortfolioRecord(window.localStorage.getItem(demoPortfolioStorageKey));
       if (savedDemo) setReviewedDemoHoldings(toDemoDashboardHoldings(savedDemo));
@@ -196,7 +203,12 @@ export function Dashboard() {
       // The built-in sample remains available if private browsing blocks local storage.
     }
     const controller = new AbortController();
+    const showingDemo = new URLSearchParams(window.location.search).get("demo") === "1";
+    setDemoEnabled(showingDemo);
     loadLocalPortfolio(controller.signal)
+      .then((hasPortfolioData) => hasPortfolioData && !showingDemo
+        ? refreshPrices("automatic", controller.signal)
+        : undefined)
       .catch(() => undefined)
       .finally(() => setLoading(false));
     return () => controller.abort();
@@ -251,23 +263,38 @@ export function Dashboard() {
     window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
   }
 
-  async function refreshPrices() {
+  async function refreshPrices(
+    mode: "manual" | "automatic" = "manual",
+    signal?: AbortSignal,
+  ) {
     setRefreshingPrices(true);
     setRefreshMessage(undefined);
     try {
-      const response = await fetch("/api/market-data/refresh", { method: "POST" });
-      const summary = (await response.json()) as MarketRefreshResult & { error?: string };
-      if (!response.ok) throw new Error(summary.error ?? "Price refresh failed");
-      await loadLocalPortfolio();
+      const response = await fetch(
+        `/api/market-data/refresh${mode === "automatic" ? "?mode=automatic" : ""}`,
+        { method: "POST", signal },
+      );
+      const summary = (await response.json()) as
+        | (MarketRefreshResult & { automatic: boolean; error?: string })
+        | AutomaticRefreshSkip
+        | { error: string };
+      if (!response.ok) {
+        throw new Error("error" in summary ? summary.error : "Price refresh failed");
+      }
+      if ("reason" in summary) return;
+      if ("error" in summary) throw new Error(summary.error);
+      if (!("updated" in summary)) return;
+      await loadLocalPortfolio(signal);
       const tracked = summary.updated + summary.unchanged + summary.failed.length;
-      setRefreshMessage(
+      const message =
         summary.failed.length > 0
           ? `${summary.updated} updated · failed: ${formatRefreshFailures(summary.failed)}; previous prices kept`
           : summary.updated > 0
             ? `${summary.updated} of ${tracked} market prices updated`
-            : `${tracked} market prices are already current`,
-      );
+            : `${tracked} market prices are already current`;
+      setRefreshMessage(mode === "automatic" ? `Daily check · ${message}` : message);
     } catch (error) {
+      if (signal?.aborted) return;
       setRefreshMessage(error instanceof Error ? error.message : "Price refresh failed");
     } finally {
       setRefreshingPrices(false);
@@ -431,7 +458,7 @@ export function Dashboard() {
               <button
                 className="refresh-button"
                 type="button"
-                onClick={refreshPrices}
+                onClick={() => void refreshPrices()}
                 disabled={refreshingPrices}
               >
                 {refreshingPrices ? "Refreshing…" : "↻ Refresh prices"}
@@ -634,7 +661,11 @@ export function Dashboard() {
                       />
                     </div>
                   ) : (
-                    <span className="pending-change-cell">Awaiting baseline<small>Record another dated NAV / price</small></span>
+                    <span className="pending-change-cell">Awaiting baseline<small>
+                      {period === "today" && holding.history?.week.available
+                        ? "No recent daily price · select 7 days"
+                        : "Record another dated NAV / price"}
+                    </small></span>
                   ) : (
                     <Change value={holding.changeEur} percent={holding.changePercent} />
                   )}
@@ -728,7 +759,11 @@ export function Dashboard() {
               ) : (
                 <div className="drawer-awaiting">
                   <strong>Awaiting baseline</strong>
-                  <span>Record another dated NAV / price for this period.</span>
+                  <span>
+                    {drawerPeriod === "today" && selectedHolding.history?.week.available
+                      ? "No recent daily price is available. Select 7 days to use the older baseline."
+                      : "Record another dated NAV / price for this period."}
+                  </span>
                 </div>
               )}
             </section>

@@ -45,6 +45,20 @@ function recountReconciliation(
   };
 }
 
+function reviewChangeLabel(reconciliation: ImportReconciliation): string {
+  const holdingChanges = reconciliation.holdings.filter((item) =>
+    item.kind === "holding-changed" ||
+    item.kind === "new" ||
+    item.kind === "possibly-removed"
+  ).length;
+  const cashChanged = Boolean(
+    reconciliation.cash && reconciliation.cash.kind !== "unchanged",
+  );
+  if (holdingChanges === 0 && cashChanged) return "cash";
+  const holdings = `${holdingChanges} holding${holdingChanges === 1 ? "" : "s"}`;
+  return cashChanged ? `${holdings} + cash` : holdings;
+}
+
 function comparisonFromEditableHolding(
   holding: ImportDraftView["portfolio"]["holdings"][number],
 ): HoldingStateComparison {
@@ -565,7 +579,7 @@ export function AssetImportWorkflow() {
                         : "Partial account update"}
                     </small>
                   </div>
-                  <span>{draft.reconciliation.changeCount} to review</span>
+                  <span>{reviewChangeLabel(draft.reconciliation)} to review</span>
                   {draft.reconciliation.marketDataUpdatedCount > 0 && (
                     <span>{draft.reconciliation.marketDataUpdatedCount} price-only</span>
                   )}
@@ -693,7 +707,9 @@ export function AssetImportWorkflow() {
               <button className="primary-button confirm-button" disabled={busy || (draft.portfolio.holdings.length === 0 && !draft.portfolio.portfolioCash)} type="submit">
                 {busy
                   ? "Saving…"
-                  : `Confirm ${draft.reconciliation?.changeCount ?? draft.portfolio.holdings.length} changes`}
+                  : draft.reconciliation
+                    ? `Confirm ${reviewChangeLabel(draft.reconciliation)}`
+                    : `Confirm ${draft.portfolio.holdings.length} changes`}
               </button>
             </form>
           )}

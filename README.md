@@ -56,7 +56,11 @@ Alipay screenshot review shows only the holdings detected in that screenshot. On
 
 Trading 212 synchronization reconciles the complete API response against the latest confirmed Holding State by Source Account plus ticker/ISIN identity. If quantity, Cost Basis and Portfolio Cash are unchanged, the app records new prices directly as Market Data and skips the confirmation screen. Real holding changes open a Before/After review: changed and new holdings are expanded, unchanged holdings are collapsed, and a holding absent from the complete API response is marked **Possibly removed** until explicitly confirmed. Repeated price checks never overwrite the Reported Prior Return captured when monitoring began.
 
+When a Trading 212 state change does require review, existing price-only holdings can legitimately have a latest Current Value that no longer equals Cost Basis plus the frozen pre-monitoring Reported Prior Return. Confirmation therefore keeps quantity-times-price validation for every row, keeps the full accounting check for new holdings, and does not apply that initial-import accounting identity to already tracked Trading 212 holdings. The review count names holding changes and Portfolio Cash separately.
+
 Use **Refresh prices** on the portfolio overview to check published NAVs for supported six-digit CNY fund codes held in Alipay or WeChat and current prices for already-confirmed Trading 212 positions. Each fund check fills missing NAV dates since monitoring began, so checking a few times per month can still preserve a near-daily curve. The first fund provider is the public Eastmoney/Tiantian Fund NAV service. It requires no credential and receives only the public fund code—not account credentials, quantities, costs or portfolio totals. Trading 212 refresh reuses the configured read-only connection but stores Market Data only; a quantity, Cost Basis or cash change still requires **Update assets → Sync Trading 212** and confirmation. Provider failures keep the last successful local price.
+
+When a non-empty local portfolio first loads, the dashboard also requests an automatic price refresh. The server performs it only if no market refresh has completed during the current `Europe/Helsinki` calendar day, so reopening or reloading the dashboard does not repeatedly call providers. The manual **Refresh prices** button deliberately bypasses this daily gate for explicit retries. Automatic and manual refreshes share the same Market Data-only path and therefore never change Quantity, Cost Basis or Portfolio Cash.
 
 Use **Update NAV / price** inside an existing holding's detail drawer to record a dated manual observation when an automatic provider is unavailable. This changes Market Data only; it never changes Quantity or Cost Basis. Once a valid baseline exists, the holding row shows the baseline/current dates and separates the EUR price effect from the FX effect.
 
@@ -73,7 +77,7 @@ An optional cloud narrative can explain that read model in English or Simplified
 ## Near-term roadmap
 
 - Add optional persistence and a fact-by-fact provenance view for generated narratives without storing prompts or credentials.
-- Later, refresh supported prices automatically once per Helsinki day when the dashboard opens, while keeping Holding State unchanged.
+- Add a small refresh-history view so provider failures and manual/automatic runs can be inspected without opening the local database.
 
 Local portfolio records are stored in `data/invest-assets-monitor.sqlite`. The entire `data` database remains ignored by Git.
 
