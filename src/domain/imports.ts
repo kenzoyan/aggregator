@@ -22,7 +22,7 @@ export const importSourceKinds = [
 
 export type ImportSourceKind = (typeof importSourceKinds)[number];
 
-export type ImportFieldSource = "ocr" | "csv" | "api" | "manual" | "demo";
+export type ImportFieldSource = "vision" | "csv" | "api" | "manual" | "demo";
 
 export type DraftValue<T> =
   | {

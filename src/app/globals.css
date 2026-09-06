@@ -269,7 +269,7 @@ h2 { margin-bottom: 0; font-size: 25px; letter-spacing: -.03em; }
 .upload-zone small { color: var(--muted); font-size: 11px; }
 .privacy-callout { padding: 14px 15px; border-radius: 13px; background: #eef8f5; color: #30594d; }
 .privacy-callout strong { font-size: 12px; }.privacy-callout p { margin: 5px 0 0; font-size: 11px; line-height: 1.55; }
-.ocr-progress { margin: 10px 0 0; color: #476b61; font-size: 10px; font-weight: 750; }
+.image-analysis-progress { margin: 10px 0 0; color: #476b61; font-size: 10px; font-weight: 750; }
 .import-actions { display: flex; align-items: center; gap: 12px; margin-top: 18px; }
 .action-button, .confirm-button, .text-button { border: 0; cursor: pointer; }
 .action-button:disabled, .confirm-button:disabled, .text-button:disabled { opacity: .45; cursor: not-allowed; }
@@ -295,7 +295,7 @@ h2 { margin-bottom: 0; font-size: 25px; letter-spacing: -.03em; }
 .reconciliation-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 14px; padding: 12px 14px; border: 1px solid #dce5ec; border-radius: 12px; background: #f8fafc; }
 .reconciliation-summary > div { display: grid; gap: 2px; margin-right: auto; }.reconciliation-summary strong { font-size: 12px; }.reconciliation-summary small { color: var(--muted); font-size: 9px; }
 .reconciliation-summary > span { padding: 5px 8px; border-radius: 999px; background: #eaf0f8; color: #45617f; font-size: 9px; font-weight: 800; }
-.cash-review { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; padding: 12px 14px; border-radius: 12px; background: #f1f5f8; font-size: 11px; }.cash-review span { color: var(--muted); }.cash-review strong { font-size: 12px; }
+.cash-review { display: flex; justify-content: space-between; align-items: center; gap: 14px; margin-bottom: 14px; padding: 12px 14px; border-radius: 12px; background: #f1f5f8; font-size: 11px; }.cash-review > span:first-child { color: var(--muted); }.cash-review-values { display: flex; align-items: center; justify-content: flex-end; gap: 6px; color: var(--ink); font-weight: 700; }.cash-review-values input { width: 110px; padding: 7px 9px; border: 1px solid var(--line); border-radius: 8px; background: white; color: var(--ink); font: inherit; }.cash-review-values input:last-child { width: 54px; text-transform: uppercase; }
 .cash-review.holding-changed, .cash-review.new { background: #fff6df; }
 .review-positions { display: grid; gap: 14px; }
 .review-position { border: 1px solid #dfe6eb; border-radius: 14px; background: white; overflow: hidden; }

@@ -13,6 +13,7 @@ const extracted: ScreenshotExtraction = {
   currency: "CNY",
   totalValue: "9999.99",
   reportedPriorReturn: "321.09",
+  portfolioCash: null,
   confidence: "medium",
   warnings: ["The screenshot does not show fund units."],
   positions: [
@@ -25,6 +26,9 @@ const extracted: ScreenshotExtraction = {
       costBasis: null,
       reportedPriorReturn: "321.09",
       reportedPriorReturnPercent: "8.03",
+      averageCost: null,
+      observedPrice: null,
+      priceAsOf: null,
       confidence: "high",
     },
   ],
@@ -75,7 +79,7 @@ describe("screenshot import seam", () => {
     expect(draft.portfolio.asOf).toMatchObject({
       status: "known",
       value: extracted.asOf,
-      source: "ocr",
+      source: "vision",
     });
     expect(draft.portfolio.holdings[0]?.costBasis).toMatchObject({
       status: "inferred",
@@ -109,5 +113,49 @@ describe("screenshot import seam", () => {
     expect(() =>
       materializeOpeningSnapshot(draft.sourceAccountId, draft.portfolio),
     ).toThrow("Holding 1 costBasis is still unknown");
+  });
+
+  it("preserves an explicitly visible account cash balance", () => {
+    const draft = prepareScreenshotImport({
+      draftId: "draft-with-cash",
+      snapshotId: "snapshot-with-cash",
+      sourceAccountId: "danske-main",
+      createdAt: "2026-07-19T12:01:00.000Z",
+      extraction: {
+        ...extracted,
+        accountName: "Danske Bank",
+        currency: "EUR",
+        portfolioCash: { amount: "75.25", currency: "EUR" },
+      },
+    });
+
+    expect(draft.portfolio.portfolioCash).toMatchObject({
+      status: "known",
+      value: { amount: "75.25", currency: "EUR" },
+      source: "vision",
+    });
+  });
+
+  it("creates a reviewable draft from an explicit cash-only account", () => {
+    const draft = prepareScreenshotImport({
+      draftId: "draft-cash-only",
+      snapshotId: "snapshot-cash-only",
+      sourceAccountId: "danske-main",
+      createdAt: "2026-07-19T12:01:00.000Z",
+      extraction: {
+        ...extracted,
+        accountName: "Danske Bank",
+        currency: "EUR",
+        totalValue: "75.25",
+        portfolioCash: { amount: "75.25", currency: "EUR" },
+        positions: [],
+      },
+    });
+
+    expect(draft.portfolio.holdings).toEqual([]);
+    expect(draft.portfolio.portfolioCash).toMatchObject({
+      status: "known",
+      value: { amount: "75.25", currency: "EUR" },
+    });
   });
 });

@@ -45,7 +45,7 @@ Domain modules
              ▼
 Infrastructure adapters
   ├─ SQLite repository
-  ├─ MinerU Precision OCR
+  ├─ OpenAI vision extractor
   ├─ Trading 212 read-only client
   ├─ Eastmoney fund NAV client
   └─ ECB FX client
@@ -66,13 +66,13 @@ Infrastructure adapters
 
 相关类型位于 `src/domain/imports.ts`。
 
-Import Draft 保存 OCR、CSV、API 或手工输入的解释结果。每个字段都是 `DraftValue<T>`：
+Import Draft 保存 Vision、CSV、API 或手工输入的解释结果。每个字段都是 `DraftValue<T>`：
 
-- `known`：来源明确，例如 OCR、CSV 或 API。
+- `known`：来源明确，例如 Vision、CSV 或 API。
 - `inferred`：系统根据其他字段推算，同时保留推算原因。
 - `unknown`：必须由用户补充，不能直接 materialize 成持仓事实。
 
-这样做的原因是：OCR 不完整时不能用空字符串或零值伪装成真实数据。
+这样做的原因是：图片识别不完整时不能用空字符串或零值伪装成真实数据。
 
 Import Draft 包含：
 
@@ -136,18 +136,15 @@ Market Data 独立存储：
 
 ## 5. 导入工作模式
 
-### 5.1 Alipay 截图
+### 5.1 账户截图
 
 调用链：
 
 ```text
 PNG/JPEG/WebP
   → POST /api/imports/analyze
-  → MinerU Precision signed upload
-  → poll batch result
-  → download ZIP in memory
-  → extract full.md
-  → parseAlipayHoldingsMarkdown
+  → OpenAI Responses API image input
+  → strict structured output
   → ScreenshotExtraction
   → prepareScreenshotImport
   → Import Draft
@@ -158,23 +155,21 @@ PNG/JPEG/WebP
 
 关键文件：
 
-- `src/infrastructure/mineru/mineru-ocr-provider.ts`
-- `src/application/imports/ocr-vision-extractor.ts`
-- `src/application/imports/alipay-ocr-parser.ts`
+- `src/infrastructure/openai/openai-vision-extractor.ts`
 - `src/application/imports/vision-extractor.ts`
 - `src/app/api/imports/analyze/route.ts`
 
 隐私边界：
 
-- MinerU token 只从服务端环境变量读取。
-- 原图、signed URL、结果 ZIP 和 OCR Markdown 不写入本地数据库。
-- MinerU 是云端处理方，因此用户仍需接受图片离开本机这一事实。
-- OCR 结果必须进入 review，不能直接更新 portfolio。
+- OpenAI API key 只从服务端环境变量读取。
+- 原图和 provider response 不写入本地数据库。
+- OpenAI 是云端处理方，因此用户仍需接受图片离开本机这一事实。
+- Vision 结果必须进入 review，不能直接更新 portfolio。
 
 截图被定义为 **detected-holdings update**：
 
 - review 只展示本次截图实际识别出的基金。
-- 数据库中同一 Alipay Source Account 的其他已确认基金不会被追加到 review。
+- 数据库中同一 Source Account 的其他已确认持仓不会被追加到 review。
 - 确认时，repository 会在 transaction 前把本次更新与最新 confirmed state 合并；截图未涉及的持仓自动保持不变。
 - 因此“一张单基金截图”既不会在 review 中冒出其他基金，也不会在确认后删除其他基金。
 
@@ -345,7 +340,7 @@ Account allocation 不在 overview 占据主卡，而是在 `src/components/sour
 `src/components/screenshot-import.tsx` 负责：
 
 - 选择 Source Account 和输入方式
-- 上传与 OCR 进度
+- 上传与图片分析进度
 - editable draft
 - reconciliation 状态
 - confirmation
@@ -378,13 +373,13 @@ Narrative table 不保存 API key、原始 prompt、截图或 provider request�
 
 ## 11. 外部适配器
 
-### MinerU
+### OpenAI Vision
 
-- Precision VLM batch
-- signed HTTPS upload
-- allowlisted upload/result hosts
-- retry、rate limit、deadline 和 response-size 限制
-- 只从 ZIP 提取 `full.md`
+- Responses API 直接接收 Base64 image input
+- `detail: original` 用于小字和数字识别
+- strict JSON Schema 结构化输出
+- server-side API key、60 秒 deadline 和安全错误映射
+- provider output 还需通过本地 Zod schema，不直接成为 portfolio facts
 
 ### Eastmoney
 
@@ -439,8 +434,7 @@ npm run build
 - 可选 LLM narrative 已支持 OpenAI/DeepSeek、SQLite persistence、outdated detection 和 fact-level provenance；它仍只在用户主动点击时调用云端。
 - QDII 的“Today”是 latest available daily move，不等于尚未发布的实时 7/24 NAV。应用不能计算一个市场尚未公布的价格。
 - Portfolio Event 目前只有 sale domain model，尚无完整 UI/API 工作流。
-- OCR parser 目前只针对 Alipay 中文基金标签。
-- MinerU 是云端 OCR，不是纯本地 OCR。
+- 图片识别依赖云端 Vision 模型，不是纯本地处理；模糊、旋转或小字截图仍可能识别错误。
 - SQLite repository 目前使用 JSON payload 保存 draft/snapshot，灵活但不适合复杂 SQL 分析；如果未来增加大量 transaction analytics，应考虑规范化 event/position fact tables。
 - `dashboard.tsx` 和 `screenshot-import.tsx` 仍是较大的交互模块。当前 cleanup 没有强行拆分它们，因为状态、focus management 和表单编辑高度耦合；在缺少 component-level interaction tests 时大拆分的回归风险高于收益。
 
@@ -448,7 +442,8 @@ npm run build
 
 - 改持仓/成本规则：`src/domain/portfolio/`
 - 改 import/reconciliation：`src/domain/imports.ts`
-- 改 OCR 字段识别：`src/application/imports/alipay-ocr-parser.ts`
+- 改 Vision 字段协议：`src/application/imports/vision-extractor.ts`
+- 改 OpenAI 图片调用：`src/infrastructure/openai/openai-vision-extractor.ts`
 - 改 Today/holding history：`src/application/holding-history.ts`
 - 改 portfolio period 聚合：`src/application/portfolio-periods.ts`
 - 改 Portfolio insights：`src/application/portfolio-insights.ts`

@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="750" height="750" viewBox="0 0 750 750">
+  <rect width="750" height="750" fill="#f5f6f8"/>
+  <rect x="30" y="28" width="690" height="694" rx="32" fill="#ffffff"/>
+  <g font-family="Arial, PingFang SC, sans-serif" fill="#17243a">
+    <text x="70" y="72" font-size="23" font-weight="700">支付宝 · 基金持仓</text>
+    <text x="70" y="105" font-size="15" fill="#778195">截至日期 2026-09-05</text>
+    <text x="70" y="137" font-size="15" fill="#778195">持有总金额</text>
+    <text x="70" y="174" font-size="35" font-weight="700">¥12,345.67</text>
+
+    <line x1="70" x2="680" y1="200" y2="200" stroke="#e7e9ed"/>
+    <text x="70" y="235" font-size="20" font-weight="700">示例全球科技指数基金</text>
+    <text x="70" y="262" font-size="14" fill="#778195">基金代码 012345</text>
+    <text x="70" y="295" font-size="14" fill="#778195">持有金额</text>
+    <text x="390" y="295" font-size="17" text-anchor="end">¥8,234.56</text>
+    <text x="70" y="325" font-size="14" fill="#778195">持有份额</text>
+    <text x="390" y="325" font-size="17" text-anchor="end">5,234.1234</text>
+    <text x="70" y="355" font-size="14" fill="#778195">历史成本</text>
+    <text x="390" y="355" font-size="17" text-anchor="end">¥7,500.00</text>
+    <text x="70" y="385" font-size="14" fill="#778195">持有收益</text>
+    <text x="390" y="385" font-size="17" text-anchor="end" fill="#0a936d">+¥734.56</text>
+    <text x="70" y="415" font-size="14" fill="#778195">单位净值</text>
+    <text x="390" y="415" font-size="17" text-anchor="end">1.5732</text>
+
+    <line x1="70" x2="680" y1="445" y2="445" stroke="#e7e9ed"/>
+    <text x="70" y="480" font-size="20" font-weight="700">示例稳健债券基金</text>
+    <text x="70" y="507" font-size="14" fill="#778195">基金代码 006789</text>
+    <text x="70" y="540" font-size="14" fill="#778195">持有金额</text>
+    <text x="390" y="540" font-size="17" text-anchor="end">¥4,111.11</text>
+    <text x="70" y="570" font-size="14" fill="#778195">历史成本</text>
+    <text x="390" y="570" font-size="17" text-anchor="end">¥4,000.00</text>
+    <text x="70" y="600" font-size="14" fill="#778195">持有收益</text>
+    <text x="390" y="600" font-size="17" text-anchor="end" fill="#0a936d">+¥111.11</text>
+    <text x="70" y="642" font-size="13" fill="#929baa">本示例未显示第二只基金的份额和净值</text>
+  </g>
+</svg>

@@ -25,7 +25,10 @@ import type {
 
 type ImportDraftView = ImportDraftReadModel;
 
-type AccountOption = Pick<SourceAccountView, "id" | "provider" | "label" | "connector">;
+type AccountOption = Pick<
+  SourceAccountView,
+  "id" | "provider" | "label" | "updateMethod" | "connector"
+>;
 
 function recountReconciliation(
   reconciliation: ImportReconciliation,
@@ -75,7 +78,14 @@ function comparisonFromEditableHolding(
 export function AssetImportWorkflow() {
   const [sourceAccountId, setSourceAccountId] = useState("alipay-main");
   const [accounts, setAccounts] = useState<AccountOption[]>(
-    sourceAccounts.map((account) => ({ id: account.id, provider: account.provider, label: account.label })),
+    sourceAccounts.map((account) => ({
+      id: account.id,
+      provider: account.provider,
+      label: account.label,
+      updateMethod: account.updateMethod === "screenshot"
+        ? "Screenshot"
+        : "Trading 212 API",
+    })),
   );
   const [file, setFile] = useState<File>();
   const [csvFile, setCsvFile] = useState<File>();
@@ -100,7 +110,7 @@ export function AssetImportWorkflow() {
   }, []);
 
   const selectedAccount = accounts.find((account) => account.id === sourceAccountId);
-  const minerUSupported = selectedAccount?.provider === "alipay";
+  const imageImportSupported = selectedAccount?.updateMethod === "Screenshot";
 
   async function requestDraft(
     request: () => Promise<Response>,
@@ -127,22 +137,12 @@ export function AssetImportWorkflow() {
 
   async function analyze(mode: "image" | "demo") {
     setOperationLabel(mode === "image"
-      ? "Sending to MinerU Precision…"
+      ? "Analyzing with OpenAI…"
       : "Loading demo…");
-    const phaseTimer = mode === "image"
-      ? window.setTimeout(
-          () => setOperationLabel("Waiting for Precision OCR…"),
-          1_200,
-        )
-      : undefined;
     try {
       await requestDraft(async () => {
         const form = new FormData();
         form.set("sourceAccountId", sourceAccountId);
-        form.set(
-          "sourceAccountHint",
-          selectedAccount?.label ?? "",
-        );
         form.set("mode", mode);
         if (mode === "image") {
           if (!file) throw new Error("Choose a screenshot first.");
@@ -155,7 +155,6 @@ export function AssetImportWorkflow() {
         });
       }, "Image analysis failed.");
     } finally {
-      if (phaseTimer !== undefined) window.clearTimeout(phaseTimer);
       setOperationLabel("");
     }
   }
@@ -365,6 +364,38 @@ export function AssetImportWorkflow() {
     });
   }
 
+  function updatePortfolioCash(field: "amount" | "currency", value: string) {
+    setDraft((current) => {
+      if (!current?.portfolio.portfolioCash) return current;
+      const portfolioCash = {
+        ...current.portfolio.portfolioCash,
+        [field]: field === "currency" ? value.toUpperCase() : value,
+      };
+      const reconciliation = current.reconciliation
+        ? recountReconciliation({
+            ...current.reconciliation,
+            cash: current.reconciliation.cash?.before
+              ? {
+                  before: current.reconciliation.cash.before,
+                  after: portfolioCash,
+                  kind:
+                    current.reconciliation.cash.before.amount === portfolioCash.amount &&
+                      current.reconciliation.cash.before.currency.toUpperCase() ===
+                        portfolioCash.currency.toUpperCase()
+                      ? "unchanged"
+                      : "holding-changed",
+                }
+              : { kind: "new", after: portfolioCash },
+          })
+        : undefined;
+      return {
+        ...current,
+        ...(reconciliation ? { reconciliation } : {}),
+        portfolio: { ...current.portfolio, portfolioCash },
+      };
+    });
+  }
+
   async function confirm(event: FormEvent) {
     event.preventDefault();
     if (!draft) return;
@@ -446,11 +477,11 @@ export function AssetImportWorkflow() {
 
           <label className="upload-zone">
             <span className="upload-icon">↥</span>
-            <strong>{file ? file.name : "Choose an Alipay fund screenshot"}</strong>
+            <strong>{file ? file.name : "Choose a portfolio screenshot"}</strong>
             <small>
-              {minerUSupported
-                ? "MinerU Precision VLM · JPEG, PNG or WebP · up to 10 MB"
-                : "Select the Alipay Source Account to use MinerU Precision"}
+              {imageImportSupported
+                ? "OpenAI Vision · JPEG, PNG or WebP · up to 10 MB"
+                : "Select a screenshot-based Source Account"}
             </small>
             <input
               type="file"
@@ -460,20 +491,20 @@ export function AssetImportWorkflow() {
           </label>
 
           <div className="privacy-callout">
-            <strong>MinerU Precision cloud OCR</strong>
-            <p>The screenshot is uploaded to MinerU Precision for VLM extraction. This app does not save the original image, signed upload URL, result ZIP or OCR Markdown, but MinerU does not publish a cloud-retention or deletion guarantee. Review every detected value before confirmation.</p>
+            <strong>OpenAI cloud image analysis</strong>
+            <p>The selected screenshot is sent to the OpenAI API for structured extraction. This app does not save the original image or provider response. Review every detected value; your portfolio changes only after confirmation.</p>
           </div>
 
           <div className="import-actions">
             <button
               className="primary-button action-button"
               type="button"
-              disabled={busy || !file || !minerUSupported}
+              disabled={busy || !file || !imageImportSupported}
               onClick={() => analyze("image")}
             >
               {busy && operationLabel
                 ? operationLabel
-                : "Analyze with MinerU Precision"}
+                : "Analyze with OpenAI"}
             </button>
             <button
               className="text-button"
@@ -493,7 +524,7 @@ export function AssetImportWorkflow() {
             </button>
           </div>
           {busy && operationLabel && (
-            <p className="ocr-progress" role="status">{operationLabel}</p>
+            <p className="image-analysis-progress" role="status">{operationLabel}</p>
           )}
           <div className="connector-divider"><span>or</span></div>
           <div className="csv-import-panel">
@@ -591,12 +622,25 @@ export function AssetImportWorkflow() {
               {draft.portfolio.portfolioCash && (
                 <div className={`cash-review ${draft.reconciliation?.cash?.kind ?? ""}`}>
                   <span>Portfolio cash</span>
-                  <strong>
+                  <span className="cash-review-values">
                     {draft.reconciliation?.cash?.before &&
                       draft.reconciliation.cash.kind !== "unchanged" &&
                       `${draft.reconciliation.cash.before.amount} ${draft.reconciliation.cash.before.currency} → `}
-                    {draft.portfolio.portfolioCash.amount} {draft.portfolio.portfolioCash.currency}
-                  </strong>
+                    <input
+                      aria-label="Portfolio cash amount"
+                      required
+                      inputMode="decimal"
+                      value={draft.portfolio.portfolioCash.amount}
+                      onChange={(event) => updatePortfolioCash("amount", event.target.value)}
+                    />
+                    <input
+                      aria-label="Portfolio cash currency"
+                      required
+                      maxLength={3}
+                      value={draft.portfolio.portfolioCash.currency}
+                      onChange={(event) => updatePortfolioCash("currency", event.target.value)}
+                    />
+                  </span>
                 </div>
               )}
               <div className="review-positions">

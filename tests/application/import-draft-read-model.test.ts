@@ -19,6 +19,7 @@ describe("Import Draft read model", () => {
         currency: "CNY",
         totalValue: "125",
         reportedPriorReturn: "25",
+        portfolioCash: null,
         confidence: "high",
         warnings: [],
         positions: [{
@@ -30,6 +31,9 @@ describe("Import Draft read model", () => {
           costBasis: null,
           reportedPriorReturn: "25",
           reportedPriorReturnPercent: "25",
+          averageCost: null,
+          observedPrice: null,
+          priceAsOf: null,
           confidence: "high",
         }],
       },
@@ -65,6 +69,40 @@ describe("Import Draft read model", () => {
     expect(edited.portfolio.holdings[0]?.costBasis).toEqual({
       status: "known",
       value: "101",
+      source: "manual",
+    });
+  });
+
+  it("marks a corrected vision cash balance as manual evidence", () => {
+    const draft = prepareScreenshotImport({
+      draftId: "draft-cash",
+      snapshotId: "snapshot-cash",
+      sourceAccountId: "danske-main",
+      createdAt: "2026-07-21T10:00:00.000Z",
+      extraction: {
+        accountName: "Danske Bank",
+        asOf: "2026-07-20T00:00:00.000Z",
+        currency: "EUR",
+        totalValue: "75.25",
+        reportedPriorReturn: null,
+        portfolioCash: { amount: "75.25", currency: "EUR" },
+        confidence: "high",
+        warnings: [],
+        positions: [],
+      },
+    });
+    const readModel = createImportDraftReadModel({ ...draft, status: "draft" });
+    readModel.portfolio.portfolioCash = { amount: "72.25", currency: "EUR" };
+
+    const reviewed = applyImportDraftReview(draft, {
+      confidence: readModel.confidence,
+      warnings: readModel.warnings,
+      portfolio: readModel.portfolio,
+    });
+
+    expect(reviewed.portfolio.portfolioCash).toEqual({
+      status: "known",
+      value: { amount: "72.25", currency: "EUR" },
       source: "manual",
     });
   });

@@ -6,6 +6,7 @@ export const demoScreenshotExtraction: ScreenshotExtraction = {
   currency: "CNY",
   totalValue: "10280.50",
   reportedPriorReturn: "1280.50",
+  portfolioCash: null,
   confidence: "medium",
   warnings: ["The demo screenshot does not show fund units. Confirm whole-holding mode."],
   positions: [
@@ -18,6 +19,9 @@ export const demoScreenshotExtraction: ScreenshotExtraction = {
       costBasis: null,
       reportedPriorReturn: "980.50",
       reportedPriorReturnPercent: "18.50",
+      averageCost: null,
+      observedPrice: null,
+      priceAsOf: null,
       confidence: "high",
     },
     {
@@ -29,6 +33,9 @@ export const demoScreenshotExtraction: ScreenshotExtraction = {
       costBasis: null,
       reportedPriorReturn: "300.00",
       reportedPriorReturnPercent: "8.11",
+      averageCost: null,
+      observedPrice: null,
+      priceAsOf: null,
       confidence: "medium",
     },
   ],

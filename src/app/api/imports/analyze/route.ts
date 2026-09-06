@@ -3,15 +3,12 @@ import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 
 import { demoScreenshotExtraction } from "@/application/imports/demo-extraction";
-import {
-  AlipayOcrParseError,
-  parseAlipayHoldingsMarkdown,
-} from "@/application/imports/alipay-ocr-parser";
 import { createImportDraftReadModel } from "@/application/imports/import-draft-read-model";
-import { OcrVisionExtractor } from "@/application/imports/ocr-vision-extractor";
 import {
+  detectedSourceProvider,
   fixtureVisionExtractor,
   prepareScreenshotImport,
+  VisionExtractionError,
   type VisionExtractor,
 } from "@/application/imports/vision-extractor";
 import type {
@@ -19,10 +16,7 @@ import type {
   StoredImportDraft,
 } from "@/domain/imports";
 import { findSourceAccount } from "@/domain/source-accounts";
-import {
-  MinerUOcrError,
-  MinerUPrecisionOcrProvider,
-} from "@/infrastructure/mineru/mineru-ocr-provider";
+import { OpenAIVisionExtractor } from "@/infrastructure/openai/openai-vision-extractor";
 import { getPortfolioDatabase } from "@/server/portfolio-db";
 
 export const runtime = "nodejs";
@@ -39,18 +33,15 @@ interface AnalyzeImportDatabase {
   getImportDraft(id: string): StoredImportDraft | undefined;
 }
 
-function minerUErrorStatus(error: MinerUOcrError): number {
+function visionErrorStatus(error: VisionExtractionError): number {
   if (
     error.code === "not-configured" ||
     error.code === "authentication-failed"
   ) return 503;
   if (
-    error.code === "rate-limited" ||
-    error.code === "daily-quota-exhausted"
+    error.code === "rate-limited"
   ) return 429;
-  if (error.code === "file-too-large") return 413;
-  if (error.code === "unsupported-file") return 415;
-  if (error.code === "parse-failed") return 422;
+  if (error.code === "invalid-response") return 422;
   if (error.code === "timeout") return 504;
   return 502;
 }
@@ -67,7 +58,10 @@ export function createAnalyzeImportHandler(input: {
       const form = await request.formData();
       const mode = form.get("mode");
       const sourceAccountId = String(form.get("sourceAccountId") ?? "").trim();
-      const sourceAccountHint = String(form.get("sourceAccountHint") ?? "").trim();
+
+      if (mode !== "image" && mode !== "demo") {
+        return errorResponse("Choose an image import mode.", 400);
+      }
 
       if (!sourceAccountId) {
         return errorResponse("Choose a source account.", 400);
@@ -84,9 +78,9 @@ export function createAnalyzeImportHandler(input: {
       if (mode === "demo") {
         extractor = fixtureVisionExtractor(demoScreenshotExtraction);
       } else {
-        if (sourceAccount.provider !== "alipay") {
+        if (sourceAccount.updateMethod !== "screenshot") {
           return errorResponse(
-            "MinerU screenshot parsing currently supports Alipay accounts.",
+            "Image import is available for screenshot-based accounts.",
             422,
           );
         }
@@ -109,8 +103,15 @@ export function createAnalyzeImportHandler(input: {
       const extraction = await extractor.extract({
         image,
         mimeType,
-        ...(sourceAccountHint ? { sourceAccountHint } : {}),
+        sourceAccountHint: sourceAccount.label,
       });
+      const detectedProvider = detectedSourceProvider(extraction.accountName);
+      if (detectedProvider && detectedProvider !== sourceAccount.provider) {
+        return errorResponse(
+          `This screenshot appears to belong to a different provider than ${sourceAccount.label}. Choose the matching Source Account and try again.`,
+          422,
+        );
+      }
       const now = input.now();
       const draft = prepareScreenshotImport({
         draftId: input.newId(),
@@ -125,20 +126,20 @@ export function createAnalyzeImportHandler(input: {
       return NextResponse.json({
         draft: createImportDraftReadModel(input.database.getImportDraft(draft.id)!),
         extraction,
-        ocrProvider: mode === "demo" ? "demo" : "mineru-precision-vlm",
+        visionProvider: mode === "demo" ? "demo" : "openai",
       });
     } catch (error) {
-      if (error instanceof MinerUOcrError) {
-        return errorResponse(error.message, minerUErrorStatus(error));
+      if (error instanceof VisionExtractionError) {
+        return errorResponse(error.message, visionErrorStatus(error));
       }
       (input.logError ?? console.error)(
         "Screenshot import failed",
         { name: error instanceof Error ? error.name : "UnknownError" },
       );
-      const message = error instanceof AlipayOcrParseError
-        ? error.message
-        : "Image analysis failed. Try again later or use manual entry.";
-      return errorResponse(message, error instanceof AlipayOcrParseError ? 422 : 500);
+      return errorResponse(
+        "Image analysis failed. Try again later or use manual entry.",
+        500,
+      );
     }
   };
 }
@@ -147,12 +148,10 @@ export async function POST(request: Request) {
   return createAnalyzeImportHandler({
     database: getPortfolioDatabase(),
     createExtractor: () =>
-      new OcrVisionExtractor(
-        new MinerUPrecisionOcrProvider(
-          process.env.MINERU_API_TOKEN ?? "",
-        ),
-        parseAlipayHoldingsMarkdown,
-      ),
+      new OpenAIVisionExtractor({
+        apiKey: process.env.OPENAI_API_KEY ?? "",
+        model: process.env.OPENAI_IMAGE_IMPORT_MODEL ?? "gpt-5.6-terra",
+      }),
     newId: randomUUID,
     now: () => new Date().toISOString(),
   })(request);

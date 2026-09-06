@@ -5,8 +5,10 @@ import type {
   ImportDraftInput,
   StoredImportDraft,
 } from "@/domain/imports";
-import { MinerUOcrError } from "@/infrastructure/mineru/mineru-ocr-provider";
-import type { ScreenshotExtraction } from "@/application/imports/vision-extractor";
+import {
+  VisionExtractionError,
+  type ScreenshotExtraction,
+} from "@/application/imports/vision-extractor";
 
 const extraction: ScreenshotExtraction = {
   accountName: "Alipay",
@@ -14,10 +16,11 @@ const extraction: ScreenshotExtraction = {
   currency: "CNY",
   totalValue: "110",
   reportedPriorReturn: "10",
+  portfolioCash: null,
   confidence: "high",
-  warnings: ["Synthetic OCR fixture."],
+  warnings: ["Synthetic vision fixture."],
   positions: [{
-    displayName: "Synthetic OCR Fund",
+    displayName: "Synthetic Vision Fund",
     instrumentCode: "012345",
     quantity: "10",
     currency: "CNY",
@@ -45,7 +48,6 @@ function database() {
 function imageRequest(sourceAccountId = "alipay-main") {
   const form = new FormData();
   form.set("sourceAccountId", sourceAccountId);
-  form.set("sourceAccountHint", "Alipay");
   form.set("mode", "image");
   form.set("image", new File(
     [new Uint8Array([1, 2, 3])],
@@ -59,14 +61,14 @@ function imageRequest(sourceAccountId = "alipay-main") {
 }
 
 describe("POST /api/imports/analyze", () => {
-  it("creates an editable Import Draft from MinerU-backed extraction", async () => {
+  it("creates an editable Import Draft from direct vision extraction", async () => {
     const store = database();
     const extract = vi.fn(async () => extraction);
     const handler = createAnalyzeImportHandler({
       database: store,
       createExtractor: () => ({ extract }),
       newId: (() => {
-        const ids = ["draft-ocr", "snapshot-ocr"];
+        const ids = ["draft-vision", "snapshot-vision"];
         return () => ids.shift() ?? "unexpected";
       })(),
       now: () => "2026-07-23T12:00:00.000Z",
@@ -76,9 +78,9 @@ describe("POST /api/imports/analyze", () => {
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
-      ocrProvider: "mineru-precision-vlm",
+      visionProvider: "openai",
       draft: {
-        id: "draft-ocr",
+        id: "draft-vision",
         sourceKind: "screenshot",
         status: "draft",
         portfolio: {
@@ -101,11 +103,31 @@ describe("POST /api/imports/analyze", () => {
     expect(store.saveImportDraft).toHaveBeenCalledOnce();
   });
 
-  it("does not send unsupported source accounts through Alipay parsing", async () => {
-    const createExtractor = vi.fn();
+  it("supports every account configured for screenshot imports", async () => {
+    const extract = vi.fn(async () => ({
+      ...extraction,
+      accountName: "WeChat",
+    }));
     const handler = createAnalyzeImportHandler({
       database: database(),
-      createExtractor,
+      createExtractor: () => ({ extract }),
+      newId: () => "id",
+      now: () => "2026-07-23T12:00:00.000Z",
+    });
+
+    const response = await handler(imageRequest("wechat-main"));
+
+    expect(response.status).toBe(200);
+    expect(extract).toHaveBeenCalledWith(expect.objectContaining({
+      sourceAccountHint: "WeChat Wealth Management",
+    }));
+  });
+
+  it("blocks an obvious provider mismatch before saving a draft", async () => {
+    const store = database();
+    const handler = createAnalyzeImportHandler({
+      database: store,
+      createExtractor: () => ({ extract: async () => extraction }),
       newId: () => "id",
       now: () => "2026-07-23T12:00:00.000Z",
     });
@@ -114,17 +136,35 @@ describe("POST /api/imports/analyze", () => {
 
     expect(response.status).toBe(422);
     await expect(response.json()).resolves.toEqual({
-      error: "MinerU screenshot parsing currently supports Alipay accounts.",
+      error: "This screenshot appears to belong to a different provider than WeChat Wealth Management. Choose the matching Source Account and try again.",
+    });
+    expect(store.saveImportDraft).not.toHaveBeenCalled();
+  });
+
+  it("does not send connector accounts through image extraction", async () => {
+    const createExtractor = vi.fn();
+    const handler = createAnalyzeImportHandler({
+      database: database(),
+      createExtractor,
+      newId: () => "id",
+      now: () => "2026-07-23T12:00:00.000Z",
+    });
+
+    const response = await handler(imageRequest("trading212-main"));
+
+    expect(response.status).toBe(422);
+    await expect(response.json()).resolves.toEqual({
+      error: "Image import is available for screenshot-based accounts.",
     });
     expect(createExtractor).not.toHaveBeenCalled();
   });
 
-  it("returns MinerU rate limits without exposing provider internals", async () => {
+  it("returns OpenAI rate limits without exposing provider internals", async () => {
     const handler = createAnalyzeImportHandler({
       database: database(),
       createExtractor: () => ({
         extract: async () => {
-          throw new MinerUOcrError("rate-limited");
+          throw new VisionExtractionError("rate-limited");
         },
       }),
       newId: () => "id",
@@ -136,7 +176,7 @@ describe("POST /api/imports/analyze", () => {
 
     expect(response.status).toBe(429);
     await expect(response.json()).resolves.toEqual({
-      error: "MinerU is busy. Wait a minute and try again.",
+      error: "OpenAI is busy. Wait a minute and try again.",
     });
   });
 
@@ -145,7 +185,7 @@ describe("POST /api/imports/analyze", () => {
     const handler = createAnalyzeImportHandler({
       database: store,
       createExtractor: () => {
-        throw new MinerUOcrError("not-configured");
+        throw new VisionExtractionError("not-configured");
       },
       newId: () => "id",
       now: () => "2026-07-23T12:00:00.000Z",
@@ -156,7 +196,7 @@ describe("POST /api/imports/analyze", () => {
 
     expect(response.status).toBe(503);
     await expect(response.json()).resolves.toEqual({
-      error: "MinerU Precision is not configured on this device.",
+      error: "OpenAI image import is not configured on this device.",
     });
     expect(store.saveImportDraft).not.toHaveBeenCalled();
   });
