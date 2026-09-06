@@ -172,7 +172,6 @@ function getProductionHandlers() {
           }
           const marketData = database.readMarketData();
           return createPortfolioOverviewReadModel({
-            state: facts.state,
             snapshots: facts.openingSnapshots,
             events: facts.events,
             marketPrices: marketData.observations,

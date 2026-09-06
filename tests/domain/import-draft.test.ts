@@ -4,7 +4,7 @@ import {
   draftPortfolioFromOpeningSnapshot,
   prepareImportDraftForReview,
   reconcileImportDraft,
-  restoreLegacyPartialSnapshots,
+  normalizeSnapshotHistory,
   materializeOpeningSnapshot,
   type DraftPortfolio,
   type ImportDraftInput,
@@ -281,11 +281,10 @@ describe("Import Draft materialization", () => {
     );
   });
 
-  it("restores omitted holdings from legacy partial imports without merging complete API snapshots", () => {
-    const restored = restoreLegacyPartialSnapshots([
+  it("normalizes explicitly marked legacy partial payloads without inspecting display warnings", () => {
+    const restored = normalizeSnapshotHistory([
       {
-        sourceKind: "csv",
-        warnings: [],
+        payloadScope: "complete",
         snapshot: {
           id: "alipay-before",
           sourceAccountId: "alipay-main",
@@ -297,8 +296,7 @@ describe("Import Draft materialization", () => {
         },
       },
       {
-        sourceKind: "csv",
-        warnings: ["CSV import excludes pending transactions."],
+        payloadScope: "legacy-partial",
         snapshot: {
           id: "alipay-legacy-partial",
           sourceAccountId: "alipay-main",
@@ -309,8 +307,7 @@ describe("Import Draft materialization", () => {
         },
       },
       {
-        sourceKind: "trading-212",
-        warnings: [],
+        payloadScope: "complete",
         snapshot: {
           id: "trading-before",
           sourceAccountId: "trading212-main",
@@ -322,8 +319,7 @@ describe("Import Draft materialization", () => {
         },
       },
       {
-        sourceKind: "trading-212",
-        warnings: [],
+        payloadScope: "complete",
         snapshot: {
           id: "trading-complete-update",
           sourceAccountId: "trading212-main",

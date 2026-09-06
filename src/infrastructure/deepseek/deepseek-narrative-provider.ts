@@ -1,11 +1,12 @@
 import {
   createPortfolioNarrativeInput,
   createPortfolioNarrativeInstructions,
-  parsePortfolioNarrativeResponse,
+  portfolioNarrativeContentSchema,
   portfolioNarrativeJsonSchema,
   PortfolioNarrativeProviderError,
   type PortfolioNarrativeProvider,
 } from "@/application/portfolio-narrative";
+import { requestStructuredResponse } from "@/infrastructure/responses/structured-response-client";
 
 export class DeepSeekNarrativeProvider implements PortfolioNarrativeProvider {
   readonly id = "deepseek" as const;
@@ -25,31 +26,20 @@ export class DeepSeekNarrativeProvider implements PortfolioNarrativeProvider {
 
   async generate(input: Parameters<PortfolioNarrativeProvider["generate"]>[0]) {
     try {
-      const response = await this.fetch("https://api.deepseek.com/responses", {
-        method: "POST",
-        headers: {
-          authorization: `Bearer ${this.apiKey}`,
-          "content-type": "application/json",
-        },
-        body: JSON.stringify({
-          model: this.model,
-          reasoning: { effort: "none" },
-          max_output_tokens: 700,
-          instructions: createPortfolioNarrativeInstructions(input.language),
-          input: createPortfolioNarrativeInput(input.insights),
-          text: {
-            format: {
-              type: "json_schema",
-              name: "portfolio_narrative",
-              strict: true,
-              schema: portfolioNarrativeJsonSchema,
-            },
-          },
-        }),
-        signal: AbortSignal.timeout(30_000),
+      return await requestStructuredResponse({
+        endpoint: "https://api.deepseek.com/responses",
+        apiKey: this.apiKey,
+        model: this.model,
+        reasoningEffort: "none",
+        maxOutputTokens: 700,
+        timeoutMs: 30_000,
+        instructions: createPortfolioNarrativeInstructions(input.language),
+        prompt: createPortfolioNarrativeInput(input.insights),
+        schemaName: "portfolio_narrative",
+        jsonSchema: portfolioNarrativeJsonSchema,
+        parse: (payload) => portfolioNarrativeContentSchema.parse(payload),
+        fetch: this.fetch,
       });
-      if (!response.ok) throw new Error(`DeepSeek HTTP ${response.status}`);
-      return parsePortfolioNarrativeResponse(await response.json());
     } catch (error) {
       if (error instanceof PortfolioNarrativeProviderError) throw error;
       throw new PortfolioNarrativeProviderError("DeepSeek");

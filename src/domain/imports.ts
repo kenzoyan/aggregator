@@ -280,14 +280,45 @@ export function draftPortfolioFromOpeningSnapshot(
   };
 }
 
-const partialImportSourceKinds = new Set<ImportSourceKind>([
-  "csv",
-  "manual",
-  "screenshot",
-]);
+interface ImportLifecyclePolicy {
+  updateMode: ImportUpdateMode;
+  reviewScope: "complete-account" | "detected-holdings";
+  preserveOmittedOnConfirmation: boolean;
+}
+
+const importLifecyclePolicies: Record<ImportSourceKind, ImportLifecyclePolicy> = {
+  "trading-212": {
+    updateMode: "complete",
+    reviewScope: "complete-account",
+    preserveOmittedOnConfirmation: false,
+  },
+  csv: {
+    updateMode: "partial",
+    reviewScope: "complete-account",
+    preserveOmittedOnConfirmation: false,
+  },
+  manual: {
+    updateMode: "partial",
+    reviewScope: "complete-account",
+    preserveOmittedOnConfirmation: false,
+  },
+  screenshot: {
+    updateMode: "partial",
+    reviewScope: "detected-holdings",
+    preserveOmittedOnConfirmation: true,
+  },
+  demo: {
+    updateMode: "partial",
+    reviewScope: "detected-holdings",
+    preserveOmittedOnConfirmation: false,
+  },
+};
+
+export const legacyPartialSnapshotWarningMarker =
+  "Previously confirmed holdings were included in this review. Removing one records that it is no longer held.";
 
 export const completedPartialImportReviewWarning =
-  "Previously confirmed holdings were included in this review. Removing one records that it is no longer held.";
+  legacyPartialSnapshotWarningMarker;
 
 export const partialImportPreservationWarning =
   "This partial update shows only detected holdings. Other confirmed holdings stay unchanged.";
@@ -425,9 +456,7 @@ export function reconcileImportDraft(
   draft: ImportDraftInput,
   currentState: PortfolioState,
 ): ImportReconciliation {
-  const mode: ImportUpdateMode = draft.sourceKind === "trading-212"
-    ? "complete"
-    : "partial";
+  const mode = importLifecyclePolicies[draft.sourceKind].updateMode;
   const currentPositions = currentState.positions.filter(
     (position) => position.sourceAccountId === draft.sourceAccountId,
   );
@@ -623,7 +652,7 @@ export function prepareImportDraftForReview(
         }),
       },
     };
-  } else if (partialImportSourceKinds.has(draft.sourceKind)) {
+  } else if (draft.sourceKind !== "demo") {
     const matchedPrevious = new Set<number>();
     const updatedHoldings = draft.portfolio.holdings.map((updated) => {
       const previousIndex = previousPortfolio.holdings.findIndex(
@@ -639,7 +668,8 @@ export function prepareImportDraftForReview(
     const carryWarning = carriedHoldings.length > 0
       ? `${carriedHoldings.length} previously confirmed holding${carriedHoldings.length === 1 ? " was" : "s were"} carried forward. Remove only holdings that are no longer held.`
       : undefined;
-    const reviewOnlyDetectedHoldings = draft.sourceKind === "screenshot";
+    const reviewOnlyDetectedHoldings =
+      importLifecyclePolicies[draft.sourceKind].reviewScope === "detected-holdings";
 
     preparedDraft = {
       ...draft,
@@ -681,10 +711,11 @@ export function prepareImportDraftForReview(
   };
 }
 
-export interface ConfirmedSnapshotImport {
+export type SnapshotPayloadScope = "complete" | "legacy-partial";
+
+export interface SnapshotHistoryRecord {
   snapshot: OpeningSnapshotInput;
-  sourceKind: ImportSourceKind;
-  warnings: readonly string[];
+  payloadScope: SnapshotPayloadScope;
 }
 
 function positionIdentityKeys(position: OpeningPositionInput): string[] {
@@ -730,7 +761,9 @@ export function materializeConfirmedImportSnapshot(input: {
     input.draft.portfolio,
     input.snapshotKind,
   );
-  if (input.draft.sourceKind !== "screenshot") return snapshot;
+  if (!importLifecyclePolicies[input.draft.sourceKind].preserveOmittedOnConfirmation) {
+    return snapshot;
+  }
 
   const currentPositions = input.currentState.positions
     .filter((position) =>
@@ -758,17 +791,14 @@ export function materializeConfirmedImportSnapshot(input: {
   };
 }
 
-export function restoreLegacyPartialSnapshots(
-  imports: readonly ConfirmedSnapshotImport[],
+export function normalizeSnapshotHistory(
+  records: readonly SnapshotHistoryRecord[],
 ): OpeningSnapshotInput[] {
   const latestByAccount = new Map<string, OpeningSnapshotInput>();
   const accountsWithSnapshot = new Set<string>();
-  return imports.map((record) => {
+  return records.map((record) => {
     const previous = latestByAccount.get(record.snapshot.sourceAccountId);
-    const isLegacyPartialUpdate =
-      previous &&
-      partialImportSourceKinds.has(record.sourceKind) &&
-      !record.warnings.includes(completedPartialImportReviewWarning);
+    const isLegacyPartialUpdate = previous && record.payloadScope === "legacy-partial";
     const restoredSnapshot = isLegacyPartialUpdate
       ? {
           ...record.snapshot,

@@ -1,5 +1,3 @@
-import { z } from "zod";
-
 import {
   createVisionExtractionInstructions,
   screenshotExtractionJsonSchema,
@@ -9,37 +7,10 @@ import {
   type VisionExtractionRequest,
   type VisionExtractor,
 } from "@/application/imports/vision-extractor";
-
-const openAIResponseSchema = z.object({
-  status: z.string().optional(),
-  output: z.array(z.object({
-    type: z.string(),
-    content: z.array(z.object({
-      type: z.string(),
-      text: z.string().optional(),
-    }).passthrough()).optional(),
-  }).passthrough()),
-}).passthrough();
-
-function outputText(payload: unknown): string {
-  const response = openAIResponseSchema.parse(payload);
-  if (response.status && response.status !== "completed") {
-    throw new VisionExtractionError("invalid-response");
-  }
-  const text = response.output
-    .flatMap((item) => item.content ?? [])
-    .find((item) => item.type === "output_text")?.text;
-  if (!text) throw new VisionExtractionError("invalid-response");
-  return text;
-}
-
-function responseError(status: number): VisionExtractionError {
-  if (status === 401 || status === 403) {
-    return new VisionExtractionError("authentication-failed");
-  }
-  if (status === 429) return new VisionExtractionError("rate-limited");
-  return new VisionExtractionError("service-unavailable");
-}
+import {
+  requestStructuredResponse,
+  StructuredResponseError,
+} from "@/infrastructure/responses/structured-response-client";
 
 export class OpenAIVisionExtractor implements VisionExtractor {
   private readonly apiKey: string;
@@ -59,60 +30,43 @@ export class OpenAIVisionExtractor implements VisionExtractor {
 
   async extract(request: VisionExtractionRequest): Promise<ScreenshotExtraction> {
     try {
-      const image = Buffer.from(request.image).toString("base64");
-      const response = await this.fetch("https://api.openai.com/v1/responses", {
-        method: "POST",
-        headers: {
-          authorization: `Bearer ${this.apiKey}`,
-          "content-type": "application/json",
-        },
-        body: JSON.stringify({
-          model: this.model,
-          store: false,
-          reasoning: { effort: "medium" },
-          max_output_tokens: 4_000,
-          instructions: createVisionExtractionInstructions(),
-          input: [{
+      if (request.images.length === 0) {
+        throw new VisionExtractionError("invalid-response");
+      }
+      return await requestStructuredResponse({
+        endpoint: "https://api.openai.com/v1/responses",
+        apiKey: this.apiKey,
+        model: this.model,
+        store: false,
+        reasoningEffort: "medium",
+        maxOutputTokens: 4_000,
+        timeoutMs: 60_000,
+        instructions: createVisionExtractionInstructions(),
+        prompt: [{
             role: "user",
             content: [
               {
                 type: "input_text",
                 text: request.sourceAccountHint
-                  ? `Trusted account context: ${request.sourceAccountHint}`
-                  : "Extract the portfolio holdings shown in this screenshot.",
+                  ? `Trusted account context: ${request.sourceAccountHint}. Combine all ${request.images.length} screenshots into one account snapshot.`
+                  : `Combine all ${request.images.length} screenshots into one account snapshot.`,
               },
-              {
+              ...request.images.map((image) => ({
                 type: "input_image",
-                image_url: `data:${request.mimeType};base64,${image}`,
+                image_url: `data:${image.mimeType};base64,${Buffer.from(image.image).toString("base64")}`,
                 detail: "original",
-              },
+              })),
             ],
           }],
-          text: {
-            format: {
-              type: "json_schema",
-              name: "portfolio_screenshot_extraction",
-              strict: true,
-              schema: screenshotExtractionJsonSchema,
-            },
-          },
-        }),
-        signal: AbortSignal.timeout(60_000),
+        schemaName: "portfolio_screenshot_extraction",
+        jsonSchema: screenshotExtractionJsonSchema,
+        parse: (payload) => screenshotExtractionSchema.parse(payload),
+        fetch: this.fetch,
       });
-      if (!response.ok) throw responseError(response.status);
-      return screenshotExtractionSchema.parse(
-        JSON.parse(outputText(await response.json())),
-      );
     } catch (error) {
       if (error instanceof VisionExtractionError) throw error;
-      if (
-        error instanceof DOMException &&
-        (error.name === "TimeoutError" || error.name === "AbortError")
-      ) {
-        throw new VisionExtractionError("timeout");
-      }
-      if (error instanceof z.ZodError || error instanceof SyntaxError) {
-        throw new VisionExtractionError("invalid-response");
+      if (error instanceof StructuredResponseError) {
+        throw new VisionExtractionError(error.code);
       }
       throw new VisionExtractionError("service-unavailable");
     }

@@ -13,6 +13,7 @@ export const demoScreenshotExtraction: ScreenshotExtraction = {
     {
       displayName: "Demo Global Technology Index Fund",
       instrumentCode: null,
+      assetType: "fund",
       quantity: null,
       currency: "CNY",
       marketValue: "6280.50",
@@ -27,6 +28,7 @@ export const demoScreenshotExtraction: ScreenshotExtraction = {
     {
       displayName: "Demo Bond Fund",
       instrumentCode: null,
+      assetType: "fund",
       quantity: null,
       currency: "CNY",
       marketValue: "4000.00",

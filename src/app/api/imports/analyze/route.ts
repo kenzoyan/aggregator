@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import { NextResponse } from "next/server";
+import sharp from "sharp";
 
 import { demoScreenshotExtraction } from "@/application/imports/demo-extraction";
 import { createImportDraftReadModel } from "@/application/imports/import-draft-read-model";
@@ -22,7 +23,35 @@ import { getPortfolioDatabase } from "@/server/portfolio-db";
 export const runtime = "nodejs";
 
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+const MAX_TOTAL_IMAGE_BYTES = 30 * 1024 * 1024;
+const MAX_IMAGE_COUNT = 6;
 const supportedTypes = new Set(["image/jpeg", "image/png", "image/webp"]);
+
+async function isDecodableImage(
+  bytes: Uint8Array,
+  mimeType: string,
+): Promise<boolean> {
+  const expectedFormat = {
+    "image/jpeg": "jpeg",
+    "image/png": "png",
+    "image/webp": "webp",
+  }[mimeType];
+  try {
+    const image = sharp(bytes, {
+      failOn: "error",
+      limitInputPixels: 40_000_000,
+    });
+    const metadata = await image.metadata();
+    const validMetadata = metadata.format === expectedFormat &&
+      Boolean(metadata.width && metadata.height) &&
+      metadata.width! <= 20_000 && metadata.height! <= 20_000;
+    if (!validMetadata) return false;
+    await image.raw().toBuffer();
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 function errorResponse(message: string, status: number) {
   return NextResponse.json({ error: message }, { status });
@@ -72,8 +101,10 @@ export function createAnalyzeImportHandler(input: {
       }
 
       let extractor: VisionExtractor;
-      let image = new Uint8Array();
-      let mimeType: "image/jpeg" | "image/png" | "image/webp" = "image/jpeg";
+      let images: Array<{
+        image: Uint8Array;
+        mimeType: "image/jpeg" | "image/png" | "image/webp";
+      }> = [];
 
       if (mode === "demo") {
         extractor = fixtureVisionExtractor(demoScreenshotExtraction);
@@ -84,25 +115,50 @@ export function createAnalyzeImportHandler(input: {
             422,
           );
         }
-        const file = form.get("image");
-        if (!(file instanceof File)) {
-          return errorResponse("Choose a screenshot.", 400);
+        const selectedImages = form.getAll("images")
+          .filter((value): value is File => value instanceof File);
+        const legacyImage = form.get("image");
+        const files = selectedImages.length > 0
+          ? selectedImages
+          : legacyImage instanceof File
+            ? [legacyImage]
+            : [];
+        if (files.length === 0) {
+          return errorResponse("Choose at least one screenshot.", 400);
         }
-        if (!supportedTypes.has(file.type)) {
+        if (files.length > MAX_IMAGE_COUNT) {
+          return errorResponse(`Choose no more than ${MAX_IMAGE_COUNT} screenshots.`, 413);
+        }
+        if (files.some((file) => !supportedTypes.has(file.type))) {
           return errorResponse("Only JPEG, PNG and WebP images are supported.", 415);
         }
-        if (file.size > MAX_IMAGE_BYTES) {
-          return errorResponse("The image must be 10 MB or smaller.", 413);
+        if (files.some((file) => file.size > MAX_IMAGE_BYTES)) {
+          return errorResponse("Each image must be 10 MB or smaller.", 413);
+        }
+        if (files.reduce((total, file) => total + file.size, 0) > MAX_TOTAL_IMAGE_BYTES) {
+          return errorResponse("The selected images must total 30 MB or less.", 413);
         }
 
+        images = await Promise.all(files.map(async (file) => ({
+          image: new Uint8Array(await file.arrayBuffer()),
+          mimeType: file.type as typeof images[number]["mimeType"],
+        })));
+        if (images.some(({ image }) => image.length === 0)) {
+          return errorResponse("Screenshots cannot be empty.", 400);
+        }
+        for (const image of images) {
+          if (!await isDecodableImage(image.image, image.mimeType)) {
+            return errorResponse(
+              "A selected file does not match its JPEG, PNG or WebP format.",
+              415,
+            );
+          }
+        }
         extractor = input.createExtractor();
-        image = new Uint8Array(await file.arrayBuffer());
-        mimeType = file.type as typeof mimeType;
       }
 
       const extraction = await extractor.extract({
-        image,
-        mimeType,
+        images,
         sourceAccountHint: sourceAccount.label,
       });
       const detectedProvider = detectedSourceProvider(extraction.accountName);

@@ -21,6 +21,10 @@ export class EastmoneyFundNavClient implements FundNavProvider {
     this.fetchFn = options.fetch ?? fetch;
   }
 
+  supportsInstrumentCode(instrumentCode: string): boolean {
+    return /^\d{6}$/.test(instrumentCode);
+  }
+
   async fetchSince(
     instrumentCode: string,
     sinceDate: string,

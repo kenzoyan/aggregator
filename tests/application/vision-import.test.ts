@@ -20,6 +20,7 @@ const extracted: ScreenshotExtraction = {
     {
       displayName: "Synthetic Example Fund",
       instrumentCode: null,
+      assetType: null,
       quantity: null,
       currency: "CNY",
       marketValue: "4321.09",
@@ -40,8 +41,10 @@ describe("screenshot import seam", () => {
 
     await expect(
       extractor.extract({
-        image: new Uint8Array([1, 2, 3]),
-        mimeType: "image/jpeg",
+        images: [{
+          image: new Uint8Array([1, 2, 3]),
+          mimeType: "image/jpeg",
+        }],
         sourceAccountHint: "Synthetic Provider",
       }),
     ).resolves.toEqual(extracted);
@@ -84,6 +87,87 @@ describe("screenshot import seam", () => {
     expect(draft.portfolio.holdings[0]?.costBasis).toMatchObject({
       status: "inferred",
       value: "4000",
+    });
+  });
+
+  it("merges complementary duplicate views deterministically by ISIN", () => {
+    const draft = prepareScreenshotImport({
+      draftId: "draft-duplicates",
+      snapshotId: "snapshot-duplicates",
+      sourceAccountId: "danske-main",
+      createdAt: "2026-09-06T12:00:00.000Z",
+      extraction: {
+        ...extracted,
+        currency: "EUR",
+        positions: [
+          {
+            ...extracted.positions[0],
+            displayName: "Synthetic Fund",
+            instrumentCode: "XX0000000001",
+            quantity: "10",
+            marketValue: "120",
+            costBasis: null,
+            reportedPriorReturn: "20",
+            observedPrice: null,
+          },
+          {
+            ...extracted.positions[0],
+            displayName: "Synthetic Fund Long Name",
+            instrumentCode: "xx0000000001",
+            quantity: "10",
+            marketValue: "121",
+            costBasis: null,
+            reportedPriorReturn: null,
+            observedPrice: "12",
+          },
+        ],
+      },
+    });
+
+    expect(draft.portfolio.holdings).toHaveLength(1);
+    expect(draft.portfolio.holdings[0]).toMatchObject({
+      displayName: { value: "Synthetic Fund Long Name" },
+      instrumentCode: { value: "XX0000000001" },
+      quantity: { value: "10" },
+      reportedMarketValue: { value: "121" },
+      observedPrice: { value: "12" },
+      costBasis: { value: "101", status: "inferred" },
+    });
+    expect(draft.warnings).toContain(
+      "Synthetic Fund Long Name: conflicting marketValue values were detected across screenshots; selected a deterministic value for review.",
+    );
+  });
+
+  it("produces the same merge when duplicate views are reversed", () => {
+    const overview = {
+      ...extracted.positions[0],
+      displayName: "Synthetic Fund",
+      instrumentCode: null,
+      currency: "EUR" as const,
+      quantity: "10",
+      observedPrice: null,
+    };
+    const details = {
+      ...overview,
+      instrumentCode: "XX0000000001",
+      quantity: null,
+      observedPrice: "12",
+    };
+    const prepare = (positions: ScreenshotExtraction["positions"]) =>
+      prepareScreenshotImport({
+        draftId: "draft-order",
+        snapshotId: "snapshot-order",
+        sourceAccountId: "danske-main",
+        createdAt: "2026-09-06T12:00:00.000Z",
+        extraction: { ...extracted, currency: "EUR", positions },
+      }).portfolio.holdings;
+
+    expect(prepare([overview, details])).toEqual(prepare([details, overview]));
+    expect(prepare([overview, details])).toHaveLength(1);
+    expect(prepare([overview, details])[0]).toMatchObject({
+      instrumentCode: { value: "XX0000000001" },
+      quantity: { value: "10" },
+      observedPrice: { value: "12" },
     });
   });
 

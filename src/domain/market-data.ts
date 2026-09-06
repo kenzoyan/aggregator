@@ -44,6 +44,7 @@ export interface MarketRefreshFailure {
 
 export interface FundNavProvider {
   readonly id: string;
+  supportsInstrumentCode?(instrumentCode: string): boolean;
   fetchSince(
     instrumentCode: string,
     sinceDate: string,

@@ -15,15 +15,30 @@ export interface MarketRefreshResult {
   failed: MarketRefreshFailure[];
 }
 
-export function supportsFundNavRefresh(position: Position): position is Position & {
+export function supportsFundNavRefresh(
+  position: Position,
+  provider?: FundNavProvider,
+): position is Position & {
   instrumentCode: string;
 } {
   const accountProvider = findSourceAccount(position.sourceAccountId)?.provider;
-  return (
+  const sourceSupportsNav = (
     (accountProvider === "alipay" || accountProvider === "wechat") &&
     (position.assetType === "fund" || position.assetType === "etf") &&
     position.currency === "CNY" &&
     Boolean(position.instrumentCode && /^\d{6}$/.test(position.instrumentCode))
+  ) || (
+    accountProvider === "danske" &&
+    position.currency === "EUR" &&
+    Boolean(
+      position.instrumentCode &&
+      /^[A-Z]{2}[A-Z0-9]{10}$/.test(position.instrumentCode) &&
+      (provider?.supportsInstrumentCode?.(position.instrumentCode) ?? false),
+    )
+  );
+  return sourceSupportsNav && Boolean(
+    position.instrumentCode &&
+    (provider?.supportsInstrumentCode?.(position.instrumentCode) ?? true),
   );
 }
 
@@ -55,7 +70,9 @@ export async function refreshFundNavs(input: {
   ) => void | Promise<void>;
   now: string;
 }): Promise<MarketRefreshResult> {
-  const eligible = input.state.positions.filter(supportsFundNavRefresh);
+  const eligible = input.state.positions.filter((position) =>
+    supportsFundNavRefresh(position, input.provider)
+  );
   const pending: MarketPriceObservation[] = [];
   const failed: MarketRefreshFailure[] = [];
   let unchanged = 0;

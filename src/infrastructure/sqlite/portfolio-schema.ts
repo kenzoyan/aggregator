@@ -1,6 +1,8 @@
 import { DatabaseSync } from "node:sqlite";
 
-export const portfolioSchemaVersion = 3;
+import { legacyPartialSnapshotWarningMarker } from "@/domain/imports";
+
+export const portfolioSchemaVersion = 4;
 
 export class LegacyPortfolioDatabaseError extends Error {
   constructor() {
@@ -83,6 +85,8 @@ export function initializePortfolioSchema(database: DatabaseSync) {
           source_account_id TEXT NOT NULL,
           as_of TEXT NOT NULL,
           payload_json TEXT NOT NULL,
+          payload_scope TEXT NOT NULL DEFAULT 'complete'
+            CHECK (payload_scope IN ('complete', 'legacy-partial')),
           confirmed_import_id TEXT NOT NULL UNIQUE,
           FOREIGN KEY (confirmed_import_id) REFERENCES confirmed_imports(id)
         );
@@ -157,11 +161,55 @@ export function initializePortfolioSchema(database: DatabaseSync) {
   const row = database.prepare(
     "SELECT version FROM schema_metadata LIMIT 1",
   ).get() as { version: number } | undefined;
-  if (row?.version === 2) {
+  if (row?.version === 2 || row?.version === 3) {
     database.exec("BEGIN IMMEDIATE");
     try {
+      if (row.version === 2) database.exec(portfolioNarrativesSchema);
       database.exec(`
-        ${portfolioNarrativesSchema}
+        ALTER TABLE opening_snapshots ADD COLUMN payload_scope TEXT NOT NULL
+          DEFAULT 'complete'
+          CHECK (payload_scope IN ('complete', 'legacy-partial'));
+
+        UPDATE opening_snapshots
+        SET payload_scope = 'legacy-partial'
+        WHERE EXISTS (
+          SELECT 1
+          FROM confirmed_imports
+          JOIN import_drafts ON import_drafts.id = confirmed_imports.draft_id
+          WHERE confirmed_imports.id = opening_snapshots.confirmed_import_id
+            AND confirmed_imports.source_kind IN ('csv', 'manual', 'screenshot')
+            AND instr(
+              import_drafts.warnings_json,
+              '${legacyPartialSnapshotWarningMarker}'
+            ) = 0
+        )
+        AND EXISTS (
+          SELECT 1
+          FROM opening_snapshots AS previous_snapshot
+          JOIN confirmed_imports AS previous_import
+            ON previous_import.id = previous_snapshot.confirmed_import_id
+          WHERE previous_snapshot.source_account_id = opening_snapshots.source_account_id
+            AND (
+              previous_snapshot.as_of < opening_snapshots.as_of
+              OR (
+                previous_snapshot.as_of = opening_snapshots.as_of
+                AND previous_import.confirmed_at < (
+                  SELECT current_import.confirmed_at
+                  FROM confirmed_imports AS current_import
+                  WHERE current_import.id = opening_snapshots.confirmed_import_id
+                )
+              )
+              OR (
+                previous_snapshot.as_of = opening_snapshots.as_of
+                AND previous_import.confirmed_at = (
+                  SELECT current_import.confirmed_at
+                  FROM confirmed_imports AS current_import
+                  WHERE current_import.id = opening_snapshots.confirmed_import_id
+                )
+                AND previous_snapshot.rowid < opening_snapshots.rowid
+              )
+            )
+        );
 
         UPDATE schema_metadata SET version = ${portfolioSchemaVersion};
       `);

@@ -2,6 +2,13 @@
 
 本文描述当前代码的真实实现，目标是让项目所有者能够理解数据如何进入系统、如何保存、如何计算，以及前端为什么会显示某个结果。文中示例均为抽象示例，不包含真实持仓、截图、数据库或密钥。
 
+如果只想快速重新建立项目心智模型，先记住四句话：
+
+1. Import Draft 是待审核的建议，不是持仓事实。
+2. 用户确认后产生 Holding State Snapshot；价格刷新永远不能改 Holding State。
+3. 首页不是直接查 SQL，而是由 valuation timeline 从 snapshots、events、prices 和 FX 重建 read model。
+4. 云端 AI 只能在明确触发时处理图片或有限聚合事实，不能绕过本地校验和确认门。
+
 ## 1. 产品边界
 
 这是一个本地优先、单用户的投资监控应用：
@@ -30,9 +37,9 @@ Next.js route handlers
              │
              ▼
 Application modules
-  ├─ import parsing and editable read models
-  ├─ current valuation and historical performance
-  ├─ price refresh orchestration
+  ├─ import parsing + pure review editor
+  ├─ valuation timeline deep interface
+  ├─ market refresh coordinator
   └─ dashboard/source-account read models
              │
              ▼
@@ -48,6 +55,7 @@ Infrastructure adapters
   ├─ OpenAI vision extractor
   ├─ Trading 212 read-only client
   ├─ Eastmoney fund NAV client
+  ├─ Danske Invest fund NAV client
   └─ ECB FX client
 ```
 
@@ -59,6 +67,16 @@ Infrastructure adapters
 - `src/app/api/`：很薄的 HTTP seam，负责输入校验和响应。
 - `src/components/`：客户端交互与展示。
 - `tests/`：按照 domain、application、infrastructure、integration 四层验证。
+
+正常依赖方向是 `app/components → application → domain`；infrastructure 实现 application/domain 所需的外部能力，route 在 composition root 把它们连接起来。Domain 不知道 React、HTTP、provider 或 SQLite。Application 可以组合 domain 与抽象输入，但不读取环境变量。只有 server/route 和 infrastructure 接触进程配置、网络和文件数据库。
+
+当前最重要的三个 deep interface：
+
+| Interface | 输入 | 输出 | 隐藏的复杂度 |
+| --- | --- | --- | --- |
+| `createPortfolioValuationTimeline` | snapshots、events、prices、FX、labels、asOf | 完整 overview read model | state 重建、当前估值、历史估值、period、allocation、FX overview |
+| `createMarketDataRefresh` | repository 能力、NAV provider、可选 T212 snapshot | refresh outcome | 每日 gate、provider 聚合、Market Data-only 过滤、持久化、并发串行化 |
+| `applyImportDraftEdit` | draft + 一个编辑意图 | 新 draft | Decimal 比较、cash/holding 编辑、reconciliation 重算 |
 
 ## 3. 三类核心数据
 
@@ -141,9 +159,9 @@ Market Data 独立存储：
 调用链：
 
 ```text
-PNG/JPEG/WebP
+1–6 complementary PNG/JPEG/WebP images
   → POST /api/imports/analyze
-  → OpenAI Responses API image input
+  → one OpenAI Responses API multi-image input
   → strict structured output
   → ScreenshotExtraction
   → prepareScreenshotImport
@@ -165,6 +183,8 @@ PNG/JPEG/WebP
 - 原图和 provider response 不写入本地数据库。
 - OpenAI 是云端处理方，因此用户仍需接受图片离开本机这一事实。
 - Vision 结果必须进入 review，不能直接更新 portfolio。
+
+同一次 import 最多包含 6 张、每张不超过 10 MB、合计不超过 30 MB。模型把账户 overview、holding rows 与 fund detail 当成同一组证据，通过名称和 ISIN 合并；同一基金出现在多张图中时只能生成一个 position。结构化结果包含可见的 units、market value、prior return、NAV、NAV date、ISIN 和 asset type，并在 review 前检查 `quantity × NAV ≈ market value` 等可核对关系。限制必须在创建 extractor 前验证，避免错误选择产生云端费用。
 
 截图被定义为 **detected-holdings update**：
 
@@ -233,9 +253,12 @@ latest confirmed Portfolio State
   + latest applicable price per holding
   + latest FX per currency
   → valuePortfolio
-  → createDashboardReadModel
+  → createPortfolioValuationTimeline
+  → createPortfolioOverviewReadModel adds insights
   → PortfolioOverviewReadModel
 ```
+
+Route 不再先计算一个 `state` 再连同 snapshots 一起传入。`createPortfolioValuationTimeline` 只接受原始 facts，并在内部唯一地调用 `buildPortfolioState`；这消除了“caller 传入的 current state 与历史 snapshots 不一致”的无效状态。它随后统一组装 current dashboard、portfolio history、holding history、period combination、account allocation 和 FX overview。较小的 history 模块仍然保留为内部可测试 seam，但 route 只需要知道这一个高层入口。
 
 `valuePortfolio` 位于 `src/domain/portfolio/valuation.ts`：
 
@@ -345,6 +368,8 @@ Account allocation 不在 overview 占据主卡，而是在 `src/components/sour
 - reconciliation 状态
 - confirmation
 
+它不再自行实现 holding/cash reconciliation reducer。所有 add/remove/update/cash edit 都转换成一个明确的 edit intent，交给 `src/application/imports/import-review-editor.ts` 的纯函数处理。这样 React 只管理交互，Holding State 字段如何比较由一个可独立测试的模块决定；display name 或 market-price 字段变化不会被误报成 quantity/Cost Basis 变化。
+
 前端没有权限绕过 confirmation；真正写入 snapshot 的 gate 在服务端 repository。
 
 ## 10. SQLite 持久化
@@ -367,7 +392,9 @@ Account allocation 不在 overview 占据主卡，而是在 `src/components/sour
 
 Repository interface 位于 `src/infrastructure/sqlite/portfolio-repository.ts`。它把 SQL、JSON encode/decode、transaction 和 legacy partial snapshot 恢复隐藏在一个模块内。
 
-当前 schema version 是 v3。v2 数据库会在一个 transaction 中增加 narrative table 和 index，再更新 schema version；既有 portfolio/market/import facts 不变。pre-v2 测试数据库仍不自动迁移，以避免对早期 disposable 测试数据做不可靠转换。
+当前 schema version 是 v4。v2 数据库会先增加 narrative table，v2/v3 都会为 `opening_snapshots` 增加 `payload_scope`，然后在同一个 transaction 中更新 schema version。`payload_scope` 只有 `complete` 与 `legacy-partial`：新 confirmation 永远写 `complete`；`legacy-partial` 仅用于恢复旧版本曾经保存过的不完整 snapshot。
+
+v3 以前的运行时曾依赖一段英文 warning 来推断旧 snapshot 是否需要补齐 omitted holdings。v4 migration 只在升级时读取一次旧 warning，把结论写成明确的结构化字段；升级完成后，正常 read path 不再让 UI 文案承担持久化语义。pre-v2 测试数据库仍不自动迁移，以避免对早期 disposable 测试数据做不可靠转换。
 
 Narrative table 不保存 API key、原始 prompt、截图或 provider request。每次主动生成都会新增一行，repository 目前只向首页返回最新一份；这保留了将来增加历史列表的可能，但没有提前引入报告管理 UI。
 
@@ -381,12 +408,27 @@ Narrative table 不保存 API key、原始 prompt、截图或 provider request�
 - server-side API key、60 秒 deadline 和安全错误映射
 - provider output 还需通过本地 Zod schema，不直接成为 portfolio facts
 
+### Structured Responses transport
+
+`src/infrastructure/responses/structured-response-client.ts` 是 OpenAI Vision、OpenAI narrative 和 DeepSeek narrative 共用的窄传输层。它只负责 Responses-style HTTP request、deadline、status mapping、`output_text` envelope extraction 和 JSON decode。每个 adapter 仍各自决定 endpoint、模型、instructions、schema、token limit，以及如何把通用传输错误翻译成产品错误。
+
+Zod schema 是结构化输出 contract 的唯一来源。图片与 narrative 都用 `z.toJSONSchema` 生成 provider JSON Schema，provider 返回后再用同一个 Zod schema 校验，避免“发给模型的 schema”和“本地接受的 schema”逐渐分叉。
+
 ### Eastmoney
 
 - 使用六位公募基金代码
 - 从监控开始日或最新已知 NAV 向后补齐
 - 只发送公开 fund code
 - provider 失败时保留旧价格
+
+### Danske Invest
+
+- 使用 Danske Invest 官方公开的 daily NAV history，不需要银行登录或 API key
+- 只发送公开 ISIN 对应的基金编号与查询日期区间，不发送份额、成本或账户总额
+- ISIN 与官网内部查询参数的映射保存在 Git 忽略的 `data/danske-invest-funds.json`；个人持仓标识不进入源码、测试或文档
+- 只有本地明确配置的 ISIN 才会自动刷新，未知 ISIN 会保持手工价格模式而不会猜测错误基金
+- 官方表格的芬兰日期与小数格式在 adapter 内转换成 ISO date 和标准 decimal string
+- 与 Eastmoney 一样，从 monitoring start 或最新已知 NAV 开始回填，失败时保留本地旧 observation
 
 ### ECB
 
@@ -404,7 +446,7 @@ Narrative table 不保存 API key、原始 prompt、截图或 provider request�
 
 首页 `Refresh prices` 也会读取 Trading 212 snapshot，但只将已确认 position 对应的当前价格转换成 Market Data Observation。新持仓、quantity、Cost Basis 与 cash 不会通过价格刷新写入 Holding State；这些变化仍必须走 `Update assets → Sync Trading 212` 的 reconciliation/confirmation gate。
 
-Dashboard 首次读取到非空本地组合后，会调用 `/api/market-data/refresh?mode=automatic`。Route 使用 `MarketRefreshRecord.completedAt` 的 Helsinki 日历日期作为幂等门槛：当天已有完成记录则立即返回，不调用 Eastmoney 或 Trading 212；跨入新的 Helsinki 日期后才再次执行。手工刷新使用 `mode=manual`，明确绕过该门槛。两种模式最终进入同一个 refresh implementation，因此自动化没有另一套估值或写入规则。
+Dashboard 首次读取到非空本地组合后，会调用 `/api/market-data/refresh?mode=automatic`。`createMarketDataRefresh` 使用 `MarketRefreshRecord.completedAt` 的 Helsinki 日历日期作为幂等门槛：当天已有完成记录则立即返回，不调用 Eastmoney、Danske Invest 或 Trading 212；跨入新的 Helsinki 日期后才再次执行。手工刷新使用 `mode=manual`，明确绕过该门槛。同一进程内的自动刷新会排队，后一个请求在前一个完成后重新检查门槛，避免页面并发加载产生重复 provider 请求。Route 只解析 mode、调用 coordinator 并映射意外错误。
 
 ## 12. 测试策略
 
@@ -419,6 +461,9 @@ Dashboard 首次读取到非空本地组合后，会调用 `/api/market-data/ref
 
 - QDII 的 Today 在 FX 日期比 NAV 新时仍包含最近 NAV move。
 - 单基金 screenshot draft 只显示检测出的基金，但 confirmation 后 omitted holdings 仍存在。
+- v3 legacy partial snapshot 升级到 v4 后仍能正确恢复 omitted holdings，且运行时不再读取 warning 文案。
+- review editor 用 Decimal 语义比较数量、成本和现金，metadata/market edit 不会制造 Holding State change。
+- valuation timeline 只接受原始 facts，不允许 route 额外传入一个可能与 snapshots 不一致的 current state。
 
 标准验证命令：
 
@@ -437,22 +482,169 @@ npm run build
 - 图片识别依赖云端 Vision 模型，不是纯本地处理；模糊、旋转或小字截图仍可能识别错误。
 - SQLite repository 目前使用 JSON payload 保存 draft/snapshot，灵活但不适合复杂 SQL 分析；如果未来增加大量 transaction analytics，应考虑规范化 event/position fact tables。
 - `dashboard.tsx` 和 `screenshot-import.tsx` 仍是较大的交互模块。当前 cleanup 没有强行拆分它们，因为状态、focus management 和表单编辑高度耦合；在缺少 component-level interaction tests 时大拆分的回归风险高于收益。
+- 估算的 `portfolioActivityEur` 是可审计残差，不是完整交易分类；要精确区分入金、分红、手续费和内部换仓，需要先实现完整 Portfolio Event 工作流。
 
 ## 14. 修改功能时从哪里开始
 
 - 改持仓/成本规则：`src/domain/portfolio/`
 - 改 import/reconciliation：`src/domain/imports.ts`
+- 改 review 编辑行为：`src/application/imports/import-review-editor.ts`
 - 改 Vision 字段协议：`src/application/imports/vision-extractor.ts`
 - 改 OpenAI 图片调用：`src/infrastructure/openai/openai-vision-extractor.ts`
 - 改 Today/holding history：`src/application/holding-history.ts`
 - 改 portfolio period 聚合：`src/application/portfolio-periods.ts`
 - 改 Portfolio insights：`src/application/portfolio-insights.ts`
-- 改 portfolio overview 组装：`src/application/portfolio-overview.ts`
+- 改当前/历史估值总编排：`src/application/portfolio-valuation-timeline.ts`
+- 改 insights 添加：`src/application/portfolio-overview.ts`
 - 改 narrative facts/provenance：`src/application/portfolio-narrative-facts.ts`
 - 改 narrative schema/provider contract：`src/application/portfolio-narrative.ts`
+- 改 Responses-style HTTP/envelope：`src/infrastructure/responses/structured-response-client.ts`
 - 改 7/30 天历史重建：`src/application/portfolio-dashboard.ts`
 - 改 SQLite：`src/infrastructure/sqlite/`
+- 改价格刷新 workflow：`src/application/market-data-refresh.ts`
 - 改首页展示：`src/components/dashboard.tsx`
 - 改 review UI：`src/components/screenshot-import.tsx`
 
 建议继续保持“先在正确 seam 写最小回归测试，再改 implementation”的工作方式。尤其是时间、价格、FX、quantity 和 partial import 的组合，很容易产生表面合理但口径不一致的结果。
+
+## 15. 端到端 workflow
+
+### 15.1 页面读取
+
+```mermaid
+sequenceDiagram
+  participant UI as Dashboard
+  participant API as GET /api/portfolio
+  participant DB as SQLite repository
+  participant TL as Valuation timeline
+  UI->>API: request overview
+  API->>DB: read portfolio + market facts
+  DB-->>API: snapshots, events, prices, FX, labels
+  API->>TL: raw facts + asOf
+  TL->>TL: rebuild state and histories
+  TL-->>API: PortfolioOverviewReadModel
+  API-->>UI: JSON
+  UI->>API: optional automatic refresh
+```
+
+`portfolio-overview.ts` 在 valuation timeline 返回以后才追加 insights。这样估值引擎不依赖 narrative，而 insights 也不会重复读取数据库或重新计算市场值。
+
+### 15.2 导入与确认
+
+```mermaid
+flowchart LR
+  A[Vision / CSV / Manual / T212] --> B[Import Draft]
+  B --> C[prepare review + reconciliation]
+  C --> D[User edits draft]
+  D --> E{User confirms?}
+  E -- no --> F[No Holding State change]
+  E -- yes --> G[Server re-reads latest facts]
+  G --> H[Materialize complete snapshot]
+  H --> I[One SQLite transaction]
+  I --> J[New confirmed Holding State]
+```
+
+Import lifecycle policy 由 source kind 决定：
+
+| Source kind | Update mode | Review scope | Omitted holding |
+| --- | --- | --- | --- |
+| Screenshot | partial | detected holdings | confirmation 时保留 |
+| CSV | partial | complete account review | 用户可明确移除 |
+| Manual | partial | complete account review | 用户可明确移除 |
+| Trading 212 | complete | complete account | 标记 possibly removed |
+| Demo | partial | detected holdings | 只用于体验，不持久化真实组合 |
+
+这里的“partial”描述输入覆盖范围，不意味着数据库继续保存 partial snapshot。新确认的 snapshot 都会 materialize 成完整账户状态，因此历史重建不需要猜测 omitted 的含义。
+
+### 15.3 当前值、总资产曲线与收益曲线
+
+```mermaid
+flowchart TD
+  S[Snapshots + Events] --> STATE[Portfolio State at time T]
+  P[Dated prices / NAV] --> V[EUR valuation]
+  X[Dated FX] --> V
+  STATE --> V
+  V --> ACTUAL[Actual total-value history]
+  V --> PERF[Quantity-normalized performance]
+  ACTUAL --> ACTIVITY[Estimated portfolio activity residual]
+  PERF --> ATTR[Price / FX attribution]
+  ACTUAL --> OUT[Overview read model]
+  PERF --> OUT
+  ACTIVITY --> OUT
+  ATTR --> OUT
+```
+
+- Actual total value 回答“当时总共有多少钱”，会反映加仓、减仓和账户变化。
+- Performance 回答“排除持仓数量变化后，投资本身涨跌多少”。
+- Activity marker 回答“哪天发现新增、增加、减少或退出持仓”。
+- Estimated portfolio activity 是两种曲线之间的残差解释，不等同于已确认交易流水。
+
+### 15.4 价格刷新
+
+```mermaid
+flowchart LR
+  T[manual / automatic trigger] --> G{Automatic already done today?}
+  G -- yes --> SKIP[Return skipped]
+  G -- no --> F[Fetch supported fund NAVs]
+  F --> R[Optional T212 snapshot]
+  R --> FILTER[Keep prices for confirmed positions only]
+  FILTER --> SAVE[Persist observations + refresh record]
+  SAVE --> RESULT[Return counts and failures]
+```
+
+Provider 部分失败不会删除旧价格。一次 refresh 可以记录 updated、unchanged 和 failures；首页因此可以继续用最近成功的本地 observation。
+
+### 15.5 Narrative
+
+```mermaid
+sequenceDiagram
+  participant U as User
+  participant API as Narrative route
+  participant DB as Local facts
+  participant AI as OpenAI / DeepSeek
+  U->>API: Generate(provider, language)
+  API->>DB: rebuild current overview
+  API->>API: project aggregate cloud facts
+  API->>AI: structured facts + JSON Schema
+  AI-->>API: statements + evidence keys
+  API->>API: Zod validate + resolve provenance
+  API->>DB: save report + fingerprint
+  API-->>U: report marked current facts
+```
+
+模型不是自主交易 Agent，也没有 tool loop。它目前是受限的解释器：输入有限、输出有 schema、每条话有 evidence key、事实改变后旧报告会过期。这是刻意的安全边界，也为将来增加多轮问答、比较两个时期或数据质量诊断留下稳定基础。
+
+## 16. HTTP API 与页面职责
+
+| Method + path | 用途 | 是否改变 Holding State |
+| --- | --- | --- |
+| `GET /api/portfolio` | 返回完整 overview read model | 否 |
+| `GET/PATCH /api/accounts` | 读取账户状态、修改本地显示名 | 否 |
+| `POST /api/imports/analyze` | 图片 → screenshot draft | 否 |
+| `POST /api/imports/csv` | CSV → draft | 否 |
+| `POST /api/imports/manual` | 手工数据 → draft | 否 |
+| `POST /api/imports/trading212` | 同步；无 holding change 时只写 prices，否则创建 draft | 仅创建 draft 时仍否 |
+| `POST /api/imports/:id/confirm` | 审核结果 → confirmed snapshot | 是，唯一导入 gate |
+| `POST /api/market-data/refresh` | 自动或手工批量刷新 | 否 |
+| `POST /api/market-data/manual` | 保存一条 dated price | 否 |
+| `GET/POST /api/portfolio/narrative` | 读取或生成解释报告 | 否 |
+
+页面只有三个：`/` 是 overview，`/accounts` 是 Source Account 管理与 allocation，`/imports` 是 Update assets 和 review。页面组件不直接访问 SQLite 或外部 provider。
+
+## 17. 本地配置、数据与运维
+
+| 环境变量 | 作用 | 默认值 |
+| --- | --- | --- |
+| `PORTFOLIO_DB_FILENAME` | `data/` 下 SQLite basename | `invest-assets-monitor.sqlite` |
+| `OPENAI_API_KEY` | Vision；也可启用 OpenAI narrative | 无 |
+| `OPENAI_IMAGE_IMPORT_MODEL` | 图片识别模型 | `gpt-5.6-terra` |
+| `OPENAI_NARRATIVE_MODEL` | OpenAI narrative 模型 | `gpt-5.6-terra` |
+| `DEEPSEEK_API_KEY` | DeepSeek narrative | 无 |
+| `DEEPSEEK_NARRATIVE_MODEL` | DeepSeek narrative 模型 | `deepseek-v4-flash` |
+| `PORTFOLIO_NARRATIVE_DEFAULT_PROVIDER` | narrative 默认 provider | `openai` |
+| `TRADING212_API_KEY/SECRET` | 只读账户与持仓访问 | 无 |
+| `TRADING212_ENVIRONMENT` | `demo` 或 `live` | `demo` |
+
+数据库只允许通过 basename 配置，server 会固定放到项目 `data/` 目录，避免环境变量把数据库指向任意文件路径。开发时的标准检查是 `npm run typecheck`、`npm test`、`npm run build`。普通测试使用 synthetic fixtures 和 fake fetch；真实 Vision evaluation 必须显式设置 `RUN_OPENAI_VISION_EVAL=1`，会产生 API 费用，但 fixture 仍是合成数据。
+
+本地数据恢复的优先级是：保留 SQLite 原文件 → 复制备份 → 再运行 migration 或重建。不要把 `.env.local`、`data/`、个人截图、个人 CSV 或导出文件加入 Git。Repository 中的 tests 必须是 synthetic 或充分脱敏的数据。

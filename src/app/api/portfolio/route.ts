@@ -56,7 +56,6 @@ export function createPortfolioHandler(input: {
       (input.logError ?? console.error)("ECB FX refresh failed", error);
     }
     const portfolio = createPortfolioOverviewReadModel({
-      state,
       snapshots,
       events: facts.events,
       asOf: now,

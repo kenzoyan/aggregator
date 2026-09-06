@@ -55,39 +55,10 @@ export interface PortfolioNarrativeProvider {
   }): Promise<PortfolioNarrativeContent>;
 }
 
-function statementJsonSchema(maxLength: number) {
-  return {
-    type: "object",
-    additionalProperties: false,
-    required: ["text", "evidence"],
-    properties: {
-      text: { type: "string", minLength: 1, maxLength },
-      evidence: {
-        type: "array",
-        minItems: 1,
-        maxItems: 4,
-        items: { type: "string", enum: narrativeFactKeys },
-      },
-    },
-  } as const;
-}
+const { $schema: _schemaDialect, ...generatedNarrativeJsonSchema } =
+  z.toJSONSchema(portfolioNarrativeContentSchema);
 
-export const portfolioNarrativeJsonSchema = {
-  type: "object",
-  additionalProperties: false,
-  required: ["headline", "overview", "observations", "dataQuality"],
-  properties: {
-    headline: statementJsonSchema(100),
-    overview: statementJsonSchema(800),
-    observations: {
-      type: "array",
-      minItems: 1,
-      maxItems: 4,
-      items: statementJsonSchema(280),
-    },
-    dataQuality: statementJsonSchema(300),
-  },
-} as const;
+export const portfolioNarrativeJsonSchema = generatedNarrativeJsonSchema;
 
 const languageNames: Record<NarrativeLanguage, string> = {
   en: "English",
@@ -118,28 +89,6 @@ export function createPortfolioNarrativeInput(
   return JSON.stringify({
     portfolioInsights: createPortfolioNarrativeCloudFacts(insights),
   });
-}
-
-export function parsePortfolioNarrativeResponse(payload: unknown) {
-  const response = z.object({
-    status: z.string().optional(),
-    output: z.array(z.object({
-      type: z.string(),
-      content: z.array(z.object({
-        type: z.string(),
-        text: z.string().optional(),
-      }).passthrough()).optional(),
-    }).passthrough()),
-  }).passthrough().parse(payload);
-
-  if (response.status && response.status !== "completed") {
-    throw new Error("Narrative response was not completed");
-  }
-  const outputText = response.output
-    .flatMap((item) => item.content ?? [])
-    .find((item) => item.type === "output_text")?.text;
-  if (!outputText) throw new Error("Narrative response did not contain output text");
-  return portfolioNarrativeContentSchema.parse(JSON.parse(outputText));
 }
 
 export class PortfolioNarrativeProviderError extends Error {

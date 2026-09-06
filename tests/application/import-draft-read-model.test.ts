@@ -25,6 +25,7 @@ describe("Import Draft read model", () => {
         positions: [{
           displayName: "Synthetic Fund",
           instrumentCode: "001234",
+          assetType: null,
           quantity: "10",
           currency: "CNY",
           marketValue: "125",

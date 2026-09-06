@@ -152,6 +152,7 @@ describe("Portfolio Database", () => {
 
     const previous = new DatabaseSync(filename);
     previous.exec(`
+      ALTER TABLE opening_snapshots DROP COLUMN payload_scope;
       DROP TABLE portfolio_narratives;
       UPDATE schema_metadata SET version = 2;
     `);
@@ -166,6 +167,112 @@ describe("Portfolio Database", () => {
       upgraded.savePortfolioNarrative(narrative);
       expect(upgraded.readLatestPortfolioNarrative()).toEqual(narrative);
       upgraded.close();
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("upgrades v3 snapshot payload semantics without depending on warning copy at runtime", () => {
+    const directory = mkdtempSync(join(tmpdir(), "invest-monitor-v3-upgrade-"));
+    const filename = join(directory, "portfolio.sqlite");
+    const current = createPortfolioDatabase(filename);
+    const first = createCsvImportDraft({
+      draftId: "draft-v3-first",
+      snapshotId: "snapshot-v3-first",
+      sourceAccountId: "alipay-main",
+      createdAt: "2026-07-19T10:00:00.000Z",
+      csv: `${csv.trim()}\nalipay-main,Synthetic Bond Fund,006789,fund,CNY,10,10,2026-07-16,10,100,0,100\n`,
+    });
+    current.saveImportDraft(first);
+    current.confirmImport({
+      draftId: first.id,
+      confirmedImportId: "confirmed-v3-first",
+      confirmedAt: "2026-07-19T10:01:00.000Z",
+      review: {
+        confidence: first.confidence,
+        warnings: first.warnings,
+        portfolio: first.portfolio,
+      },
+    });
+    const second = createCsvImportDraft({
+      draftId: "draft-v3-second",
+      snapshotId: "snapshot-v3-second",
+      sourceAccountId: "alipay-main",
+      createdAt: "2026-07-20T10:00:00.000Z",
+      csv,
+    });
+    current.saveImportDraft(second);
+    const savedSecond = current.getImportDraft(second.id)!;
+    current.confirmImport({
+      draftId: second.id,
+      confirmedImportId: "confirmed-v3-second",
+      confirmedAt: "2026-07-20T10:01:00.000Z",
+      review: {
+        confidence: savedSecond.confidence,
+        warnings: savedSecond.warnings,
+        portfolio: savedSecond.portfolio,
+      },
+    });
+    const backdated = createCsvImportDraft({
+      draftId: "draft-v3-backdated",
+      snapshotId: "snapshot-v3-backdated",
+      sourceAccountId: "alipay-main",
+      createdAt: "2026-07-18T10:00:00.000Z",
+      csv,
+    });
+    current.saveImportDraft(backdated);
+    const savedBackdated = current.getImportDraft(backdated.id)!;
+    current.confirmImport({
+      draftId: backdated.id,
+      confirmedImportId: "confirmed-v3-backdated",
+      confirmedAt: "2026-07-21T10:01:00.000Z",
+      review: {
+        confidence: savedBackdated.confidence,
+        warnings: savedBackdated.warnings,
+        portfolio: savedBackdated.portfolio,
+      },
+    });
+    current.close();
+
+    const previous = new DatabaseSync(filename);
+    const legacyPayload = JSON.parse((previous.prepare(
+      "SELECT payload_json FROM opening_snapshots WHERE id = ?",
+    ).get("snapshot-v3-second") as { payload_json: string }).payload_json) as {
+      positions: Array<{ instrumentId: string }>;
+    };
+    legacyPayload.positions = legacyPayload.positions.filter(
+      (position) => position.instrumentId === "001234",
+    );
+    previous.prepare(
+      "UPDATE opening_snapshots SET payload_json = ? WHERE id = ?",
+    ).run(JSON.stringify(legacyPayload), "snapshot-v3-second");
+    previous.prepare(
+      "UPDATE import_drafts SET warnings_json = '[]' WHERE id = ?",
+    ).run("draft-v3-second");
+    previous.prepare(
+      "UPDATE import_drafts SET warnings_json = '[]' WHERE id = ?",
+    ).run("draft-v3-backdated");
+    previous.exec(`
+      ALTER TABLE opening_snapshots DROP COLUMN payload_scope;
+      UPDATE schema_metadata SET version = 3;
+    `);
+    previous.close();
+
+    try {
+      const upgraded = createPortfolioDatabase(filename);
+      expect(upgraded.readPortfolioFacts().state.positions.map(
+        (position) => position.instrumentId,
+      )).toEqual(["001234", "006789"]);
+      upgraded.close();
+
+      const migrated = new DatabaseSync(filename);
+      expect(migrated.prepare(
+        "SELECT payload_scope FROM opening_snapshots WHERE id = ?",
+      ).get("snapshot-v3-second")).toEqual({ payload_scope: "legacy-partial" });
+      expect(migrated.prepare(
+        "SELECT payload_scope FROM opening_snapshots WHERE id = ?",
+      ).get("snapshot-v3-backdated")).toEqual({ payload_scope: "complete" });
+      migrated.close();
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }

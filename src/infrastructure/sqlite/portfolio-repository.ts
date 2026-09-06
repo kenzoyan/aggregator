@@ -4,7 +4,7 @@ import type { PortfolioNarrativeReport } from "@/application/portfolio-narrative
 import {
   materializeConfirmedImportSnapshot,
   prepareImportDraftForReview,
-  restoreLegacyPartialSnapshots,
+  normalizeSnapshotHistory,
   type ConfirmedImportRecord,
   type ImportDraftInput,
   type ImportDraftReview,
@@ -90,8 +90,7 @@ interface FactRow {
 }
 
 interface SnapshotFactRow extends FactRow {
-  source_kind: ImportDraftInput["sourceKind"];
-  warnings_json: string;
+  payload_scope: "complete" | "legacy-partial";
 }
 
 function decodeDraft(row: ImportDraftRow): StoredImportDraft {
@@ -143,17 +142,15 @@ export function createPortfolioDatabase(filename: string): PortfolioDatabase {
   `);
   const insertSnapshot = database.prepare(`
     INSERT INTO opening_snapshots (
-      id, source_account_id, as_of, payload_json, confirmed_import_id
-    ) VALUES (?, ?, ?, ?, ?)
+      id, source_account_id, as_of, payload_json, confirmed_import_id,
+      payload_scope
+    ) VALUES (?, ?, ?, ?, ?, 'complete')
   `);
   const selectSnapshots = database.prepare(`
-    SELECT opening_snapshots.payload_json, confirmed_imports.source_kind,
-      import_drafts.warnings_json
+    SELECT opening_snapshots.payload_json, opening_snapshots.payload_scope
     FROM opening_snapshots
     JOIN confirmed_imports
       ON confirmed_imports.id = opening_snapshots.confirmed_import_id
-    JOIN import_drafts
-      ON import_drafts.id = confirmed_imports.draft_id
     ORDER BY opening_snapshots.as_of, confirmed_imports.confirmed_at,
       opening_snapshots.rowid
   `);
@@ -246,11 +243,10 @@ export function createPortfolioDatabase(filename: string): PortfolioDatabase {
   }
 
   function readOpeningSnapshots(): OpeningSnapshotInput[] {
-    return restoreLegacyPartialSnapshots(
+    return normalizeSnapshotHistory(
       (selectSnapshots.all() as unknown as SnapshotFactRow[]).map((row) => ({
         snapshot: JSON.parse(row.payload_json) as OpeningSnapshotInput,
-        sourceKind: row.source_kind,
-        warnings: JSON.parse(row.warnings_json) as string[],
+        payloadScope: row.payload_scope,
       })),
     );
   }

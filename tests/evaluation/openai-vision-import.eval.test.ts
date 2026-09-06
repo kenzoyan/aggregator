@@ -25,8 +25,7 @@ describe.skipIf(!runCloudEvaluation)("OpenAI vision import evaluation", () => {
     ));
 
     const result = await extractor.extract({
-      image,
-      mimeType: "image/png",
+      images: [{ image, mimeType: "image/png" }],
       sourceAccountHint: "Alipay",
     });
 

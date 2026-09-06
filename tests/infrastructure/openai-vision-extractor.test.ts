@@ -17,6 +17,7 @@ const extraction = {
   positions: [{
     displayName: "Synthetic Fund",
     instrumentCode: "012345",
+    assetType: "fund" as const,
     quantity: "10",
     currency: "CNY",
     marketValue: "110",
@@ -50,8 +51,10 @@ describe("OpenAI vision import extractor", () => {
     });
 
     await expect(extractor.extract({
-      image: new Uint8Array([1, 2, 3]),
-      mimeType: "image/png",
+      images: [
+        { image: new Uint8Array([1, 2, 3]), mimeType: "image/png" },
+        { image: new Uint8Array([4, 5]), mimeType: "image/jpeg" },
+      ],
       sourceAccountHint: "Alipay",
     })).resolves.toEqual(extraction);
 
@@ -71,6 +74,11 @@ describe("OpenAI vision import extractor", () => {
           {
             type: "input_image",
             image_url: "data:image/png;base64,AQID",
+            detail: "original",
+          },
+          {
+            type: "input_image",
+            image_url: "data:image/jpeg;base64,BAU=",
             detail: "original",
           },
         ],
@@ -93,8 +101,7 @@ describe("OpenAI vision import extractor", () => {
     });
 
     await expect(extractor.extract({
-      image: new Uint8Array([1]),
-      mimeType: "image/jpeg",
+      images: [{ image: new Uint8Array([1]), mimeType: "image/jpeg" }],
     })).rejects.toMatchObject({
       code: "invalid-response",
       message: "OpenAI could not identify any holdings in this screenshot.",
@@ -115,8 +122,7 @@ describe("OpenAI vision import extractor", () => {
     });
 
     await expect(extractor.extract({
-      image: new Uint8Array([1]),
-      mimeType: "image/png",
+      images: [{ image: new Uint8Array([1]), mimeType: "image/png" }],
     })).resolves.toEqual(cashOnly);
   });
 
@@ -131,8 +137,7 @@ describe("OpenAI vision import extractor", () => {
     });
 
     await expect(extractor.extract({
-      image: new Uint8Array([1]),
-      mimeType: "image/png",
+      images: [{ image: new Uint8Array([1]), mimeType: "image/png" }],
     })).rejects.toMatchObject({ code: "invalid-response" });
   });
 
@@ -144,8 +149,7 @@ describe("OpenAI vision import extractor", () => {
     });
 
     await expect(extractor.extract({
-      image: new Uint8Array([1]),
-      mimeType: "image/webp",
+      images: [{ image: new Uint8Array([1]), mimeType: "image/webp" }],
     })).rejects.toEqual(new VisionExtractionError("rate-limited"));
   });
 

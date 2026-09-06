@@ -32,6 +32,7 @@ test-results/
 /data/*.jpeg
 /data/*.png
 /data/*.webp
+/data/danske-invest-funds.json
 
 # Local product thinking and working notes
 CONTEXT.md

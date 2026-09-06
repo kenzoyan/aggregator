@@ -22,6 +22,7 @@ const extraction: ScreenshotExtraction = {
   positions: [{
     displayName: "Synthetic Vision Fund",
     instrumentCode: "012345",
+    assetType: "fund",
     quantity: "10",
     currency: "CNY",
     marketValue: "110",
@@ -45,13 +46,38 @@ function database() {
   };
 }
 
+const pngBytes = new Uint8Array(Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+  "base64",
+));
+
 function imageRequest(sourceAccountId = "alipay-main") {
   const form = new FormData();
   form.set("sourceAccountId", sourceAccountId);
   form.set("mode", "image");
   form.set("image", new File(
-    [new Uint8Array([1, 2, 3])],
+    [pngBytes],
     "synthetic.png",
+    { type: "image/png" },
+  ));
+  return new Request("http://localhost/api/imports/analyze", {
+    method: "POST",
+    body: form,
+  });
+}
+
+function multiImageRequest(sourceAccountId = "danske-main") {
+  const form = new FormData();
+  form.set("sourceAccountId", sourceAccountId);
+  form.set("mode", "image");
+  form.append("images", new File(
+    [pngBytes],
+    "synthetic-overview.png",
+    { type: "image/png" },
+  ));
+  form.append("images", new File(
+    [pngBytes],
+    "synthetic-details.png",
     { type: "image/png" },
   ));
   return new Request("http://localhost/api/imports/analyze", {
@@ -87,6 +113,7 @@ describe("POST /api/imports/analyze", () => {
           holdings: [{
             instrumentId: "012345",
             instrumentCode: "012345",
+            assetType: "fund",
             quantity: "10",
             costBasis: "100",
             observedPrice: "11",
@@ -96,8 +123,7 @@ describe("POST /api/imports/analyze", () => {
       },
     });
     expect(extract).toHaveBeenCalledWith({
-      image: new Uint8Array([1, 2, 3]),
-      mimeType: "image/png",
+      images: [{ image: pngBytes, mimeType: "image/png" }],
       sourceAccountHint: "Alipay",
     });
     expect(store.saveImportDraft).toHaveBeenCalledOnce();
@@ -121,6 +147,89 @@ describe("POST /api/imports/analyze", () => {
     expect(extract).toHaveBeenCalledWith(expect.objectContaining({
       sourceAccountHint: "WeChat Wealth Management",
     }));
+  });
+
+  it("sends complementary screenshots as one extraction request", async () => {
+    const extract = vi.fn(async () => ({
+      ...extraction,
+      accountName: "Danske Trade Online",
+    }));
+    const handler = createAnalyzeImportHandler({
+      database: database(),
+      createExtractor: () => ({ extract }),
+      newId: () => "id",
+      now: () => "2026-09-06T12:00:00.000Z",
+    });
+
+    const response = await handler(multiImageRequest());
+
+    expect(response.status).toBe(200);
+    expect(extract).toHaveBeenCalledWith({
+      images: [
+        { image: pngBytes, mimeType: "image/png" },
+        { image: pngBytes, mimeType: "image/png" },
+      ],
+      sourceAccountHint: "Danske Bank",
+    });
+  });
+
+  it("rejects too many screenshots before creating an extractor", async () => {
+    const form = new FormData();
+    form.set("sourceAccountId", "danske-main");
+    form.set("mode", "image");
+    for (let index = 0; index < 7; index += 1) {
+      form.append("images", new File(
+        [new Uint8Array([index])],
+        `synthetic-${index}.png`,
+        { type: "image/png" },
+      ));
+    }
+    const createExtractor = vi.fn();
+    const handler = createAnalyzeImportHandler({
+      database: database(),
+      createExtractor,
+      newId: () => "id",
+      now: () => "2026-09-06T12:00:00.000Z",
+    });
+
+    const response = await handler(new Request(
+      "http://localhost/api/imports/analyze",
+      { method: "POST", body: form },
+    ));
+
+    expect(response.status).toBe(413);
+    await expect(response.json()).resolves.toEqual({
+      error: "Choose no more than 6 screenshots.",
+    });
+    expect(createExtractor).not.toHaveBeenCalled();
+  });
+
+  it("rejects empty and spoofed images before creating an extractor", async () => {
+    for (const bytes of [
+      new Uint8Array(),
+      new Uint8Array([1, 2, 3]),
+      pngBytes.slice(0, 50),
+    ]) {
+      const form = new FormData();
+      form.set("sourceAccountId", "danske-main");
+      form.set("mode", "image");
+      form.set("image", new File([bytes], "spoofed.png", { type: "image/png" }));
+      const createExtractor = vi.fn();
+      const handler = createAnalyzeImportHandler({
+        database: database(),
+        createExtractor,
+        newId: () => "id",
+        now: () => "2026-09-06T12:00:00.000Z",
+      });
+
+      const response = await handler(new Request(
+        "http://localhost/api/imports/analyze",
+        { method: "POST", body: form },
+      ));
+
+      expect(response.status).toBe(bytes.length === 0 ? 400 : 415);
+      expect(createExtractor).not.toHaveBeenCalled();
+    }
   });
 
   it("blocks an obvious provider mismatch before saving a draft", async () => {
