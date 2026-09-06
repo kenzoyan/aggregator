@@ -64,6 +64,12 @@ export function combinePortfolioPeriodHistory(input: {
       points: available
         ? [baselineValue, input.currentTotalValueEur]
         : [input.currentTotalValueEur],
+      dailyChanges: available
+        ? [{
+            asOf: portfolioPeriod.currentAsOf?.slice(0, 10) ?? "Latest",
+            change: holdingTotals.change,
+          }]
+        : [],
       priceChange: available ? holdingTotals.priceChange : 0,
       fxChange: available ? holdingTotals.fxChange : 0,
     }];

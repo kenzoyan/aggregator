@@ -1,11 +1,20 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type CSSProperties, type FormEvent } from "react";
 
 import type { SourceAccountView } from "@/application/source-account-status";
+import type { SourceAccountAllocationReadModel } from "@/application/portfolio-read-model";
 
 type AccountView = SourceAccountView;
+
+const eur = new Intl.NumberFormat("en-FI", {
+  style: "currency",
+  currency: "EUR",
+  minimumFractionDigits: 2,
+});
+
+const allocationPalette = ["#2f6ed8", "#102c52", "#0ca77d", "#d9aa61", "#7d64c2"];
 
 const statusLabels: Record<AccountView["status"], string> = {
   current: "Current",
@@ -15,6 +24,8 @@ const statusLabels: Record<AccountView["status"], string> = {
 
 export function SourceAccountsPanel() {
   const [accounts, setAccounts] = useState<AccountView[]>([]);
+  const [allocation, setAllocation] = useState<SourceAccountAllocationReadModel[]>([]);
+  const [allocationStatus, setAllocationStatus] = useState<"loading" | "ready" | "unavailable">("loading");
   const [editing, setEditing] = useState<string>();
   const [label, setLabel] = useState("");
   const [busy, setBusy] = useState(false);
@@ -28,7 +39,30 @@ export function SourceAccountsPanel() {
         setAccounts(payload.accounts);
       })
       .catch((reason) => setError(reason instanceof Error ? reason.message : "Accounts could not be loaded."));
+    fetch("/api/portfolio", { cache: "no-store" })
+      .then(async (response) => {
+        const payload = (await response.json()) as {
+          portfolio?: { accountAllocation?: SourceAccountAllocationReadModel[] };
+        };
+        if (!response.ok || !payload.portfolio?.accountAllocation) throw new Error("Allocation unavailable");
+        setAllocation(payload.portfolio.accountAllocation);
+        setAllocationStatus("ready");
+      })
+      .catch(() => setAllocationStatus("unavailable"));
   }, []);
+
+  const accountLabels = useMemo(() => new Map(
+    accounts.map((account) => [account.id, account.label]),
+  ), [accounts]);
+  const allocationTotal = allocation.reduce((total, account) => total + account.valueEur, 0);
+  let allocationCursor = 0;
+  const allocationGradient = allocation.length > 0
+    ? `conic-gradient(${allocation.map((account, index) => {
+        const start = allocationCursor;
+        allocationCursor += allocationTotal === 0 ? 0 : account.valueEur / allocationTotal * 100;
+        return `${allocationPalette[index % allocationPalette.length]} ${start.toFixed(2)}% ${allocationCursor.toFixed(2)}%`;
+      }).join(", ")})`
+    : undefined;
 
   function beginRename(account: AccountView) {
     setEditing(account.id);
@@ -70,6 +104,36 @@ export function SourceAccountsPanel() {
       </header>
 
       {error && <p className="error-message" role="alert">{error}</p>}
+      <section className="account-allocation-panel" aria-labelledby="account-allocation-heading">
+        <div className="account-allocation-copy">
+          <p className="eyebrow">CURRENT ALLOCATION</p>
+          <h2 id="account-allocation-heading">Account allocation</h2>
+          <strong>{allocationStatus === "loading" ? "Loading…" : eur.format(allocationTotal)}</strong>
+          <p>Current valued assets grouped by their source account.</p>
+        </div>
+        {allocationStatus === "ready" && allocation.length > 0 ? (
+          <>
+            <div className="donut-wrap account-donut-wrap">
+              <div className="donut" style={allocationGradient ? ({ background: allocationGradient } as CSSProperties) : undefined}>
+                <span><strong>{allocation.length}</strong>valued accounts</span>
+              </div>
+            </div>
+            <div className="allocation-list account-allocation-list">
+              {allocation.map((account, index) => (
+                <div key={account.sourceAccountId}>
+                  <span><i className="legend" style={{ background: allocationPalette[index % allocationPalette.length] }} />{accountLabels.get(account.sourceAccountId) ?? account.label}</span>
+                  <strong>{Math.round(account.sharePercent)}%</strong>
+                  <small>{eur.format(account.valueEur)}</small>
+                </div>
+              ))}
+            </div>
+          </>
+        ) : allocationStatus === "unavailable" ? (
+          <p className="account-allocation-empty">Current allocation could not be loaded.</p>
+        ) : allocationStatus === "ready" ? (
+          <p className="account-allocation-empty">Allocation appears after an account has valued assets.</p>
+        ) : null}
+      </section>
       <section className="accounts-grid">
         {accounts.map((account) => (
           <article className="account-card" key={account.id}>

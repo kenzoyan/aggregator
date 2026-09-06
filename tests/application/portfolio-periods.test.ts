@@ -20,6 +20,15 @@ describe("portfolio period aggregation", () => {
           change: 1,
           percent: 0.33,
           points: [299, 300],
+          valueHistory: {
+            available: true,
+            change: 1,
+            percent: 1 / 299 * 100,
+            investmentChange: 1,
+            portfolioActivity: 0,
+            activityAvailable: true,
+            timeline: [],
+          },
           baselineAsOf: "2026-07-23",
           currentAsOf: "2026-07-24",
         },
@@ -59,8 +68,18 @@ describe("portfolio period aggregation", () => {
       change: 3,
       percent: 3 / 297 * 100,
       points: [297, 300],
+      dailyChanges: [{ asOf: "2026-07-24", change: 3 }],
       priceChange: 2,
       fxChange: 1,
+      valueHistory: {
+        available: true,
+        change: 1,
+        percent: 1 / 299 * 100,
+        investmentChange: 1,
+        portfolioActivity: 0,
+        activityAvailable: true,
+        timeline: [],
+      },
     });
   });
 });

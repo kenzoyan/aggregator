@@ -104,6 +104,7 @@ describe("GET /api/portfolio", () => {
       fxChange: 0.55,
     });
     expect(payload.portfolio.holdings[0]).toMatchObject({
+      sourceAccountId: "alipay-main",
       holdingKey: {
         sourceAccountId: "alipay-main",
         instrumentId: "040046",
@@ -137,6 +138,13 @@ describe("GET /api/portfolio", () => {
         ],
       },
     });
+    expect(payload.portfolio.accountAllocation).toEqual([{
+      sourceAccountId: "alipay-main",
+      label: "Alipay",
+      valueEur: 13.75,
+      sharePercent: 100,
+      holdingCount: 1,
+    }]);
     expect(payload.portfolio.history.today).toMatchObject({
       priceChange: 1.2,
       fxChange: 0.55,

@@ -25,6 +25,7 @@ export interface HoldingTotalReturnReadModel {
 
 export interface HoldingReadModel {
   id: string;
+  sourceAccountId: string;
   holdingKey?: {
     sourceAccountId: string;
     instrumentId: string;
@@ -55,6 +56,40 @@ export interface PeriodPerformanceReadModel {
   fxChange?: number;
   baselineAsOf?: string;
   currentAsOf?: string;
+  dailyChanges?: PortfolioDailyChangeReadModel[];
+  valueHistory?: PortfolioValueHistoryReadModel;
+}
+
+export interface PortfolioDailyChangeReadModel {
+  asOf: string;
+  change: number;
+}
+
+export interface PortfolioHoldingActivityReadModel {
+  holdingId: string;
+  name: string;
+  kind: "added" | "increased" | "reduced" | "exited";
+  quantityDelta: string;
+}
+
+export interface PortfolioValuePointReadModel {
+  asOf: string;
+  valueEur: number;
+  investmentChangeEur: number;
+  portfolioActivityEur: number;
+  holdingActivities: PortfolioHoldingActivityReadModel[];
+}
+
+export interface PortfolioValueHistoryReadModel {
+  available: boolean;
+  change: number;
+  percent: number;
+  investmentChange: number;
+  portfolioActivity: number;
+  activityAvailable: boolean;
+  timeline: PortfolioValuePointReadModel[];
+  baselineAsOf?: string;
+  currentAsOf?: string;
 }
 
 export interface MarketDataStatusReadModel {
@@ -82,6 +117,11 @@ export interface PortfolioInsightAllocationReadModel {
   valueEur: number;
   sharePercent: number;
   holdingCount: number;
+}
+
+export interface SourceAccountAllocationReadModel extends PortfolioInsightAllocationReadModel {
+  sourceAccountId: string;
+  label: string;
 }
 
 export interface PortfolioInsightMoverReadModel {
@@ -136,6 +176,7 @@ export interface PortfolioInsightsReadModel {
 export interface PortfolioOverviewReadModel {
   holdings: HoldingReadModel[];
   totalValueEur: number;
+  accountAllocation: SourceAccountAllocationReadModel[];
   fxAsOf: string;
   fxOverview?: FxOverviewReadModel;
   missingInputs: unknown[];

@@ -190,6 +190,36 @@ describe("portfolio dashboard history", () => {
       available: true,
       change: 10,
       percent: 4,
+      points: [100, 110],
+      valueHistory: {
+        available: true,
+        change: 160,
+        percent: 160,
+        investmentChange: 10,
+        portfolioActivity: 150,
+        activityAvailable: true,
+        timeline: [
+          {
+            asOf: "2026-07-20",
+            valueEur: 100,
+            investmentChangeEur: 0,
+            portfolioActivityEur: 0,
+            holdingActivities: [],
+          },
+          {
+            asOf: "2026-07-21",
+            valueEur: 260,
+            investmentChangeEur: 10,
+            portfolioActivityEur: 150,
+            holdingActivities: [{
+              holdingId: "trading212-main:new-etf",
+              kind: "added",
+              quantityDelta: "1",
+            }],
+          },
+        ],
+      },
+      dailyChanges: [{ asOf: "2026-07-21", change: 10 }],
     });
   });
 
@@ -269,6 +299,23 @@ describe("portfolio dashboard history", () => {
       available: true,
       change: 0,
       percent: 0,
+      points: [200, 200],
+      valueHistory: {
+        available: true,
+        change: 100,
+        percent: 100,
+        investmentChange: 0,
+        portfolioActivity: 100,
+        activityAvailable: true,
+        timeline: [
+          { holdingActivities: [] },
+          { holdingActivities: [{
+            holdingId: "trading212-main:same-etf",
+            kind: "increased",
+            quantityDelta: "1",
+          }] },
+        ],
+      },
     });
   });
 
@@ -326,6 +373,145 @@ describe("portfolio dashboard history", () => {
       available: true,
       change: 10,
       percent: 5,
+      valueHistory: {
+        timeline: [
+          { holdingActivities: [] },
+          { holdingActivities: [{
+            holdingId: "trading212-main:sold-etf",
+            kind: "reduced",
+            quantityDelta: "-1",
+          }] },
+        ],
+      },
+    });
+  });
+
+  it("classifies an increase in an existing cash balance as portfolio activity", () => {
+    const history = createPortfolioHistoryReadModel({
+      snapshots: [
+        {
+          id: "cash-before",
+          sourceAccountId: "trading212-main",
+          asOf: "2026-07-20T16:00:00.000Z",
+          positions: [],
+          portfolioCash: { amount: "50", currency: "EUR" },
+        },
+        {
+          id: "cash-after",
+          sourceAccountId: "trading212-main",
+          asOf: "2026-07-21T16:00:00.000Z",
+          positions: [],
+          portfolioCash: { amount: "100", currency: "EUR" },
+        },
+      ],
+      asOf: "2026-07-21T23:59:59.999Z",
+      eurPerUnit: { EUR: "1" },
+      fxAsOf: "2026-07-21",
+    });
+
+    expect(history.today).toMatchObject({
+      available: true,
+      change: 0,
+      valueHistory: {
+        available: true,
+        change: 50,
+        investmentChange: 0,
+        portfolioActivity: 50,
+        activityAvailable: true,
+        timeline: [
+          { valueEur: 50, investmentChangeEur: 0, portfolioActivityEur: 0, holdingActivities: [] },
+          { valueEur: 100, investmentChangeEur: 0, portfolioActivityEur: 50, holdingActivities: [] },
+        ],
+      },
+    });
+  });
+
+  it("records a cash-funded purchase even when total portfolio value is unchanged", () => {
+    const history = createPortfolioHistoryReadModel({
+      snapshots: [
+        {
+          id: "cash-before-purchase",
+          sourceAccountId: "trading212-main",
+          asOf: "2026-07-20T16:00:00.000Z",
+          positions: [],
+          portfolioCash: { amount: "100", currency: "EUR" },
+        },
+        {
+          id: "holding-after-purchase",
+          sourceAccountId: "trading212-main",
+          asOf: "2026-07-21T16:00:00.000Z",
+          positions: [{
+            instrumentId: "cash-funded-etf",
+            quantity: "1",
+            currency: "EUR",
+            costBasis: "100",
+            observedPrice: "100",
+          }],
+          portfolioCash: { amount: "0", currency: "EUR" },
+        },
+      ],
+      asOf: "2026-07-21T23:59:59.999Z",
+      eurPerUnit: { EUR: "1" },
+      fxAsOf: "2026-07-21",
+    });
+
+    expect(history.today.valueHistory).toMatchObject({
+      available: true,
+      change: 0,
+      portfolioActivity: 0,
+      timeline: [
+        { holdingActivities: [] },
+        { holdingActivities: [{
+          holdingId: "trading212-main:cash-funded-etf",
+          kind: "added",
+          quantityDelta: "1",
+        }] },
+      ],
+    });
+  });
+
+  it("does not attribute activity when a holding was fully exited", () => {
+    const history = createPortfolioHistoryReadModel({
+      snapshots: [
+        {
+          id: "before-full-sale",
+          sourceAccountId: "trading212-main",
+          asOf: "2026-07-20T16:00:00.000Z",
+          positions: [{
+            instrumentId: "fully-sold-etf",
+            quantity: "1",
+            currency: "EUR",
+            costBasis: "100",
+            observedPrice: "100",
+          }],
+        },
+        {
+          id: "after-full-sale",
+          sourceAccountId: "trading212-main",
+          asOf: "2026-07-21T16:00:00.000Z",
+          positions: [],
+          portfolioCash: { amount: "120", currency: "EUR" },
+        },
+      ],
+      asOf: "2026-07-21T23:59:59.999Z",
+      eurPerUnit: { EUR: "1" },
+      fxAsOf: "2026-07-21",
+    });
+
+    expect(history.today.valueHistory).toMatchObject({
+      available: true,
+      change: 20,
+      activityAvailable: false,
+      investmentChange: 0,
+      portfolioActivity: 0,
+      timeline: [
+        { holdingActivities: [] },
+        { holdingActivities: [{
+          holdingId: "trading212-main:fully-sold-etf",
+          kind: "exited",
+          quantityDelta: "-1",
+        }] },
+      ],
     });
   });
 

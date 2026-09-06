@@ -105,6 +105,7 @@ export function toDemoDashboardHoldings(record: DemoPortfolioRecord): HoldingRea
     const value = originalValue(position.costBasis, position.reportedPriorReturn);
     return {
       id: `${snapshot.id}-position-${index}`,
+      sourceAccountId: snapshot.sourceAccountId,
       name: position.instrumentId,
       symbol: `DEMO ${index + 1}`,
       source,
@@ -123,6 +124,7 @@ export function toDemoDashboardHoldings(record: DemoPortfolioRecord): HoldingRea
     const cash = new Decimal(snapshot.portfolioCash.amount);
     positions.push({
       id: `${snapshot.id}-cash`,
+      sourceAccountId: snapshot.sourceAccountId,
       name: "Portfolio Cash",
       symbol: "CASH",
       source,

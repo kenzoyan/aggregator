@@ -3,6 +3,7 @@ import type { HoldingReadModel, Period } from "@/application/portfolio-read-mode
 export const demoHoldings: HoldingReadModel[] = [
   {
     id: "demo-1",
+    sourceAccountId: "demo-alipay",
     name: "Global Technology Index",
     symbol: "TECH 100",
     source: "Alipay",
@@ -17,6 +18,7 @@ export const demoHoldings: HoldingReadModel[] = [
   },
   {
     id: "demo-2",
+    sourceAccountId: "demo-danske",
     name: "Nordic Investment Bond",
     symbol: "FI BOND",
     source: "Danske",
@@ -31,6 +33,7 @@ export const demoHoldings: HoldingReadModel[] = [
   },
   {
     id: "demo-3",
+    sourceAccountId: "demo-trading212",
     name: "European Quality Equity",
     symbol: "EQQ",
     source: "Trading 212",
@@ -45,6 +48,7 @@ export const demoHoldings: HoldingReadModel[] = [
   },
   {
     id: "demo-4",
+    sourceAccountId: "demo-wechat",
     name: "Asia Consumer Fund",
     symbol: "ASIA C",
     source: "WeChat",
@@ -59,6 +63,7 @@ export const demoHoldings: HoldingReadModel[] = [
   },
   {
     id: "demo-5",
+    sourceAccountId: "demo-trading212",
     name: "US Broad Market ETF",
     symbol: "USM",
     source: "Trading 212",
@@ -73,6 +78,7 @@ export const demoHoldings: HoldingReadModel[] = [
   },
   {
     id: "demo-6",
+    sourceAccountId: "demo-danske",
     name: "Portfolio Cash",
     symbol: "CASH",
     source: "Danske",

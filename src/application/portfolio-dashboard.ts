@@ -8,6 +8,8 @@ import { openingPositionUnitPrice } from "@/application/position-price";
 import type {
   HoldingPriceHistoryReadModel,
   HoldingReadModel,
+  PortfolioDailyChangeReadModel,
+  PortfolioValueHistoryReadModel,
 } from "@/application/portfolio-read-model";
 import type {
   FxRateObservation,
@@ -242,6 +244,7 @@ export function createDashboardReadModel(input: {
 
       return {
         id: `${position.sourceAccountId}:${position.instrumentId}`,
+        sourceAccountId: position.sourceAccountId,
         holdingKey: {
           sourceAccountId: position.sourceAccountId,
           instrumentId: position.instrumentId,
@@ -289,6 +292,7 @@ export function createDashboardReadModel(input: {
       .filter((cash) => !new Decimal(cash.originalValue).isZero())
       .map((cash) => ({
         id: `${cash.sourceAccountId}:cash:${cash.currency}`,
+        sourceAccountId: cash.sourceAccountId,
         name: "Portfolio Cash",
         symbol: "CASH",
         source: sourceAccountDashboardLabel(cash.sourceAccountId, input.accountLabels),
@@ -341,6 +345,8 @@ export interface DashboardPeriodHistory {
   points: number[];
   baselineAsOf?: string;
   currentAsOf?: string;
+  dailyChanges: PortfolioDailyChangeReadModel[];
+  valueHistory: PortfolioValueHistoryReadModel;
 }
 
 export function createPortfolioHistoryReadModel(input: {
@@ -389,6 +395,12 @@ export function createPortfolioHistoryReadModel(input: {
       new Decimal(position.quantity),
     ]),
   );
+  const currentCashAmounts = new Map(
+    currentState.cashBalances.map((cash) => [
+      `${cash.sourceAccountId}:cash:${cash.currency}`,
+      new Decimal(cash.amount),
+    ]),
+  );
   const points = timeline.flatMap((asOf) => {
     const knownSnapshots = snapshots.filter((snapshot) => snapshot.asOf <= asOf);
     if (knownSnapshots.length === 0) return [];
@@ -412,6 +424,22 @@ export function createPortfolioHistoryReadModel(input: {
     });
     const holdingTotals = Object.fromEntries(
       readModel.holdings.map((holding) => {
+        if (holding.category === "Portfolio cash") {
+          const historicalCash = state.cashBalances.find((cash) =>
+            `${cash.sourceAccountId}:cash:${cash.currency}` === holding.id
+          );
+          const currentAmount = currentCashAmounts.get(holding.id);
+          if (!historicalCash || !currentAmount) {
+            return [holding.id, holding.eurValue];
+          }
+          const historicalAmount = new Decimal(historicalCash.amount);
+          const normalizedValue = historicalAmount.isZero()
+            ? new Decimal(0)
+            : new Decimal(holding.eurValue)
+                .div(historicalAmount)
+                .mul(currentAmount);
+          return [holding.id, normalizedValue.toNumber()];
+        }
         const historicalPosition = state.positions.find((position) =>
           `${position.sourceAccountId}:${position.instrumentId}` === holding.id
         );
@@ -430,10 +458,26 @@ export function createPortfolioHistoryReadModel(input: {
     );
     const total = Object.values(holdingTotals)
       .reduce((sum, value) => sum + value, 0);
+    const investmentQuantities = Object.fromEntries(
+      state.positions.map((position) => [
+        `${position.sourceAccountId}:${position.instrumentId}`,
+        position.quantity,
+      ]),
+    );
+    const investmentNames = Object.fromEntries(
+      readModel.holdings.flatMap((holding) =>
+        holding.category === "Portfolio cash"
+          ? []
+          : [[holding.id, holding.name]]
+      ),
+    );
     return [{
       asOf,
       total,
+      actualTotal: readModel.totalValueEur,
       holdingTotals,
+      investmentQuantities,
+      investmentNames,
       complete: readModel.missingInputs.length === 0,
     }];
   });
@@ -484,6 +528,37 @@ export function createPortfolioHistoryReadModel(input: {
         ? points.filter((point) => point.asOf >= baseline.asOf)
         : [];
       const completePeriod = periodPoints.every((point) => point.complete);
+      const periodDailyValuePoints = [...periodPoints.reduce((dailyPoints, point) => {
+        dailyPoints.set(point.asOf.slice(0, 10), point);
+        return dailyPoints;
+      }, new Map<string, (typeof points)[number]>()).values()];
+      const dailyValuePoints = periodDailyValuePoints.length > 0
+        ? periodDailyValuePoints
+        : current
+          ? [current]
+          : [];
+      const currentInvestmentIdSet = new Set(
+        Object.keys(current?.investmentQuantities ?? {}),
+      );
+      const hasFullyExitedInvestment = periodPoints.some((point) =>
+        Object.keys(point.investmentQuantities).some((holdingId) =>
+          !currentInvestmentIdSet.has(holdingId)
+        )
+      );
+      const valueBaseline = dailyValuePoints.at(0);
+      const valueCurrent = dailyValuePoints.at(-1);
+      const valueHistoryAvailable = Boolean(
+        valueBaseline &&
+        valueCurrent &&
+        valueBaseline.asOf !== valueCurrent.asOf &&
+        completePeriod,
+      );
+      const valueChange = valueHistoryAvailable
+        ? valueCurrent!.actualTotal - valueBaseline!.actualTotal
+        : 0;
+      const valuePercent = valueHistoryAvailable && valueBaseline!.actualTotal !== 0
+        ? valueChange / valueBaseline!.actualTotal * 100
+        : 0;
       const holdingBaselines = Object.fromEntries(
         currentHoldingIds.flatMap((holdingId) => {
           const holdingBaseline = periodPoints.find((point) =>
@@ -507,7 +582,7 @@ export function createPortfolioHistoryReadModel(input: {
       const percent = finalAvailable && capitalBase !== 0
         ? (change / capitalBase) * 100
         : 0;
-      const chartPoints = finalAvailable
+      const performanceTimeline = finalAvailable
         ? [...periodPoints.reduce((dailyPoints, point) => {
             const value = baseline!.total +
               currentHoldingIds.reduce((total, holdingId) => {
@@ -518,18 +593,115 @@ export function createPortfolioHistoryReadModel(input: {
               }
               return total + holdingValue - holdingBaseline;
               }, 0);
-            dailyPoints.set(point.asOf.slice(0, 10), value);
+            dailyPoints.set(point.asOf.slice(0, 10), {
+              asOf: point.asOf.slice(0, 10),
+              value,
+            });
             return dailyPoints;
-          }, new Map<string, number>()).values()]
+          }, new Map<string, { asOf: string; value: number }>()).values()]
         : current
-          ? [current.total]
+          ? [{ asOf: current.asOf.slice(0, 10), value: current.total }]
           : [];
+      const chartPoints = performanceTimeline.map((point) => point.value);
+      const dailyChanges = finalAvailable
+        ? performanceTimeline.slice(1).map((point, index) => ({
+            asOf: point.asOf,
+            change: point.value - performanceTimeline[index]!.value,
+          }))
+        : [];
+      const performanceByDate = new Map(
+        performanceTimeline.map((point) => [point.asOf, point.value]),
+      );
+      const valueTimeline = dailyValuePoints.map((point, index) => {
+        const asOf = point.asOf.slice(0, 10);
+        const previous = dailyValuePoints[index - 1];
+        const previousAsOf = previous?.asOf.slice(0, 10);
+        const currentPerformance = performanceByDate.get(asOf);
+        const previousPerformance = previousAsOf
+          ? performanceByDate.get(previousAsOf)
+          : undefined;
+        const investmentChangeEur = previousAsOf &&
+            currentPerformance !== undefined &&
+            previousPerformance !== undefined
+          ? currentPerformance - previousPerformance
+          : 0;
+        const actualChange = previous
+          ? point.actualTotal - previous.actualTotal
+          : 0;
+        const holdingIds = new Set([
+          ...Object.keys(previous?.investmentQuantities ?? {}),
+          ...Object.keys(point.investmentQuantities),
+        ]);
+        const holdingActivities = previous
+          ? [...holdingIds].flatMap((holdingId) => {
+              const before = new Decimal(
+                previous.investmentQuantities[holdingId] ?? 0,
+              );
+              const after = new Decimal(
+                point.investmentQuantities[holdingId] ?? 0,
+              );
+              const delta = after.minus(before);
+              if (delta.isZero()) return [];
+              const kind = before.isZero()
+                ? "added" as const
+                : after.isZero()
+                  ? "exited" as const
+                  : delta.isPositive()
+                    ? "increased" as const
+                    : "reduced" as const;
+              return [{
+                holdingId,
+                name: point.investmentNames[holdingId] ??
+                  previous.investmentNames[holdingId] ?? holdingId,
+                kind,
+                quantityDelta: delta.toString(),
+              }];
+            })
+          : [];
+        return {
+          asOf,
+          valueEur: point.actualTotal,
+          investmentChangeEur,
+          portfolioActivityEur: finalAvailable && !hasFullyExitedInvestment
+            ? actualChange - investmentChangeEur
+            : 0,
+          holdingActivities,
+        };
+      });
+      const activityAvailable = valueHistoryAvailable &&
+        finalAvailable &&
+        !hasFullyExitedInvestment;
+      const portfolioActivity = activityAvailable
+        ? valueTimeline.reduce(
+            (total, point) => total + point.portfolioActivityEur,
+            0,
+          )
+        : 0;
+      const investmentChange = activityAvailable
+        ? valueChange - portfolioActivity
+        : 0;
       return [period, {
         available: finalAvailable,
         ...(finalAvailable && coverage ? { coverage } : {}),
         change: finalAvailable ? change : 0,
         percent,
         points: chartPoints,
+        dailyChanges,
+        valueHistory: {
+          available: valueHistoryAvailable,
+          change: valueChange,
+          percent: valuePercent,
+          investmentChange,
+          portfolioActivity,
+          activityAvailable,
+          timeline: valueTimeline,
+          ...(valueHistoryAvailable
+            ? {
+                baselineAsOf: valueBaseline!.asOf,
+                currentAsOf: valueCurrent!.asOf,
+              }
+            : {}),
+        },
         ...(finalAvailable && baseline && current
           ? {
               baselineAsOf: baseline.asOf,

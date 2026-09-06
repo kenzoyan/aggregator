@@ -7,8 +7,10 @@ import {
 import { createPortfolioInsightsReadModel } from "@/application/portfolio-insights";
 import { combinePortfolioPeriodHistory } from "@/application/portfolio-periods";
 import type {
+  HoldingReadModel,
   PortfolioInsightsReadModel,
   PortfolioOverviewReadModel,
+  SourceAccountAllocationReadModel,
 } from "@/application/portfolio-read-model";
 import type {
   FxRateObservation,
@@ -30,6 +32,38 @@ export interface PortfolioOverviewInput {
   latestMarketRefresh?: MarketRefreshRecord;
   accountLabels: Record<string, string>;
   asOf: string;
+}
+
+function createSourceAccountAllocation(
+  holdings: readonly HoldingReadModel[],
+  totalValueEur: number,
+): SourceAccountAllocationReadModel[] {
+  const groups = new Map<string, SourceAccountAllocationReadModel>();
+  for (const holding of holdings) {
+    const current = groups.get(holding.sourceAccountId) ?? {
+      sourceAccountId: holding.sourceAccountId,
+      label: holding.source,
+      valueEur: 0,
+      sharePercent: 0,
+      holdingCount: 0,
+    };
+    groups.set(holding.sourceAccountId, {
+      ...current,
+      valueEur: current.valueEur + holding.eurValue,
+      holdingCount: current.holdingCount + 1,
+    });
+  }
+  return [...groups.values()]
+    .map((account) => ({
+      ...account,
+      sharePercent: totalValueEur === 0
+        ? 0
+        : account.valueEur / totalValueEur * 100,
+    }))
+    .sort((left, right) =>
+      right.valueEur - left.valueEur ||
+      left.sourceAccountId.localeCompare(right.sourceAccountId)
+    );
 }
 
 export function createPortfolioOverviewReadModel(
@@ -86,6 +120,10 @@ export function createPortfolioOverviewReadModel(
   const portfolioWithHistory: PortfolioOverviewReadModel = {
     ...portfolio,
     holdings,
+    accountAllocation: createSourceAccountAllocation(
+      holdings,
+      portfolio.totalValueEur,
+    ),
     history,
     ...(fxOverview ? { fxOverview } : {}),
   };

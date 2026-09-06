@@ -10,6 +10,7 @@ function holding(
   overrides: Partial<HoldingReadModel> & Pick<HoldingReadModel, "id" | "name" | "eurValue">,
 ): HoldingReadModel {
   return {
+    sourceAccountId: overrides.id.split(":")[0]!,
     symbol: overrides.id,
     source: "Alipay",
     category: "Fund",
@@ -88,6 +89,7 @@ describe("portfolio insights", () => {
     const portfolio: PortfolioOverviewReadModel = {
       holdings,
       totalValueEur: 1_000,
+      accountAllocation: [],
       fxAsOf: "2026-08-29",
       missingInputs: [{ instrumentId: "missing-price" }],
       marketData: {},

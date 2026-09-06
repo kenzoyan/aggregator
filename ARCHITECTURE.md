@@ -299,7 +299,7 @@ totalChange = priceChange + fxChange
 - 如果监控本身晚于目标日期，则使用最早真实 observation，并标记 `coverage: partial`。
 - 如果已有很长历史但目标附近没有可信点，则保持 unavailable。
 
-Portfolio history 会重建每个历史时间点的 state，并把历史 value 归一到当前 quantity，避免把新增份额或新持仓错误当成投资收益。
+Portfolio history 会重建每个历史时间点的 state，并同时保留两种明确分开的序列：performance points 把历史 value 归一到当前 quantity，避免把新增份额或新持仓错误当成投资收益；value history 则保留每个日期实际持有的总资产，因此会如实反映入金、出金、买卖和新增账户。相邻日期的 quantity 会产生事实性的 added、increased、reduced 或 exited 标记，即使现金买入使总资产几乎不变，也能标出实际的持仓变化日期。每天的 `portfolioActivityEur` 则是 actual value change 减去 capital-flow-adjusted investment change 的残差；它是可审计的推算值，但并不擅自断言残差一定是哪一种交易。如果区间内有持仓已完全退出，由于当前 snapshot 无法还原已实现收益，activity breakdown 保持 unavailable，但仍保留事实性的 exited 标记，而不把卖出回款误判为外部入金。
 
 ## 9. 前端 read model 与 UI
 
@@ -312,6 +312,7 @@ Portfolio history 会重建每个历史时间点的 state，并把历史 value �
 - original-currency value
 - calculated total return
 - Today/7-day/30-day performance
+- actual total-value history for the same periods
 - price/FX attribution
 - price history
 - source-account status
@@ -330,11 +331,14 @@ Narrative fingerprint 覆盖所有会影响报告内容的 aggregate facts，但
 `src/components/dashboard.tsx` 负责：
 
 - period 和 Source Account 过滤
-- portfolio 与 holding sparklines
+- Total value 折线、portfolio-activity 标记与 Daily change 可选日期柱形图切换；Today 不渲染无意义的单柱图
+- compact ledger、market-price 与 ECB FX 状态
 - holding detail drawer
 - 手工 dated price 输入
 - NAV refresh
 - demo/local data 隔离
+
+Account allocation 不在 overview 占据主卡，而是在 `src/components/source-accounts-panel.tsx` 中按稳定的 `sourceAccountId` 汇总本地已估值持仓。显示名称仍可重命名，但不会因此合并两个不同账户。
 
 小图先把每只 holding 转换成相对自身 baseline 的百分比变化，再使用同一 Y 轴范围，因此不同规模的基金可以视觉比较。
 

@@ -87,7 +87,7 @@ export function createPortfolioInsightsReadModel(input: {
     summary: {
       investmentPositionCount: investmentHoldings.length,
       sourceAccountCount: new Set(holdings.map((holding) =>
-        holding.holdingKey?.sourceAccountId ?? holding.id.split(":")[0]
+        holding.sourceAccountId
       )).size,
       ...(topHolding
         ? {

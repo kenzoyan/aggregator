@@ -21,7 +21,9 @@ import type {
   FxOverviewReadModel,
   HoldingReadModel,
   Period,
+  PortfolioDailyChangeReadModel,
   PortfolioOverviewReadModel,
+  PortfolioValuePointReadModel,
 } from "@/application/portfolio-read-model";
 import {
   comparableSparklineModels,
@@ -46,6 +48,11 @@ const fxRate = new Intl.NumberFormat("en-FI", {
   maximumFractionDigits: 4,
 });
 
+const chartDate = new Intl.DateTimeFormat("en-FI", {
+  month: "short",
+  day: "numeric",
+});
+
 const freshnessLabels: Record<HoldingReadModel["freshness"], string> = {
   fresh: "Updated",
   manual: "Manual",
@@ -54,6 +61,7 @@ const freshnessLabels: Record<HoldingReadModel["freshness"], string> = {
 };
 
 const allAccounts = "All accounts";
+type ChartMode = "value" | "daily-change";
 
 interface AutomaticRefreshSkip {
   automatic: true;
@@ -101,28 +109,35 @@ function Sparkline({
   detail = false,
   label = "Portfolio value trend",
   comparableModel,
+  valueTimeline,
 }: {
-  points: number[];
+  points?: number[];
   negative: boolean;
   compact?: boolean;
   detail?: boolean;
   label?: string;
   comparableModel?: ComparableSparklineModel;
+  valueTimeline?: PortfolioValuePointReadModel[];
 }) {
   const gradientId = `chart-fill-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
-  const path = useMemo(() => {
-    if (comparableModel) return comparableModel.path;
-    const max = Math.max(...points);
-    const min = Math.min(...points);
+  const chartPoints = valueTimeline?.map((point) => point.valueEur) ?? points ?? [];
+  const geometry = useMemo(() => {
+    if (comparableModel) return { path: comparableModel.path, coordinates: [] };
+    const max = Math.max(...chartPoints);
+    const min = Math.min(...chartPoints);
     const range = max - min || 1;
-    return points
-      .map((point, index) => {
-        const x = (index / (points.length - 1)) * 100;
+    const coordinates = chartPoints.map((point, index) => {
+        const x = (index / (chartPoints.length - 1)) * 100;
         const y = 56 - ((point - min) / range) * 44;
-        return `${index === 0 ? "M" : "L"}${x.toFixed(2)},${y.toFixed(2)}`;
-      })
-      .join(" ");
-  }, [comparableModel, points]);
+        return { x, y };
+      });
+    return {
+      coordinates,
+      path: coordinates
+        .map(({ x, y }, index) => `${index === 0 ? "M" : "L"}${x.toFixed(2)},${y.toFixed(2)}`)
+        .join(" "),
+    };
+  }, [chartPoints, comparableModel]);
   const zeroY = comparableModel?.zeroY;
   const fillBottom = zeroY ?? 64;
 
@@ -137,10 +152,98 @@ function Sparkline({
       {zeroY !== undefined && (
         <line className="sparkline-baseline" x1="0" x2="100" y1={zeroY} y2={zeroY} />
       )}
-      <path d={`${path} L100,${fillBottom} L0,${fillBottom} Z`} fill={`url(#${gradientId})`} />
-      <path d={path} fill="none" stroke={negative ? "#d95763" : "#078d68"} strokeWidth="2.2" vectorEffect="non-scaling-stroke" />
+      <path d={`${geometry.path} L100,${fillBottom} L0,${fillBottom} Z`} fill={`url(#${gradientId})`} />
+      <path d={geometry.path} fill="none" stroke={negative ? "#d95763" : "#078d68"} strokeWidth="2.2" vectorEffect="non-scaling-stroke" />
+      {valueTimeline?.map((point, index) => {
+        const coordinate = geometry.coordinates[index];
+        if (
+          !coordinate ||
+          (Math.abs(point.portfolioActivityEur) < 0.01 &&
+            point.holdingActivities.length === 0)
+        ) return null;
+        const holdingSummary = point.holdingActivities
+          .map((activity) => `${activity.name} ${activity.kind}`)
+          .join(", ");
+        const title = [
+          formatChartDate(point.asOf),
+          holdingSummary,
+          Math.abs(point.portfolioActivityEur) >= 0.01
+            ? `estimated portfolio activity ${signedEur(point.portfolioActivityEur)}`
+            : "",
+        ].filter(Boolean).join(" · ");
+        return (
+          <line key={index} className="value-activity-marker" x1={coordinate.x} x2={coordinate.x} y1={coordinate.y} y2="62">
+            <title>{title}</title>
+          </line>
+        );
+      })}
     </svg>
   );
+}
+
+function formatChartDate(asOf: string) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(asOf)
+    ? chartDate.format(new Date(`${asOf}T12:00:00Z`))
+    : asOf;
+}
+
+function DailyChangeBars({
+  changes,
+  selectedAsOf,
+  onSelect,
+  label,
+}: {
+  changes: PortfolioDailyChangeReadModel[];
+  selectedAsOf?: string;
+  onSelect: (asOf: string) => void;
+  label: string;
+}) {
+  const maximum = Math.max(...changes.map((point) => Math.abs(point.change)), 1);
+  const selected = changes.find((point) => point.asOf === selectedAsOf) ?? changes.at(-1);
+
+  return (
+    <div className="daily-change-chart" aria-label={label}>
+      {selected && (
+        <div className="daily-change-selection" aria-live="polite">
+          <span>{formatChartDate(selected.asOf)}</span>
+          <strong className={selected.change > 0 ? "positive" : selected.change < 0 ? "negative" : "neutral"}>{signedEur(selected.change)}</strong>
+        </div>
+      )}
+      <div className="daily-change-plot" role="group" aria-label="Select a day">
+        {changes.map((point) => {
+          const height = point.change === 0
+            ? 1
+            : Math.max(3, Math.abs(point.change) / maximum * 46);
+          return (
+            <button
+              type="button"
+              key={point.asOf}
+              className={`${point.asOf === selected?.asOf ? "selected " : ""}${point.change > 0 ? "positive" : point.change < 0 ? "negative" : "neutral"}`}
+              onClick={() => onSelect(point.asOf)}
+              aria-pressed={point.asOf === selected?.asOf}
+              aria-label={`${formatChartDate(point.asOf)} ${signedEur(point.change)}`}
+            >
+              <span className="daily-bar-zone">
+                <i style={{ "--bar-height": `${height}%` } as CSSProperties} />
+              </span>
+              <small>{formatChartDate(point.asOf)}</small>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function scaleDemoValueTrend(total: number, change: number, points: number[]) {
+  if (points.length < 2) return [total];
+  const first = points[0]!;
+  const last = points.at(-1)!;
+  const baseline = total - change;
+  if (first === last) {
+    return points.map((_, index) => baseline + change * index / (points.length - 1));
+  }
+  return points.map((point) => baseline + (point - first) / (last - first) * change);
 }
 
 function Change({ value, percent }: { value: number; percent: number }) {
@@ -163,6 +266,8 @@ function returnPercent(percent?: number) {
 
 export function Dashboard() {
   const [period, setPeriod] = useState<Period>("today");
+  const [chartMode, setChartMode] = useState<ChartMode>("value");
+  const [selectedDailyDate, setSelectedDailyDate] = useState<string>();
   const [source, setSource] = useState(allAccounts);
   const [demoEnabled, setDemoEnabled] = useState(false);
   const [reviewedDemoHoldings, setReviewedDemoHoldings] = useState<HoldingReadModel[]>();
@@ -400,26 +505,50 @@ export function Dashboard() {
       }])[selectedHolding.id]
     : undefined;
   const sources = [allAccounts, ...new Set(holdings.map((holding) => holding.source))];
-  const sourceTotals = Array.from(
-    holdings.reduce((totals, holding) => {
-      totals.set(holding.source, (totals.get(holding.source) ?? 0) + holding.eurValue);
-      return totals;
-    }, new Map<string, number>()),
-  ).sort((left, right) => right[1] - left[1]);
-  const palette = ["#2f6ed8", "#102c52", "#0ca77d", "#d9aa61", "#7d64c2"];
-  let allocationCursor = 0;
-  const allocationGradient = sourceTotals.length
-    ? `conic-gradient(${sourceTotals.map(([, value], index) => {
-        const start = allocationCursor;
-        allocationCursor += total === 0 ? 0 : (value / total) * 100;
-        return `${palette[index % palette.length]} ${start.toFixed(2)}% ${allocationCursor.toFixed(2)}%`;
-      }).join(", ")})`
-    : undefined;
   const latestMarketResult = localPortfolio?.marketData.latestResult;
   const eurCnyOverview = localFxOverview;
-  const eurCnyPoints = eurCnyOverview?.history.map((point) => point.rate) ?? [];
-  const eurCnyDeclined = eurCnyPoints.length > 1 &&
-    eurCnyPoints.at(-1)! < eurCnyPoints[0]!;
+  const demoValuePoints = scaleDemoValueTrend(total, current.change, current.points);
+  const demoDailyChanges = current.points.slice(1).map((point, index) => ({
+    asOf: `Day ${index + 1}`,
+    change: point - current.points[index]!,
+  }));
+  const dailyChanges = isLocal
+    ? localHistory?.dailyChanges ?? []
+    : demoEnabled && !usingReviewedDemo
+      ? demoDailyChanges
+      : [];
+  const dailyHistoryAvailable = dailyChanges.length > 0;
+  const demoValueTimeline = demoValuePoints.map((value, index) => ({
+    asOf: `Day ${index + 1}`,
+    valueEur: value,
+    investmentChangeEur: index === 0 ? 0 : value - demoValuePoints[index - 1]!,
+    portfolioActivityEur: 0,
+    holdingActivities: [],
+  }));
+  const valueHistory = isLocal
+    ? localHistory?.valueHistory
+    : demoEnabled && !usingReviewedDemo
+      ? {
+          available: demoValuePoints.length > 1,
+          change: current.change,
+          percent: current.percent,
+          investmentChange: current.change,
+          portfolioActivity: 0,
+          activityAvailable: true,
+          timeline: demoValueTimeline,
+        }
+      : undefined;
+  const portfolioActivities = valueHistory?.activityAvailable
+    ? valueHistory.timeline.filter((point) =>
+        Math.abs(point.portfolioActivityEur) >= 0.01
+      )
+    : [];
+  const holdingActivities = valueHistory?.timeline.flatMap((point) =>
+    point.holdingActivities.map((activity) => ({
+      asOf: point.asOf,
+      ...activity,
+    }))
+  ) ?? [];
   const persistedMarketMessage = latestMarketResult
     ? latestMarketResult.failed > 0
       ? `Last check failed: ${formatRefreshFailures(latestMarketResult.failures)}; previous prices kept`
@@ -488,7 +617,7 @@ export function Dashboard() {
         <section className="hero-grid">
           <article className="balance-card">
             <div className="card-heading">
-              <span>Current investment assets</span>
+              <span>Portfolio value</span>
               <span className="coverage">{isLocal
                 ? `${holdings.length} valued positions`
                 : usingReviewedDemo
@@ -499,15 +628,43 @@ export function Dashboard() {
             </div>
             <strong className="total-value">{eur.format(total)}</strong>
             <p className="subtle">EUR base currency · original currencies retained</p>
-            <div className="period-tabs" role="group" aria-label="Select performance period">
-              {(Object.keys(periodData) as Period[]).map((key) => (
-                <button key={key} className={period === key ? "selected" : ""} onClick={() => setPeriod(key)} aria-pressed={period === key}>
-                  {periodData[key].label}
-                </button>
-              ))}
+            <div className="chart-toolbar">
+              <div className="chart-mode-tabs" role="group" aria-label="Select chart metric">
+                <button type="button" className={chartMode === "value" ? "selected" : ""} onClick={() => setChartMode("value")} aria-pressed={chartMode === "value"}>Total value</button>
+                <button type="button" className={chartMode === "daily-change" ? "selected" : ""} onClick={() => setChartMode("daily-change")} aria-pressed={chartMode === "daily-change"}>Daily change</button>
+              </div>
+              <div className="period-tabs" role="group" aria-label="Select chart period">
+                {(Object.keys(periodData) as Period[]).map((key) => (
+                  <button key={key} className={period === key ? "selected" : ""} onClick={() => { setPeriod(key); setSelectedDailyDate(undefined); }} aria-pressed={period === key}>
+                    {periodData[key].label}
+                  </button>
+                ))}
+              </div>
             </div>
             <div className="period-summary">
-              {!hasVisiblePortfolio ? (
+              {chartMode === "value" && valueHistory?.available ? (
+                <div>
+                  <span>{current.label} value movement</span>
+                  <strong className={valueHistory.change >= 0 ? "positive" : "negative"}>
+                    {valueHistory.change >= 0 ? "+" : "−"}{eur.format(Math.abs(valueHistory.change))}
+                  </strong>
+                  <small className={valueHistory.percent >= 0 ? "positive" : "negative"}>
+                    {valueHistory.percent >= 0 ? "+" : "−"}{Math.abs(valueHistory.percent).toFixed(2)}%
+                  </small>
+                  {valueHistory.activityAvailable && (
+                    <small className="value-history-breakdown">
+                      Investment {signedEur(valueHistory.investmentChange)} · Portfolio activity {signedEur(valueHistory.portfolioActivity)}
+                    </small>
+                  )}
+                  <small className="value-history-note">
+                    {valueHistory.activityAvailable
+                      ? "Portfolio activity may include deposits, withdrawals and holding changes"
+                      : "Activity breakdown unavailable when the period includes an exited holding or an incomplete performance trail"}
+                  </small>
+                </div>
+              ) : chartMode === "value" ? (
+                <div><span>{current.label} value movement</span><strong className="pending-change">Waiting for another valuation</strong><small>Total value history starts with two dated records</small></div>
+              ) : !hasVisiblePortfolio ? (
                 <div><span>{current.label} change</span><strong className="pending-change">No data yet</strong><small>Import a confirmed snapshot to begin</small></div>
               ) : usingReviewedDemo ? (
                 <div><span>{current.label} change</span><strong className="pending-change">Waiting for the next demo snapshot</strong><small>Your confirmed demo holdings are shown below</small></div>
@@ -532,6 +689,7 @@ export function Dashboard() {
                       Latest available daily move per holding · QDII NAVs may publish later
                     </small>
                   )}
+                  <small className="performance-history-note">Investment performance · capital flows excluded</small>
                 </div>
               )}
               <span className="market-note">{isLocal ? `ECB rates ${localPortfolio?.fxAsOf}` : usingReviewedDemo ? "Confirmed demo review" : demoEnabled ? "Synthetic valuation" : "EUR base currency"}<br />{isLocal
@@ -540,53 +698,63 @@ export function Dashboard() {
                   : "Prices still use confirmed imports"
                 : usingReviewedDemo ? "Stored only in this browser" : demoEnabled ? "Some funds await NAV" : "No demo data mixed in"}</span>
             </div>
-            {isLocal && (!localHistory?.available || current.points.length < 2) ? (
-              <div className="sparkline-empty">Trend appears after another dated valuation</div>
+            {chartMode === "value" && valueHistory?.available && valueHistory.timeline.length > 1 ? (
+              <>
+                <Sparkline
+                  negative={valueHistory.change < 0}
+                  label={`${periodData[period].label} total portfolio value trend`}
+                  valueTimeline={valueHistory.timeline}
+                />
+                {(holdingActivities.length > 0 || portfolioActivities.length > 0) && (
+                  <section className="portfolio-activity-list" aria-label="Portfolio activity during this period">
+                    <div>
+                      <strong>Portfolio events</strong>
+                      <small>Holding changes are ledger facts; capital activity is estimated from otherwise unexplained value movement</small>
+                    </div>
+                    <ul>
+                      {holdingActivities.slice(-4).map((activity) => (
+                        <li key={`${activity.asOf}:${activity.holdingId}`}>
+                          <span>{formatChartDate(activity.asOf)}</span>
+                          <strong>{activity.name}</strong>
+                          <small>{activity.kind === "added"
+                            ? "Position added"
+                            : activity.kind === "increased"
+                              ? "Position increased"
+                              : activity.kind === "reduced"
+                                ? "Position reduced"
+                                : "Position exited"} · {activity.quantityDelta.startsWith("-") ? "" : "+"}{activity.quantityDelta} units</small>
+                        </li>
+                      ))}
+                      {portfolioActivities.slice(-4).map((activity) => (
+                        <li key={`${activity.asOf}:estimated-capital`}>
+                          <span>{formatChartDate(activity.asOf)}</span>
+                          <strong className={activity.portfolioActivityEur > 0 ? "positive" : "negative"}>{signedEur(activity.portfolioActivityEur)}</strong>
+                          <small>Estimated capital activity</small>
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                )}
+              </>
+            ) : chartMode === "value" ? (
+              <div className="sparkline-empty">Value trend appears after another dated valuation</div>
+            ) : period === "today" ? null : !dailyHistoryAvailable ? (
+              <div className="sparkline-empty">Daily changes appear after another dated valuation</div>
             ) : (
-              <Sparkline points={current.points} negative={current.change < 0} />
+              <DailyChangeBars
+                changes={dailyChanges}
+                selectedAsOf={selectedDailyDate}
+                onSelect={setSelectedDailyDate}
+                label={`${periodData[period].label} daily portfolio changes`}
+              />
             )}
-          </article>
-
-          <article className="allocation-card">
-            <div className="card-heading"><span>Account allocation</span><span>EUR</span></div>
-            <div className="donut-wrap">
-              <div className="donut" style={allocationGradient ? ({ background: allocationGradient } as CSSProperties) : undefined}><span><strong>{sourceTotals.length}</strong>source accounts</span></div>
-            </div>
-            <div className="allocation-list">
-              {sourceTotals.map(([name, value], index) => (
-                <div key={name}><span><i className="legend" style={{ background: palette[index % palette.length] }} />{name}</span><strong>{total === 0 ? "0%" : `${Math.round((value / total) * 100)}%`}</strong></div>
-              ))}
-            </div>
           </article>
         </section>
 
-        <section className="insight-strip" aria-label="Data status">
-          <div><span className="insight-icon">✓</span><p><strong>{isLocal ? "Local ledger connected" : usingReviewedDemo ? "Confirmed demo review" : demoEnabled ? "Synthetic example" : "Local ledger ready"}</strong><small>{isLocal ? "Confirmed snapshots are active" : demoEnabled ? "Never mixed with your assets" : "Add a confirmed snapshot to begin"}</small></p></div>
-          <div><span className="insight-icon amber">◷</span><p><strong>{isLocal ? "Market price history" : demoEnabled ? "2 funds awaiting NAV" : "No performance baseline"}</strong><small>{isLocal ? refreshMessage ?? persistedMarketMessage : demoEnabled ? "Missing data is never shown as zero" : "Starts after two confirmed snapshots"}</small></p></div>
-          <div className="fx-insight-card">
-            <span className="insight-icon blue">¥</span>
-            <p>
-              <strong>EUR / CNY</strong>
-              {eurCnyOverview ? (
-                <>
-                  <span className="fx-current-rate">€1 = ¥{fxRate.format(eurCnyOverview.currentRate)}</span>
-                  <small>ECB · {eurCnyOverview.asOf} · {eurCnyOverview.history.length} saved {eurCnyOverview.history.length === 1 ? "rate" : "rates"}</small>
-                </>
-              ) : (
-                <small>{isLocal ? "CNY reference rate unavailable" : "ECB history appears with local data"}</small>
-              )}
-            </p>
-            {eurCnyOverview && eurCnyPoints.length > 1 ? (
-              <Sparkline
-                compact
-                points={eurCnyPoints}
-                negative={eurCnyDeclined}
-                label={`EUR to CNY exchange-rate history from ${eurCnyOverview.history[0]?.asOf} to ${eurCnyOverview.asOf}`}
-              />
-            ) : eurCnyOverview ? (
-              <span className="fx-history-empty">History<br />building</span>
-            ) : null}
-          </div>
+        <section className="data-status-bar" aria-label="Data status">
+          <span><i className="status-indicator current" />{isLocal ? "Local ledger" : usingReviewedDemo ? "Confirmed demo" : demoEnabled ? "Synthetic demo" : "Ledger ready"}</span>
+          <span title={isLocal ? refreshMessage ?? persistedMarketMessage : undefined}><i className="status-indicator market" />{isLocal ? refreshMessage ?? persistedMarketMessage : demoEnabled ? "Missing values stay unknown" : "No price history yet"}</span>
+          <span><i className="status-indicator fx" />{eurCnyOverview ? `€1 = ¥${fxRate.format(eurCnyOverview.currentRate)} · ECB ${eurCnyOverview.asOf}` : isLocal ? "CNY rate unavailable" : "ECB rates with local data"}</span>
         </section>
 
         {isLocal && localPortfolio?.insights && (

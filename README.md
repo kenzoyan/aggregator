@@ -13,7 +13,7 @@ tables and performance calculations, see [ARCHITECTURE.md](./ARCHITECTURE.md).
 - Screenshot-assisted imports with review and confirmation
 - Reusable CSV holdings imports with stable fund codes, names, quantities and NAV dates
 - Manual-entry fallback with editable holding rows
-- Current value plus daily and recent-period performance
+- Current value plus separate total-value and daily-performance history
 - Clear source timestamps and stale/manual data states
 - Four independently named Source Accounts: Alipay, WeChat, Danske and Trading 212
 
@@ -48,7 +48,7 @@ Real integrations are enabled only through `.env.local`:
 
 Alipay screenshots use MinerU Precision cloud OCR with the `vlm` model. Set `MINERU_API_TOKEN` in `.env.local`; the token remains server-side. The server uploads the image through a signed URL, polls the Precision batch, extracts `full.md` from the result ZIP in memory, converts recognized Alipay labels into an Import Draft, and keeps confirmation mandatory. The app does not persist the original image, signed URL, result ZIP or OCR Markdown. MinerU does not publish a cloud-retention duration or deletion guarantee, so do not upload a screenshot if that cloud-processing boundary is unacceptable. MinerU screenshot parsing currently supports the Alipay Source Account; other accounts still use CSV or manual entry.
 
-Use **Accounts** to rename the four local Source Accounts and see the last confirmed snapshot, imported holding count, update method and stale/not-connected state. Account names are stored only in the ignored local SQLite database.
+Use **Accounts** to see current allocation by source, rename the four local Source Accounts and inspect the last confirmed snapshot, imported holding count, update method and stale/not-connected state. Account names are stored only in the ignored local SQLite database.
 
 Use **Update assets → Saved holdings CSV** to reopen a locally stored holdings file as a review draft. CSV rows do not affect the portfolio until confirmation. Personal CSV files under `data/imports/` remain ignored by Git.
 
@@ -68,7 +68,9 @@ Select an investment holding to open its detail drawer. The drawer keeps Holding
 
 Price observations are stored separately from Holding State. A refresh never changes quantity, Cost Basis or Reported Prior Return. **Today** means each holding's latest available daily price/NAV move plus the applicable FX move; this allows a QDII fund whose NAV publishes one or more days later to use its latest two available NAV dates instead of degrading to an FX-only calendar-day comparison. The portfolio Today number is the sum of those holding changes. The app cannot calculate a NAV that has not yet been published, so the UI retains the actual baseline/current NAV dates. Before a full 7-day or 30-day window exists, the UI uses the earliest real monitored baseline and labels the result as a partial range; older portfolios with missing history remain in **Awaiting baseline**.
 
-FX observations are also stored as dated market data. The overview shows the latest ECB EUR/CNY reference rate (`€1` in CNY) and a compact trend built only from locally accumulated observations. Portfolio and holding history use only prices and ECB rates known at each valuation date. Each holding shows its selected-period EUR change and a compact trend once a valid baseline exists; otherwise it explicitly stays in **Awaiting baseline**. Additional units, newly imported holdings and sale proceeds are treated as capital changes rather than investment return.
+The overview keeps one primary chart with a **Total value / Daily change** switch. Total value reconstructs the actual amount held at each dated valuation, so deposits, withdrawals, purchases and sales can move that line. It separates the period movement into investment performance and inferred portfolio activity. Quantity comparisons provide factual added, increased, reduced and exited holding markers even when a cash-funded trade leaves total value unchanged; unexplained EUR movement remains separately labelled as estimated capital activity. Recent events are listed below the chart. Daily change remains the capital-flow-adjusted investment-performance view: Today uses the summary only, while 7- and 30-day bars can be selected to inspect a specific date and EUR move. These meanings stay separate instead of overlaying incompatible EUR balances and returns.
+
+FX observations are also stored as dated market data. The overview shows the latest ECB EUR/CNY reference rate (`€1` in CNY) in its compact data-status row. Portfolio and holding history use only prices and ECB rates known at each valuation date. Each holding shows its selected-period EUR change and a compact trend once a valid baseline exists; otherwise it explicitly stays in **Awaiting baseline**. Additional units, newly imported holdings and sale proceeds are treated as capital changes rather than investment return.
 
 The overview also derives a local **Portfolio insights** read model from the valued holdings. It summarizes position concentration, holding-currency and asset-category allocation, the latest price/FX contribution, available movers and data-quality gaps. Holding currency means the instrument's quoted currency, not look-through exposure to its underlying assets. These facts are calculated by application code and remain useful without an LLM.
 
