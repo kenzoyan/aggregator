@@ -198,6 +198,48 @@ h2 { margin-bottom: 0; font-size: 25px; letter-spacing: -.03em; }
 .portfolio-narrative-provenance dt { color: #65768a; font-size: 8px; font-weight: 800; }
 .portfolio-narrative-provenance dd { margin: 0; color: #263a50; font-size: 8px; line-height: 1.45; }
 
+.portfolio-analyst { display: grid; grid-template-columns: minmax(220px, .7fr) minmax(420px, 1.3fr); gap: 20px 28px; margin-top: 18px; padding: 20px; border: 1px solid #d9e4df; border-radius: 16px; background: #f5faf8; }
+.portfolio-analyst-intro h3 { margin: 5px 0; font-size: 14px; }
+.portfolio-analyst-intro p, .portfolio-analyst-intro li, .portfolio-analyst-state, .portfolio-analyst-error { color: var(--muted); font-size: 9px; line-height: 1.55; }
+.portfolio-analyst-intro p { margin: 0; }
+.portfolio-analyst-intro ul { display: grid; gap: 3px; margin: 9px 0 0; padding-left: 16px; }
+.portfolio-analyst-workspace { min-width: 0; }
+.portfolio-analyst-controls { display: grid; grid-template-columns: minmax(155px, 1.2fr) repeat(3, minmax(90px, .7fr)); align-items: end; gap: 9px; }
+.portfolio-analyst-controls > label:not(.analyst-name-toggle) { display: grid; gap: 4px; color: var(--muted); font-size: 8px; font-weight: 800; }
+.portfolio-analyst-controls select { width: 100%; min-height: 33px; padding: 8px 26px 8px 9px; border: 1px solid #d1ded8; border-radius: 9px; background: white; color: var(--ink); font-size: 9px; }
+.portfolio-analyst-controls select:disabled, .analyst-name-toggle input:disabled { cursor: wait; opacity: .6; }
+.analyst-name-toggle { grid-column: 1 / -2; display: flex; align-items: center; gap: 7px; color: #536579; font-size: 9px; font-weight: 700; }
+.analyst-name-toggle input { margin: 0; accent-color: var(--green); }
+.portfolio-analyst-controls > button { min-height: 33px; padding: 8px 14px; border: 0; border-radius: 9px; background: var(--green); color: white; cursor: pointer; font-size: 9px; font-weight: 800; }
+.portfolio-analyst-controls > button:disabled { cursor: not-allowed; opacity: .45; }
+.portfolio-analyst-state, .portfolio-analyst-error { margin: 12px 0 0; }
+.portfolio-analyst-error { color: var(--red); }
+.portfolio-analyst-result { margin-top: 16px; padding-top: 15px; border-top: 1px solid #d9e4df; }
+.portfolio-analyst-meta { display: flex; flex-wrap: wrap; gap: 6px 14px; color: #75877e; font-size: 8px; font-weight: 750; }
+.analyst-primary-answer { margin-top: 11px; padding: 14px; border-radius: 12px; background: white; box-shadow: 0 5px 15px rgba(20,70,53,.05); }
+.analyst-primary-answer p, .analyst-claims p { margin: 6px 0 3px; color: #30483f; font-size: 11px; line-height: 1.6; }
+.analyst-classification { display: inline-flex; padding: 3px 7px; border-radius: 999px; background: #e7f1ed; color: #356557; font-size: 7px; font-weight: 850; letter-spacing: .05em; text-transform: uppercase; }
+.analyst-classification.estimate, .analyst-classification.interpretation { background: #fff1d4; color: #8a641a; }
+.analyst-evidence-keys { display: block; color: #70877e; font-size: 8px; font-weight: 750; line-height: 1.45; }
+.analyst-claims { display: grid; gap: 8px; margin: 10px 0 0; padding: 0; list-style: none; }
+.analyst-claims li { padding: 11px 13px; border: 1px solid #dfe8e4; border-radius: 11px; background: rgba(255,255,255,.62); }
+.analyst-limitations { margin-top: 11px; padding: 11px 13px; border-radius: 11px; background: #fff6e3; color: #74571c; }
+.analyst-limitations > strong, .analyst-proposed-update > span { font-size: 8px; font-weight: 850; letter-spacing: .06em; text-transform: uppercase; }
+.analyst-limitations ul { display: grid; gap: 5px; margin: 7px 0 0; padding-left: 16px; }
+.analyst-limitations li { font-size: 9px; line-height: 1.5; }
+.analyst-limitations .analyst-evidence-keys { margin-top: 2px; color: #8b733f; }
+.analyst-proposed-update { display: grid; gap: 5px; margin-top: 11px; padding: 12px 13px; border: 1px solid #bfd8cc; border-radius: 11px; background: #ebf7f2; }
+.analyst-proposed-update > span { color: #557267; }
+.analyst-proposed-update > strong { color: #175f49; font-size: 11px; }
+.portfolio-analyst-evidence { margin: 11px 0; padding: 9px 11px; border: 1px solid #d9e4df; border-radius: 10px; background: white; }
+.portfolio-analyst-evidence summary { color: #17634c; cursor: pointer; font-size: 9px; font-weight: 800; }
+.portfolio-analyst-evidence dl { display: grid; gap: 9px; margin: 11px 0 0; }
+.portfolio-analyst-evidence dl div { display: grid; grid-template-columns: minmax(145px, .7fr) minmax(220px, 1.3fr); gap: 12px; padding-top: 8px; border-top: 1px solid #edf2ef; }
+.portfolio-analyst-evidence dt { color: #52675f; font-size: 8px; font-weight: 800; }
+.portfolio-analyst-evidence dt small { display: block; margin-top: 3px; color: #91a098; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 7px; font-weight: 600; }
+.portfolio-analyst-evidence dd { margin: 0; color: #2c413a; font-size: 8px; line-height: 1.5; }
+.analyst-disclaimer { color: #83938c; font-size: 8px; }
+
 .section-title { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 16px; }
 .source-filter { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 12px; font-weight: 650; }
 .source-filter select { border: 1px solid #dbe2e7; background: white; color: var(--ink); border-radius: 10px; padding: 9px 32px 9px 11px; }
@@ -391,6 +433,7 @@ h2 { margin-bottom: 0; font-size: 25px; letter-spacing: -.03em; }
   .account-allocation-list { grid-column: 1 / -1; grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .portfolio-insights-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .portfolio-narrative { grid-template-columns: 1fr; }
+  .portfolio-analyst { grid-template-columns: 1fr; }
   .holding-row { grid-template-columns: minmax(270px, 1.4fr) 100px 120px minmax(240px, 1fr); overflow-x: auto; }
 }
 
@@ -421,6 +464,11 @@ h2 { margin-bottom: 0; font-size: 25px; letter-spacing: -.03em; }
   .portfolio-narrative { padding: 15px; }
   .portfolio-narrative-controls { grid-template-columns: 1fr 1fr; }
   .portfolio-narrative-controls button { grid-column: 1 / -1; }
+  .portfolio-analyst { padding: 15px; }
+  .portfolio-analyst-controls { grid-template-columns: 1fr 1fr; }
+  .analyst-name-toggle { grid-column: 1 / -1; }
+  .portfolio-analyst-controls > button { grid-column: 1 / -1; }
+  .portfolio-analyst-evidence dl div { grid-template-columns: 1fr; gap: 5px; }
   .section-title { align-items: center; }
   .source-filter { font-size: 0; }
   .source-filter select { font-size: 12px; max-width: 130px; }

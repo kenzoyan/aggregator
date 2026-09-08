@@ -98,6 +98,40 @@ describe("market-priced dashboard", () => {
     expect(readModel.holdings).toEqual([]);
   });
 
+  it("keeps an explicit safe display name for an unvalued holding", () => {
+    const state = buildPortfolioState({
+      openingSnapshots: [{
+        id: "missing-price",
+        sourceAccountId: "alipay-main",
+        asOf: "2026-07-21T19:28:00.000Z",
+        positions: [{
+          instrumentId: "private-internal-id",
+          displayName: "Synthetic Missing Price Fund",
+          quantity: "10",
+          currency: "USD",
+          costBasis: "100",
+        }],
+      }],
+      events: [],
+    });
+
+    const readModel = createDashboardReadModel({
+      state,
+      asOf: "2026-07-21T19:28:00.000Z",
+      snapshotTimes: { "alipay-main": "2026-07-21T19:28:00.000Z" },
+      eurPerUnit: { EUR: "1" },
+      fxAsOf: "2026-07-21",
+    });
+
+    expect(readModel.missingInputs).toEqual([{
+      kind: "fx",
+      sourceAccountId: "alipay-main",
+      instrumentId: "private-internal-id",
+      currency: "USD",
+      analystDisplayName: "Synthetic Missing Price Fund",
+    }]);
+  });
+
   it("uses the latest saved NAV instead of the imported market value", () => {
     const readModel = createDashboardReadModel({
       state: buildPortfolioState({ openingSnapshots: [openingSnapshot], events: [] }),

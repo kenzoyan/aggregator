@@ -50,6 +50,7 @@ interface ValuedCash {
 
 export interface MissingValuationInput {
   kind: "price" | "fx";
+  sourceAccountId?: string;
   instrumentId?: string;
   currency: CurrencyCode;
 }
@@ -102,6 +103,7 @@ export function valuePortfolio({
     if (!price) {
       missingInputs.push({
         kind: "price",
+        sourceAccountId: position.sourceAccountId,
         instrumentId: position.instrumentId,
         currency: position.currency,
       });
@@ -111,6 +113,7 @@ export function valuePortfolio({
     if (!fx) {
       missingInputs.push({
         kind: "fx",
+        sourceAccountId: position.sourceAccountId,
         instrumentId: position.instrumentId,
         currency: position.currency,
       });

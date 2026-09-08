@@ -6,7 +6,6 @@ import {
   createPortfolioNarrativeFacts,
   createPortfolioNarrativeFingerprint,
 } from "@/application/portfolio-narrative-facts";
-import { createPortfolioOverviewReadModel } from "@/application/portfolio-overview";
 import {
   narrativeProviderIds,
   PortfolioNarrativeProviderError,
@@ -20,6 +19,7 @@ import {
   getPortfolioNarrativeProviderRegistry,
   type PortfolioNarrativeProviderRegistry,
 } from "@/server/portfolio-narrative-config";
+import { readCurrentPortfolioOverview } from "@/server/current-portfolio";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -165,22 +165,10 @@ function getProductionHandlers() {
       getPortfolioNarrativeProviderRegistry(),
       {
         database,
-        readCurrentInsights: () => {
-          const facts = database.readPortfolioFacts();
-          if (facts.state.positions.length === 0 && facts.state.cashBalances.length === 0) {
-            return undefined;
-          }
-          const marketData = database.readMarketData();
-          return createPortfolioOverviewReadModel({
-            snapshots: facts.openingSnapshots,
-            events: facts.events,
-            marketPrices: marketData.observations,
-            fxObservations: marketData.fxObservations,
-            marketRefreshHistory: marketData.marketRefreshHistory,
-            accountLabels: database.readSourceAccountLabels(),
-            asOf: new Date().toISOString(),
-          }).insights;
-        },
+        readCurrentInsights: () => readCurrentPortfolioOverview(
+          database,
+          new Date().toISOString(),
+        )?.insights,
       },
     );
   }

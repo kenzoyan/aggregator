@@ -84,6 +84,9 @@ Each generated statement must cite one or more server-defined fact keys. The com
 
 ## Near-term roadmap
 
+- The first two bounded Analyst tools are implemented as a deterministic, privacy-preserving context layer: period-driver evidence and data-quality diagnosis. A strict answer contract rejects unknown or duplicate Evidence Keys, mismatched Facts As Of, omitted limitations and actions not enumerated by the server.
+- The on-demand Analyst panel exposes those two jobs without creating an open-ended chat. Choose the job, period when relevant, provider, language and whether up to three relevant holding display names may be included, then select **Analyze**. The server rebuilds current facts, directly calls the matching tool, validates the structured answer and returns only cited evidence. The UI distinguishes facts, calculations, estimates and interpretations, shows every known limitation, and labels a permitted factual update as not executed. Configure `OPENAI_ANALYST_MODEL`, `DEEPSEEK_ANALYST_MODEL` and `PORTFOLIO_ANALYST_DEFAULT_PROVIDER` when separate values are wanted; otherwise the existing Narrative settings are reused. Reports are not persisted, and there is no conversation or model-controlled tool loop yet.
+
 Local portfolio records are stored in `data/invest-assets-monitor.sqlite`. The entire `data` database remains ignored by Git.
 
 ## Verify

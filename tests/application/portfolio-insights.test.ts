@@ -91,7 +91,11 @@ describe("portfolio insights", () => {
       totalValueEur: 1_000,
       accountAllocation: [],
       fxAsOf: "2026-08-29",
-      missingInputs: [{ instrumentId: "missing-price" }],
+      missingInputs: [{
+        kind: "price",
+        instrumentId: "missing-price",
+        currency: "CNY",
+      }],
       marketData: {},
       history: {
         today: {

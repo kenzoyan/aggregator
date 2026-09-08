@@ -252,6 +252,9 @@ export function createDashboardReadModel(input: {
           instrumentId: position.instrumentId,
         },
         name: sourcePosition?.displayName ?? position.instrumentId,
+        ...(sourcePosition?.displayName
+          ? { analystDisplayName: sourcePosition.displayName }
+          : {}),
         symbol: sourcePosition?.instrumentCode ?? position.instrumentId,
         source: sourceAccountDashboardLabel(position.sourceAccountId, input.accountLabels),
         category,
@@ -317,7 +320,20 @@ export function createDashboardReadModel(input: {
   return {
     holdings,
     totalValueEur: Number(valuation.totalValueEur),
-    missingInputs: valuation.missingInputs,
+    missingInputs: valuation.missingInputs.map((missing) => {
+      const sourcePosition = missing.instrumentId
+        ? input.state.positions.find((position) =>
+            position.sourceAccountId === missing.sourceAccountId &&
+            position.instrumentId === missing.instrumentId
+          )
+        : undefined;
+      return {
+        ...missing,
+        ...(sourcePosition?.displayName
+          ? { analystDisplayName: sourcePosition.displayName }
+          : {}),
+      };
+    }),
     fxAsOf: input.fxAsOf,
     marketData: {
       lastRefreshedAt: latestMarketRefresh?.completedAt ?? marketPrices

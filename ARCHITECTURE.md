@@ -70,13 +70,15 @@ Infrastructure adapters
 
 正常依赖方向是 `app/components → application → domain`；infrastructure 实现 application/domain 所需的外部能力，route 在 composition root 把它们连接起来。Domain 不知道 React、HTTP、provider 或 SQLite。Application 可以组合 domain 与抽象输入，但不读取环境变量。只有 server/route 和 infrastructure 接触进程配置、网络和文件数据库。
 
-当前最重要的三个 deep interface：
+当前最重要的五个 deep interface：
 
 | Interface | 输入 | 输出 | 隐藏的复杂度 |
 | --- | --- | --- | --- |
 | `createPortfolioValuationTimeline` | snapshots、events、prices、FX、labels、asOf | 完整 overview read model | state 重建、当前估值、历史估值、period、allocation、FX overview |
 | `createMarketDataRefresh` | repository 能力、NAV provider、可选 T212 snapshot | refresh outcome | 每日 gate、provider 聚合、Market Data-only 过滤、持久化、并发串行化 |
 | `applyImportDraftEdit` | draft + 一个编辑意图 | 新 draft | Decimal 比较、cash/holding 编辑、reconciliation 重算 |
+| `createPortfolioAnalystContext` | overview read model + 一个批准的 analyst job | versioned evidence bundle | job-specific 事实选择、排序、脱敏、Evidence Key、限制与 32 KiB guard |
+| `validatePortfolioAnalystAnswer` | Analyst Context + 不可信 candidate output | validated answer | strict shape、Evidence Key membership、Facts As Of、limitations 与 allowed action 校验 |
 
 ## 3. 三类核心数据
 
@@ -341,6 +343,16 @@ Portfolio history 会重建每个历史时间点的 state，并同时保留两�
 `src/application/portfolio-insights.ts` 只消费已经估值完成的 `PortfolioOverviewReadModel`，不读取 SQLite、截图或 provider credentials。这里的 holding currency 是证券计价币种，不代表基金底层资产的 look-through currency exposure。它生成稳定的结构化事实，首页与可选 LLM narrative 共用这个边界；LLM 不能自行重新计算收益或读取原始 portfolio records。
 
 `src/application/portfolio-narrative-facts.ts` 再把 insights 投影成有限的 cloud facts 和 provenance catalogue。发送给 provider 的每组事实都有 server-defined `factKey`；模型的 headline、overview、每条 observation 和 data-quality note 都必须返回受 schema 限制的 evidence keys。服务端过滤这些 keys，再保存对应的本地事实摘要，因此 UI 展示的是可校验映射，而不是模型自行编造的“引用”。
+
+`src/application/portfolio-analyst-context.ts` 是下一代 Analyst 的确定性事实边界。目前提供 `readPeriodDrivers` 和 `readDataQuality` 两个只读工具：前者只输出指定区间的组合变化、Price/FX effect、estimated portfolio activity 和最多三个主要 holding contributor；后者输出 freshness/coverage 汇总、按影响排序的 Data Gap、最多三次安全 refresh 摘要和最多一个可提议但不会执行的 Factual Update。两者不读取 SQLite、不调用 provider，也不执行刷新。
+
+工具输出固定为 `portfolio-analyst-context.v1`，每条事实由应用分配 context-local Evidence Key、label 和 provenance。Read model 单独保留只有用户明确提供时才存在的 `analystDisplayName`，因此 dashboard 为显示而使用的 instrument-id fallback 不会跨过 Analyst seam；missing-input facts 也会在 application 层解析成这个安全名称。内部 holding/account id、symbol/ISIN、quantity、Cost Basis、原始 provider error 和数据库行不会进入这两个初始 job；holding display name 最多三个且可由用户关闭。序列化结果超过 32 KiB 会在本地失败，不能继续进入未来的 cloud seam。这里的 tool 是可靠的应用能力，不等于让 LLM 自主选择工具；显式 job 可以由程序直接调用对应 tool，多轮对话的 model-controlled tool loop 仍然延后。
+
+`src/application/portfolio-analyst-answer.ts` 定义模型输出的第二道边界。JSON Schema 只能约束字段、类型和数量；`validatePortfolioAnalystAnswer` 还会用本次 Context 做运行时语义校验：Evidence Key 必须真实存在且单个 claim 内不重复，`factsAsOf` 必须完全一致，limitations 必须逐项复制，proposed update 必须为 `null` 或命中 server-owned `allowedActions`。因此模型即使返回语法正确的 JSON，也不能引用另一次请求的证据、隐藏 Context 限制或发明一个更新动作。该 application 模块本身不调用 provider，也不保存或展示回答。
+
+`POST /api/portfolio/analyst` 是当前的 on-demand model boundary。浏览器只能提交 provider、批准的 job、period、language 与 holding-name preference；不能提交 PortfolioOverview 或自造 Context。Route 从本地 facts 重建最新 overview，由程序直接调用 `readPeriodDrivers` 或 `readDataQuality`，再把 versioned Context 交给 OpenAI/DeepSeek Responses adapter。OpenAI 请求设置 `store: false`；两者都请求 strict JSON Schema output，并在返回后执行本地 semantic validation。API 只返回回答实际引用的 Evidence Facts，不保存报告、不执行 proposed update，也没有 model-controlled tool selection。
+
+`src/components/portfolio-analyst.tsx` 是这条边界的显式 UI。页面加载只读取 provider 配置；真正的 Context 构建与 cloud request 只在用户点击 Analyze 后发生。用户先选择两个批准 job 之一，而不是把任意 prompt 交给模型；切换 job、period、provider、language 或 holding-name permission 会清掉旧结果，避免旧回答看起来属于新条件。结果区分别显示主回答、带 classification 的 claims、不可省略的 limitations、明确标成“未执行”的 proposed update，以及 API 已过滤过的 cited Evidence Facts。报告不进入 SQLite，也没有历史对话。
 
 浏览器生成请求只包含 provider 和 language，不上传一份可自行修改的 insights。Narrative route 会通过 `createPortfolioOverviewReadModel` 从当前 SQLite ledger 与 Market Data 重建 insights；portfolio overview route 也复用同一 application seam。因此旧标签页不能把过时或任意构造的 aggregate facts 保存成 current report。
 
@@ -630,6 +642,7 @@ sequenceDiagram
 | `POST /api/market-data/refresh` | 自动或手工批量刷新 | 否 |
 | `POST /api/market-data/manual` | 保存一条 dated price | 否 |
 | `GET/POST /api/portfolio/narrative` | 读取或生成解释报告 | 否 |
+| `GET/POST /api/portfolio/analyst` | 读取 provider 配置；按显式 job 生成一次经验证的分析 | 否 |
 
 页面只有三个：`/` 是 overview，`/accounts` 是 Source Account 管理与 allocation，`/imports` 是 Update assets 和 review。页面组件不直接访问 SQLite 或外部 provider。
 
@@ -644,6 +657,9 @@ sequenceDiagram
 | `DEEPSEEK_API_KEY` | DeepSeek narrative | 无 |
 | `DEEPSEEK_NARRATIVE_MODEL` | DeepSeek narrative 模型 | `deepseek-v4-flash` |
 | `PORTFOLIO_NARRATIVE_DEFAULT_PROVIDER` | narrative 默认 provider | `openai` |
+| `OPENAI_ANALYST_MODEL` | OpenAI Analyst 模型；未设置时复用 narrative model | `gpt-5.6-terra` |
+| `DEEPSEEK_ANALYST_MODEL` | DeepSeek Analyst 模型；未设置时复用 narrative model | `deepseek-v4-flash` |
+| `PORTFOLIO_ANALYST_DEFAULT_PROVIDER` | Analyst 默认 provider；未设置时复用 narrative default | `openai` |
 | `TRADING212_API_KEY/SECRET` | 只读账户与持仓访问 | 无 |
 | `TRADING212_ENVIRONMENT` | `demo` 或 `live` | `demo` |
 
