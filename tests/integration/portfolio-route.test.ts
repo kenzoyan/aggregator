@@ -71,6 +71,24 @@ describe("GET /api/portfolio", () => {
             recordedAt: "2026-07-20T16:00:00.000Z",
             source: "ecb",
           }],
+          marketRefreshHistory: [{
+            mode: "automatic",
+            provider: "eastmoney+danske-invest",
+            completedAt: "2026-07-21T18:30:00.000Z",
+            updated: 1,
+            unchanged: 0,
+            failed: 0,
+            failures: [],
+          }],
+          latestMarketRefresh: {
+            mode: "automatic",
+            provider: "eastmoney+danske-invest",
+            completedAt: "2026-07-21T18:30:00.000Z",
+            updated: 1,
+            unchanged: 0,
+            failed: 0,
+            failures: [],
+          },
         }),
         readSourceAccountLabels: () => ({}),
         recordMarketData,
@@ -138,6 +156,15 @@ describe("GET /api/portfolio", () => {
         ],
       },
     });
+    expect(payload.portfolio.marketData.refreshHistory).toEqual([{
+      mode: "automatic",
+      provider: "eastmoney+danske-invest",
+      completedAt: "2026-07-21T18:30:00.000Z",
+      updated: 1,
+      unchanged: 0,
+      failed: 0,
+      failures: [],
+    }]);
     expect(payload.portfolio.accountAllocation).toEqual([{
       sourceAccountId: "alipay-main",
       label: "Alipay",

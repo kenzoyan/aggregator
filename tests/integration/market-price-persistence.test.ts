@@ -19,6 +19,7 @@ describe("market price persistence", () => {
     database.recordMarketData({
       observations: [observation],
       refresh: {
+        mode: "manual",
         provider: "eastmoney",
         completedAt: "2026-07-19T14:01:00.000Z",
         updated: 0,
@@ -26,6 +27,7 @@ describe("market price persistence", () => {
         failed: 1,
         failures: [{
           instrumentCode: "270042",
+          category: "provider-error",
           message: "upstream unavailable",
         }],
       },
@@ -34,6 +36,7 @@ describe("market price persistence", () => {
     const data = database.readMarketData();
     expect(data.observations).toEqual([observation]);
     expect(data.latestMarketRefresh).toEqual({
+      mode: "manual",
       provider: "eastmoney",
       completedAt: "2026-07-19T14:01:00.000Z",
       updated: 0,
@@ -41,9 +44,11 @@ describe("market price persistence", () => {
       failed: 1,
       failures: [{
         instrumentCode: "270042",
+        category: "provider-error",
         message: "upstream unavailable",
       }],
     });
+    expect(data.marketRefreshHistory).toEqual([data.latestMarketRefresh]);
     expect(database.readPortfolioFacts().openingSnapshots).toEqual([]);
     expect(database.readPortfolioFacts().state.positions).toEqual([]);
     database.close();

@@ -104,14 +104,15 @@ describe("market-priced dashboard", () => {
       asOf: "2026-07-19T23:59:59.999Z",
       snapshotTimes: { "alipay-main": openingSnapshot.asOf },
       marketPrices,
-      latestMarketRefresh: {
+      marketRefreshHistory: [{
+        mode: "manual",
         provider: "eastmoney",
         completedAt: "2026-07-19T11:00:00.000Z",
         updated: 1,
         unchanged: 4,
         failed: 0,
         failures: [],
-      },
+      }],
       eurPerUnit: { EUR: "1", CNY: "0.125" },
       fxAsOf: "2026-07-18",
     });
@@ -155,6 +156,11 @@ describe("market-priced dashboard", () => {
     expect(readModel.marketData).toMatchObject({
       lastRefreshedAt: "2026-07-19T11:00:00.000Z",
       latestResult: { updated: 1, unchanged: 4, failed: 0, failures: [] },
+      refreshHistory: [{
+        mode: "manual",
+        provider: "eastmoney",
+        completedAt: "2026-07-19T11:00:00.000Z",
+      }],
     });
   });
 

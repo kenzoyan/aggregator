@@ -128,7 +128,7 @@ Market Data 独立存储：
 
 - `MarketPriceObservation`：按 Source Account + instrument + 日期 + source 标识的价格/NAV。
 - `FxRateObservation`：某一日期一单位原币等于多少 EUR。
-- `MarketRefreshRecord`：一次批量刷新成功、未变化和失败的统计。
+- `MarketRefreshRecord`：一次批量刷新的 manual/automatic trigger、provider、完成时间、成功、未变化和失败统计，以及稳定 category code 与经过安全归类的失败摘要。
 
 价格观察包含两个不同时间：
 
@@ -385,14 +385,14 @@ Account allocation 不在 overview 占据主卡，而是在 `src/components/sour
 | `portfolio_events` | 已确认经济事件；当前主要预留给 sale/event 扩展 |
 | `market_price_observations` | 本地价格/NAV历史 |
 | `fx_observations` | 本地汇率历史 |
-| `market_refresh_runs` | 最近刷新统计和失败信息 |
+| `market_refresh_runs` | 最近刷新 trigger、provider、统计和安全失败摘要 |
 | `source_account_labels` | 用户自定义账户名称 |
 | `source_sync_state` | connector cursor/状态预留；当前尚未使用 |
 | `portfolio_narratives` | 已生成报告、模型元数据、facts fingerprint 与引用的聚合事实摘要 |
 
 Repository interface 位于 `src/infrastructure/sqlite/portfolio-repository.ts`。它把 SQL、JSON encode/decode、transaction 和 legacy partial snapshot 恢复隐藏在一个模块内。
 
-当前 schema version 是 v4。v2 数据库会先增加 narrative table，v2/v3 都会为 `opening_snapshots` 增加 `payload_scope`，然后在同一个 transaction 中更新 schema version。`payload_scope` 只有 `complete` 与 `legacy-partial`：新 confirmation 永远写 `complete`；`legacy-partial` 仅用于恢复旧版本曾经保存过的不完整 snapshot。
+当前 schema version 是 v5。v2 数据库会先增加 narrative table，v2/v3 都会为 `opening_snapshots` 增加 `payload_scope`；v2–v4 随后为 `market_refresh_runs` 增加 trigger mode，并在 transaction 中逐级更新 schema version。旧 refresh run 无法可靠推断原始 trigger，因此迁移后明确标成 `unknown`，UI 显示为 Earlier run；旧版本保存的任意错误详情同时被替换成固定的隐私安全摘要，避免迁移后进入浏览器。`payload_scope` 只有 `complete` 与 `legacy-partial`：新 confirmation 永远写 `complete`；`legacy-partial` 仅用于恢复旧版本曾经保存过的不完整 snapshot。
 
 v3 以前的运行时曾依赖一段英文 warning 来推断旧 snapshot 是否需要补齐 omitted holdings。v4 migration 只在升级时读取一次旧 warning，把结论写成明确的结构化字段；升级完成后，正常 read path 不再让 UI 文案承担持久化语义。pre-v2 测试数据库仍不自动迁移，以避免对早期 disposable 测试数据做不可靠转换。
 
@@ -446,7 +446,7 @@ Zod schema 是结构化输出 contract 的唯一来源。图片与 narrative 都
 
 首页 `Refresh prices` 也会读取 Trading 212 snapshot，但只将已确认 position 对应的当前价格转换成 Market Data Observation。新持仓、quantity、Cost Basis 与 cash 不会通过价格刷新写入 Holding State；这些变化仍必须走 `Update assets → Sync Trading 212` 的 reconciliation/confirmation gate。
 
-Dashboard 首次读取到非空本地组合后，会调用 `/api/market-data/refresh?mode=automatic`。`createMarketDataRefresh` 使用 `MarketRefreshRecord.completedAt` 的 Helsinki 日历日期作为幂等门槛：当天已有完成记录则立即返回，不调用 Eastmoney、Danske Invest 或 Trading 212；跨入新的 Helsinki 日期后才再次执行。手工刷新使用 `mode=manual`，明确绕过该门槛。同一进程内的自动刷新会排队，后一个请求在前一个完成后重新检查门槛，避免页面并发加载产生重复 provider 请求。Route 只解析 mode、调用 coordinator 并映射意外错误。
+Dashboard 首次读取到非空本地组合后，会调用 `/api/market-data/refresh?mode=automatic`。`createMarketDataRefresh` 使用 `MarketRefreshRecord.completedAt` 的 Helsinki 日历日期作为幂等门槛：当天已有完成记录则立即返回，不调用 Eastmoney、Danske Invest 或 Trading 212；跨入新的 Helsinki 日期后才再次执行。手工刷新使用 `mode=manual`，明确绕过该门槛。同一进程内的自动刷新会排队，后一个请求在前一个完成后重新检查门槛，避免页面并发加载产生重复 provider 请求。每次完成的运行会保存 trigger、provider set、统计与安全失败摘要；repository 向 overview 提供最近十次记录。有效的 Danske fund ISIN 如果缺少本地 route，会产生固定的配置诊断，而不是被静默算作 skipped。任意 provider error 会先映射为有限的安全类别，原始 URL、response 或其他任意错误文本不会进入历史或浏览器。Route 只解析 mode、调用 coordinator 并映射意外错误。
 
 ## 12. 测试策略
 
@@ -461,7 +461,8 @@ Dashboard 首次读取到非空本地组合后，会调用 `/api/market-data/ref
 
 - QDII 的 Today 在 FX 日期比 NAV 新时仍包含最近 NAV move。
 - 单基金 screenshot draft 只显示检测出的基金，但 confirmation 后 omitted holdings 仍存在。
-- v3 legacy partial snapshot 升级到 v4 后仍能正确恢复 omitted holdings，且运行时不再读取 warning 文案。
+- v3 legacy partial snapshot 升级到 v5 后仍能正确恢复 omitted holdings，且运行时不再读取 warning 文案。
+- v4 refresh history 升级到 v5 后保留旧运行，并把无法追溯的 trigger 标成 `unknown`。
 - review editor 用 Decimal 语义比较数量、成本和现金，metadata/market edit 不会制造 Holding State change。
 - valuation timeline 只接受原始 facts，不允许 route 额外传入一个可能与 snapshots 不一致的 current state。
 
@@ -588,11 +589,12 @@ flowchart LR
   G -- no --> F[Fetch supported fund NAVs]
   F --> R[Optional T212 snapshot]
   R --> FILTER[Keep prices for confirmed positions only]
-  FILTER --> SAVE[Persist observations + refresh record]
+  FILTER --> SAFE[Classify safe failures + config gaps]
+  SAFE --> SAVE[Persist observations + refresh record]
   SAVE --> RESULT[Return counts and failures]
 ```
 
-Provider 部分失败不会删除旧价格。一次 refresh 可以记录 updated、unchanged 和 failures；首页因此可以继续用最近成功的本地 observation。
+Provider 部分失败不会删除旧价格。一次 refresh 会记录 manual/automatic trigger、provider、updated、unchanged 和 safe failures；首页提供最近十次记录，并继续用最近成功的本地 observation。
 
 ### 15.5 Narrative
 

@@ -1,6 +1,7 @@
 import {
+  hasFundNavRefreshTarget,
   refreshFundNavs,
-  supportsFundNavRefresh,
+  safeMarketRefreshFailure,
   type MarketRefreshResult,
 } from "@/application/market-refresh";
 import { portfolioCalendarDate } from "@/application/portfolio-calendar";
@@ -81,7 +82,7 @@ export function createMarketDataRefresh(
 
     const facts = input.database.readPortfolioFacts();
     const hasRefreshablePosition = facts.state.positions.some((position) =>
-      supportsFundNavRefresh(position, input.fundNavProvider) ||
+      hasFundNavRefreshTarget(position, input.fundNavProvider) ||
       (Boolean(input.refreshTrading212Snapshot) &&
         position.sourceAccountId === trading212SourceAccountId)
     );
@@ -132,10 +133,8 @@ export function createMarketDataRefresh(
       } catch (error) {
         trading212Included = true;
         trading212Failures.push({
+          ...safeMarketRefreshFailure(error),
           instrumentCode: "Trading 212",
-          message: error instanceof Error
-            ? error.message
-            : "Trading 212 price refresh failed",
         });
       }
     }
@@ -151,6 +150,7 @@ export function createMarketDataRefresh(
     input.database.recordMarketData({
       observations,
       refresh: {
+        mode,
         provider: `${input.fundNavProvider.id}${trading212Included ? "+trading212" : ""}`,
         completedAt: combinedResult.refreshedAt,
         updated: combinedResult.updated,

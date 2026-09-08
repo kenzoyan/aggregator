@@ -2,7 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 
 import { legacyPartialSnapshotWarningMarker } from "@/domain/imports";
 
-export const portfolioSchemaVersion = 4;
+export const portfolioSchemaVersion = 5;
 
 export class LegacyPortfolioDatabaseError extends Error {
   constructor() {
@@ -125,6 +125,7 @@ export function initializePortfolioSchema(database: DatabaseSync) {
 
         CREATE TABLE market_refresh_runs (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
+          mode TEXT NOT NULL CHECK (mode IN ('manual', 'automatic', 'unknown')),
           provider TEXT NOT NULL,
           completed_at TEXT NOT NULL,
           updated_count INTEGER NOT NULL,
@@ -211,6 +212,30 @@ export function initializePortfolioSchema(database: DatabaseSync) {
             )
         );
 
+        UPDATE schema_metadata SET version = 4;
+      `);
+      database.exec("COMMIT");
+    } catch (error) {
+      database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+  const currentRow = database.prepare(
+    "SELECT version FROM schema_metadata LIMIT 1",
+  ).get() as { version: number } | undefined;
+  if (currentRow?.version === 4) {
+    database.exec("BEGIN IMMEDIATE");
+    try {
+      database.exec(`
+        ALTER TABLE market_refresh_runs ADD COLUMN mode TEXT NOT NULL
+          DEFAULT 'unknown'
+          CHECK (mode IN ('manual', 'automatic', 'unknown'));
+        UPDATE market_refresh_runs
+        SET failures_json = CASE
+          WHEN failed_count > 0 THEN
+            '[{"instrumentCode":"Earlier run","message":"Failure details from this earlier run were removed for privacy"}]'
+          ELSE '[]'
+        END;
         UPDATE schema_metadata SET version = ${portfolioSchemaVersion};
       `);
       database.exec("COMMIT");
@@ -218,7 +243,11 @@ export function initializePortfolioSchema(database: DatabaseSync) {
       database.exec("ROLLBACK");
       throw error;
     }
-    return;
   }
-  if (row?.version !== portfolioSchemaVersion) throw new LegacyPortfolioDatabaseError();
+  const finalRow = database.prepare(
+    "SELECT version FROM schema_metadata LIMIT 1",
+  ).get() as { version: number } | undefined;
+  if (finalRow?.version !== portfolioSchemaVersion) {
+    throw new LegacyPortfolioDatabaseError();
+  }
 }

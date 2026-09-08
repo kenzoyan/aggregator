@@ -53,6 +53,11 @@ const chartDate = new Intl.DateTimeFormat("en-FI", {
   day: "numeric",
 });
 
+const refreshDateTime = new Intl.DateTimeFormat("en-FI", {
+  dateStyle: "medium",
+  timeStyle: "short",
+});
+
 const freshnessLabels: Record<HoldingReadModel["freshness"], string> = {
   fresh: "Updated",
   manual: "Manual",
@@ -272,6 +277,7 @@ export function Dashboard() {
   const [demoEnabled, setDemoEnabled] = useState(false);
   const [reviewedDemoHoldings, setReviewedDemoHoldings] = useState<HoldingReadModel[]>();
   const [loading, setLoading] = useState(true);
+  const [portfolioLoadError, setPortfolioLoadError] = useState<string>();
   const [localPortfolio, setLocalPortfolio] = useState<PortfolioOverviewReadModel>();
   const [localFxOverview, setLocalFxOverview] = useState<FxOverviewReadModel>();
   const [refreshingPrices, setRefreshingPrices] = useState(false);
@@ -289,15 +295,32 @@ export function Dashboard() {
   const priceEditorTriggerRef = useRef<HTMLElement | null>(null);
 
   async function loadLocalPortfolio(signal?: AbortSignal) {
-    const response = await fetch("/api/portfolio", { signal });
-    if (!response.ok) throw new Error("Portfolio could not be loaded");
-    const payload = (await response.json()) as {
-      hasPortfolioData: boolean;
-      portfolio: PortfolioOverviewReadModel;
-    };
-    setLocalFxOverview(payload.portfolio.fxOverview);
-    setLocalPortfolio(payload.hasPortfolioData ? payload.portfolio : undefined);
-    return payload.hasPortfolioData;
+    setPortfolioLoadError(undefined);
+    try {
+      const response = await fetch("/api/portfolio", { signal });
+      if (!response.ok) throw new Error("Portfolio could not be loaded");
+      const payload = (await response.json()) as {
+        hasPortfolioData: boolean;
+        portfolio: PortfolioOverviewReadModel;
+      };
+      setLocalFxOverview(payload.portfolio.fxOverview);
+      setLocalPortfolio(payload.hasPortfolioData ? payload.portfolio : undefined);
+      return payload.hasPortfolioData;
+    } catch (error) {
+      if (!signal?.aborted) {
+        setPortfolioLoadError(
+          error instanceof Error ? error.message : "Portfolio could not be loaded",
+        );
+      }
+      throw error;
+    }
+  }
+
+  function retryPortfolioLoad() {
+    setLoading(true);
+    loadLocalPortfolio()
+      .catch(() => undefined)
+      .finally(() => setLoading(false));
   }
 
   useEffect(() => {
@@ -506,6 +529,7 @@ export function Dashboard() {
     : undefined;
   const sources = [allAccounts, ...new Set(holdings.map((holding) => holding.source))];
   const latestMarketResult = localPortfolio?.marketData.latestResult;
+  const marketRefreshHistory = localPortfolio?.marketData.refreshHistory ?? [];
   const eurCnyOverview = localFxOverview;
   const demoValuePoints = scaleDemoValueTrend(total, current.change, current.points);
   const demoDailyChanges = current.points.slice(1).map((point, index) => ({
@@ -577,7 +601,7 @@ export function Dashboard() {
             <h1>Portfolio overview</h1>
           </div>
           <div className="header-actions">
-            <span className="demo-badge">{isLocal ? "Local data" : demoEnabled ? "Demo data" : loading ? "Loading" : "No portfolio"}</span>
+            <span className="demo-badge">{isLocal ? "Local data" : portfolioLoadError ? "Load failed" : demoEnabled ? "Demo data" : loading ? "Loading" : "No portfolio"}</span>
             {!isLocal && (
               <button className="demo-toggle" type="button" onClick={() => setDemoMode(!demoEnabled)}>
                 {demoEnabled ? "Exit demo" : "Explore demo"}
@@ -597,7 +621,19 @@ export function Dashboard() {
           </div>
         </header>
 
-        {!loading && !hasVisiblePortfolio && (
+        {portfolioLoadError && (
+          <section className="portfolio-load-error" role="alert">
+            <div>
+              <strong>Portfolio data could not be loaded</strong>
+              <p>Your local records were not removed. Retry after the local server is ready.</p>
+            </div>
+            <button type="button" onClick={retryPortfolioLoad} disabled={loading}>
+              {loading ? "Retrying…" : "Retry"}
+            </button>
+          </section>
+        )}
+
+        {!loading && !portfolioLoadError && !hasVisiblePortfolio && (
           <section className="empty-portfolio-banner">
             <div>
               <span>◎</span>
@@ -756,6 +792,53 @@ export function Dashboard() {
           <span title={isLocal ? refreshMessage ?? persistedMarketMessage : undefined}><i className="status-indicator market" />{isLocal ? refreshMessage ?? persistedMarketMessage : demoEnabled ? "Missing values stay unknown" : "No price history yet"}</span>
           <span><i className="status-indicator fx" />{eurCnyOverview ? `€1 = ¥${fxRate.format(eurCnyOverview.currentRate)} · ECB ${eurCnyOverview.asOf}` : isLocal ? "CNY rate unavailable" : "ECB rates with local data"}</span>
         </section>
+
+        {isLocal && marketRefreshHistory.length > 0 && (
+          <details className="refresh-history">
+            <summary>
+              <span>
+                <strong>Refresh history</strong>
+                <small>Recent Market Data checks · holdings never change here</small>
+              </span>
+              <span>{marketRefreshHistory.length} run{marketRefreshHistory.length === 1 ? "" : "s"}</span>
+            </summary>
+            <div className="refresh-history-list">
+              {marketRefreshHistory.map((run, index) => (
+                <article key={`${run.completedAt}:${index}`} className="refresh-history-run">
+                  <div className="refresh-history-heading">
+                    <span>
+                      <strong>{run.mode === "manual"
+                        ? "Manual"
+                        : run.mode === "automatic"
+                          ? "Automatic"
+                          : "Earlier run"}</strong>
+                      <small>{refreshDateTime.format(new Date(run.completedAt))}</small>
+                    </span>
+                    <span className={run.failed > 0 ? "refresh-run-failed" : "refresh-run-ok"}>
+                      {run.failed > 0 ? `${run.failed} issue${run.failed === 1 ? "" : "s"}` : "Completed"}
+                    </span>
+                  </div>
+                  <p className="refresh-run-provider">{run.provider}</p>
+                  <div className="refresh-run-counts" aria-label="Refresh result counts">
+                    <span><strong>{run.updated}</strong> updated</span>
+                    <span><strong>{run.unchanged}</strong> unchanged</span>
+                    <span><strong>{run.failed}</strong> failed</span>
+                  </div>
+                  {run.failures.length > 0 && (
+                    <ul className="refresh-run-failures">
+                      {run.failures.map((failure, failureIndex) => (
+                        <li key={`${failure.instrumentCode}:${failureIndex}`}>
+                          <strong>{failure.instrumentCode}</strong>
+                          <span>{failure.message}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </article>
+              ))}
+            </div>
+          </details>
+        )}
 
         {isLocal && localPortfolio?.insights && (
           <PortfolioInsights insights={localPortfolio.insights} />

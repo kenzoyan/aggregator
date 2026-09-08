@@ -157,13 +157,15 @@ export function createDashboardReadModel(input: {
   asOf: string;
   snapshotTimes: Readonly<Record<string, string>>;
   marketPrices?: readonly MarketPriceObservation[];
-  latestMarketRefresh?: MarketRefreshRecord;
+  marketRefreshHistory?: readonly MarketRefreshRecord[];
   eurPerUnit: Readonly<Record<string, string>>;
   fxAsOf: string;
   accountLabels?: Readonly<Record<string, string>>;
 }) {
   const marketPrices = input.marketPrices ?? [];
   const snapshots = input.snapshots ?? [];
+  const marketRefreshHistory = input.marketRefreshHistory ?? [];
+  const latestMarketRefresh = marketRefreshHistory[0];
   const resolvedPriceByHolding = new Map(
     input.state.positions.flatMap((position) => {
       const resolved = resolvePositionPrice({
@@ -318,21 +320,30 @@ export function createDashboardReadModel(input: {
     missingInputs: valuation.missingInputs,
     fxAsOf: input.fxAsOf,
     marketData: {
-      lastRefreshedAt: input.latestMarketRefresh?.completedAt ?? marketPrices
+      lastRefreshedAt: latestMarketRefresh?.completedAt ?? marketPrices
         .filter((observation) => observation.recordedAt <= input.asOf)
         .map((observation) => observation.recordedAt)
         .sort()
         .at(-1),
-      ...(input.latestMarketRefresh
+      ...(latestMarketRefresh
         ? {
             latestResult: {
-              updated: input.latestMarketRefresh.updated,
-              unchanged: input.latestMarketRefresh.unchanged,
-              failed: input.latestMarketRefresh.failed,
-              failures: input.latestMarketRefresh.failures,
+              updated: latestMarketRefresh.updated,
+              unchanged: latestMarketRefresh.unchanged,
+              failed: latestMarketRefresh.failed,
+              failures: latestMarketRefresh.failures,
             },
           }
         : {}),
+      refreshHistory: marketRefreshHistory.map((refresh) => ({
+        mode: refresh.mode,
+        provider: refresh.provider,
+        completedAt: refresh.completedAt,
+        updated: refresh.updated,
+        unchanged: refresh.unchanged,
+        failed: refresh.failed,
+        failures: refresh.failures,
+      })),
     },
   };
 }

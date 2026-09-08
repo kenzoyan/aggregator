@@ -114,6 +114,7 @@ describe("POST /api/market-data/refresh", () => {
       },
     ]);
     expect(refreshRuns).toEqual([{
+      mode: "manual",
       provider: "fixture-provider+trading212",
       completedAt: "2026-07-19T15:00:00.000Z",
       updated: 2,
@@ -139,6 +140,7 @@ describe("POST /api/market-data/refresh", () => {
           observations: [],
           fxObservations: [],
           latestMarketRefresh: {
+            mode: "unknown",
             provider: "fixture-provider",
             completedAt: "2026-09-04T22:30:00.000Z",
             updated: 1,
@@ -170,6 +172,7 @@ describe("POST /api/market-data/refresh", () => {
     const fetchSince = vi.fn().mockResolvedValue([]);
     const recordMarketData = vi.fn();
     const latestMarketRefresh = {
+      mode: "unknown" as const,
       provider: "fixture-provider",
       completedAt: "2026-09-04T20:30:00.000Z",
       updated: 0,
@@ -233,6 +236,7 @@ describe("POST /api/market-data/refresh", () => {
   it("serializes concurrent automatic refreshes so providers run once", async () => {
     let releaseFetch: (() => void) | undefined;
     let latestMarketRefresh: MarketRefreshRecord = {
+      mode: "unknown",
       provider: "fixture-provider",
       completedAt: "2026-09-04T10:00:00.000Z",
       updated: 0,

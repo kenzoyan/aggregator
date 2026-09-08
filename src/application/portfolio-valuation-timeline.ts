@@ -26,7 +26,7 @@ export interface PortfolioValuationTimelineInput {
   events: PortfolioEventInput[];
   marketPrices: MarketPriceObservation[];
   fxObservations: FxRateObservation[];
-  latestMarketRefresh?: MarketRefreshRecord;
+  marketRefreshHistory?: MarketRefreshRecord[];
   accountLabels: Record<string, string>;
   asOf: string;
 }
@@ -84,7 +84,7 @@ export function createPortfolioValuationTimeline(
     asOf: input.asOf,
     snapshotTimes,
     marketPrices: input.marketPrices,
-    latestMarketRefresh: input.latestMarketRefresh,
+    marketRefreshHistory: input.marketRefreshHistory,
     eurPerUnit,
     fxAsOf,
     accountLabels: input.accountLabels,

@@ -33,14 +33,14 @@ Open [http://localhost:3000](http://localhost:3000). A new local database starts
 
 ### Rebuild the local test database
 
-Schema v4 separates editable Import Drafts, Confirmed Imports and portfolio facts, saves narrative reports locally, and records an explicit snapshot payload scope for legacy recovery. Existing v2/v3 databases upgrade to v4 in place without rebuilding portfolio data. The pre-v2 local database contained test data only and is intentionally not migrated. If startup reports a disposable pre-v2 schema, stop the app and move the old file out of the active path:
+Schema v5 separates editable Import Drafts, Confirmed Imports and portfolio facts, saves narrative reports locally, records an explicit snapshot payload scope for legacy recovery, and distinguishes manual from automatic market refresh runs. Existing v2–v4 databases upgrade to v5 in place without rebuilding portfolio data. The pre-v2 local database contained test data only and is intentionally not migrated. If startup reports a disposable pre-v2 schema, stop the app and move the old file out of the active path:
 
 ```bash
 mkdir -p data/pre-v2
 mv data/invest-assets-monitor.sqlite* data/pre-v2/
 ```
 
-If `.env.local` sets `PORTFOLIO_DB_FILENAME`, replace `invest-assets-monitor.sqlite` in the command with that configured basename. Start the app again to create a clean v4 database, then import your local CSV and sync Trading 212 again. The moved database remains local and ignored by Git, so the reset is recoverable.
+If `.env.local` sets `PORTFOLIO_DB_FILENAME`, replace `invest-assets-monitor.sqlite` in the command with that configured basename. Start the app again to create a clean v5 database, then import your local CSV and sync Trading 212 again. The moved database remains local and ignored by Git, so the reset is recoverable.
 
 Real integrations are enabled only through `.env.local`:
 
@@ -64,6 +64,8 @@ Use **Refresh prices** on the portfolio overview to check published NAVs for sup
 
 When a non-empty local portfolio first loads, the dashboard also requests an automatic price refresh. The server performs it only if no market refresh has completed during the current `Europe/Helsinki` calendar day, so reopening or reloading the dashboard does not repeatedly call providers. The manual **Refresh prices** button deliberately bypasses this daily gate for explicit retries. Automatic and manual refreshes share the same Market Data-only path and therefore never change Quantity, Cost Basis or Portfolio Cash.
 
+Expand **Refresh history** below the data-status row to inspect the ten most recent checks. Each entry shows whether the run was manual or automatic, its completion time, provider set, updated/unchanged/failed counts and safe failure summaries. Runs created before schema v5 appear as **Earlier run** because their original trigger was not stored, and their old arbitrary error details are replaced during migration with a fixed privacy-safe summary. A valid Danske Invest fund ISIN without a local route is reported explicitly as a configuration issue; the private route mapping and raw provider responses are never exposed. Failed checks keep the last successful local prices.
+
 Use **Update NAV / price** inside an existing holding's detail drawer to record a dated manual observation when an automatic provider is unavailable. This changes Market Data only; it never changes Quantity or Cost Basis. Once a valid baseline exists, the holding row shows the baseline/current dates and separates the EUR price effect from the FX effect.
 
 Select an investment holding to open its detail drawer. The drawer keeps Holding State facts—Quantity and Cost Basis—separate from the current NAV, monitored-period Price/FX effects and saved price observations. Current value and the drawer show calculated total return from the latest value minus historical Cost Basis; the source-reported return remains visible as the value captured at the last holding update. Portfolio Cash is not presented as an investment holding detail.
@@ -81,8 +83,6 @@ An optional cloud narrative can explain that read model in English or Simplified
 Each generated statement must cite one or more server-defined fact keys. The completed report, model metadata, an aggregate-facts fingerprint and only the cited fact summaries are saved in the ignored local SQLite database. The latest report returns after a page reload; it is marked **current facts** while its fingerprint matches the current local insights, and **previous facts** after the portfolio facts change. Expand **View saved fact sources** to inspect the exact aggregate facts supporting each statement. API keys and raw prompts are never stored. Narrative text remains informational, may be incorrect, and is never investment advice.
 
 ## Near-term roadmap
-
-- Add a small refresh-history view so provider failures and manual/automatic runs can be inspected without opening the local database.
 
 Local portfolio records are stored in `data/invest-assets-monitor.sqlite`. The entire `data` database remains ignored by Git.
 

@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { refreshFundNavs } from "@/application/market-refresh";
+import {
+  refreshFundNavs,
+  safeMarketRefreshFailureMessage,
+} from "@/application/market-refresh";
 import type { MarketPriceObservation } from "@/domain/market-data";
 import type { PortfolioState } from "@/domain/portfolio/types";
 
@@ -130,7 +133,8 @@ describe("fund NAV refresh", () => {
     expect(result.updated).toBe(0);
     expect(result.failed).toEqual([{
       instrumentCode: "040046",
-      message: "upstream unavailable",
+      category: "provider-error",
+      message: "Market data provider could not be refreshed",
     }]);
     expect(saved).toEqual([]);
     expect(existing).toMatchObject({ price: "8.1202", asOf: "2026-07-16" });
@@ -183,5 +187,81 @@ describe("fund NAV refresh", () => {
       currency: "EUR",
       price: "6.2",
     });
+  });
+
+  it("reports a safe configuration diagnostic for an unconfigured Danske fund", async () => {
+    const danskeState: PortfolioState = {
+      positions: [{
+        sourceAccountId: "danske-main",
+        instrumentId: "XX0000000002",
+        instrumentCode: "XX0000000002",
+        displayName: "Synthetic Unconfigured Fund",
+        assetType: "fund",
+        quantity: "10",
+        currency: "EUR",
+        costBasis: "50",
+        reportedPriorReturn: "0",
+        observedPrice: "5",
+        priceAsOf: "2026-09-03",
+      }],
+      cashBalances: [],
+      appliedEventIds: [],
+    };
+
+    const result = await refreshFundNavs({
+      state: danskeState,
+      existingObservations: [],
+      monitoringStartedAtByPosition: {},
+      provider: {
+        id: "danske-invest",
+        supportsInstrumentCode: () => false,
+        fetchSince: async () => {
+          throw new Error("must not be called");
+        },
+      },
+      record: () => undefined,
+      now: "2026-09-05T14:00:00.000Z",
+    });
+
+    expect(result).toMatchObject({
+      updated: 0,
+      unchanged: 0,
+      skipped: 0,
+      failed: [{
+        instrumentCode: "XX0000000002",
+        message: "Automatic NAV route is not configured for this Danske Invest fund",
+      }],
+    });
+  });
+
+  it("stores a safe summary instead of an arbitrary provider error", async () => {
+    const result = await refreshFundNavs({
+      state,
+      existingObservations: [],
+      monitoringStartedAtByPosition: {},
+      provider: {
+        id: "fixture-provider",
+        fetchSince: async () => {
+          throw new Error("request failed for https://secret.example.test?token=sensitive");
+        },
+      },
+      record: () => undefined,
+      now: "2026-07-19T14:00:00.000Z",
+    });
+
+    expect(result.failed).toEqual([{
+      instrumentCode: "040046",
+      category: "provider-error",
+      message: "Market data provider could not be refreshed",
+    }]);
+  });
+
+  it("keeps Trading 212 authentication and rate-limit summaries actionable", () => {
+    expect(safeMarketRefreshFailureMessage(
+      new Error("Trading 212 read failed with status 401"),
+    )).toBe("Trading 212 credentials or read permissions were rejected");
+    expect(safeMarketRefreshFailureMessage(
+      new Error("Trading 212 read failed with status 429"),
+    )).toBe("Trading 212 rate limit reached; try again later");
   });
 });

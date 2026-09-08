@@ -46,6 +46,7 @@ export interface MarketDataHistory {
   observations: MarketPriceObservation[];
   fxObservations: FxRateObservation[];
   latestMarketRefresh?: MarketRefreshRecord;
+  marketRefreshHistory?: MarketRefreshRecord[];
 }
 
 export interface ConfirmImportCommand {
@@ -201,16 +202,16 @@ export function createPortfolioDatabase(filename: string): PortfolioDatabase {
   `);
   const insertMarketRefresh = database.prepare(`
     INSERT INTO market_refresh_runs (
-      provider, completed_at, updated_count, unchanged_count,
+      mode, provider, completed_at, updated_count, unchanged_count,
       failed_count, failures_json
-    ) VALUES (?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?)
   `);
-  const selectLatestMarketRefresh = database.prepare(`
-    SELECT provider, completed_at, updated_count, unchanged_count,
+  const selectMarketRefreshHistory = database.prepare(`
+    SELECT mode, provider, completed_at, updated_count, unchanged_count,
       failed_count, failures_json
     FROM market_refresh_runs
     ORDER BY completed_at DESC, id DESC
-    LIMIT 1
+    LIMIT 10
   `);
   const selectAccountLabels = database.prepare(`
     SELECT source_account_id, custom_label
@@ -427,27 +428,36 @@ export function createPortfolioDatabase(filename: string): PortfolioDatabase {
     },
 
     readMarketData() {
-      const latestRefreshRow = selectLatestMarketRefresh.get() as {
+      const refreshRows = selectMarketRefreshHistory.all() as unknown as Array<{
+        mode: MarketRefreshRecord["mode"];
         provider: string;
         completed_at: string;
         updated_count: number;
         unchanged_count: number;
         failed_count: number;
         failures_json: string;
-      } | undefined;
-      const latestMarketRefresh = latestRefreshRow
-        ? {
-            provider: latestRefreshRow.provider,
-            completedAt: latestRefreshRow.completed_at,
-            updated: latestRefreshRow.updated_count,
-            unchanged: latestRefreshRow.unchanged_count,
-            failed: latestRefreshRow.failed_count,
-            failures: JSON.parse(latestRefreshRow.failures_json) as MarketRefreshRecord["failures"],
-          }
-        : undefined;
+      }>;
+      const marketRefreshHistory = refreshRows.map((row) => ({
+        mode: row.mode,
+        provider: row.provider,
+        completedAt: row.completed_at,
+        updated: row.updated_count,
+        unchanged: row.unchanged_count,
+        failed: row.failed_count,
+        failures: (JSON.parse(row.failures_json) as Array<Partial<
+          MarketRefreshRecord["failures"][number]
+        >>).map((failure) => ({
+          instrumentCode: failure.instrumentCode ?? "Earlier run",
+          category: failure.category ?? "legacy-redacted",
+          message: failure.message ??
+            "Failure details from this earlier run were removed for privacy",
+        })),
+      }));
+      const latestMarketRefresh = marketRefreshHistory[0];
       return {
         observations: readMarketPrices(),
         fxObservations: readFxObservations(),
+        marketRefreshHistory,
         ...(latestMarketRefresh ? { latestMarketRefresh } : {}),
       };
     },
@@ -488,6 +498,7 @@ export function createPortfolioDatabase(filename: string): PortfolioDatabase {
         }
         if (input.refresh) {
           insertMarketRefresh.run(
+            input.refresh.mode,
             input.refresh.provider,
             input.refresh.completedAt,
             input.refresh.updated,

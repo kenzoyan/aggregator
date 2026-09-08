@@ -44,7 +44,6 @@ export function createPortfolioHandler(input: {
     const state = facts.state;
     const snapshots = facts.openingSnapshots;
     const marketPrices = marketData.observations;
-    const latestMarketRefresh = marketData.latestMarketRefresh;
     const accountLabels = database.readSourceAccountLabels();
     let fxObservations = marketData.fxObservations;
     try {
@@ -61,7 +60,7 @@ export function createPortfolioHandler(input: {
       asOf: now,
       marketPrices,
       fxObservations,
-      latestMarketRefresh,
+      marketRefreshHistory: marketData.marketRefreshHistory,
       accountLabels,
     });
 

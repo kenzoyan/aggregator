@@ -176,7 +176,7 @@ function getProductionHandlers() {
             events: facts.events,
             marketPrices: marketData.observations,
             fxObservations: marketData.fxObservations,
-            latestMarketRefresh: marketData.latestMarketRefresh,
+            marketRefreshHistory: marketData.marketRefreshHistory,
             accountLabels: database.readSourceAccountLabels(),
             asOf: new Date().toISOString(),
           }).insights;

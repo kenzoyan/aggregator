@@ -143,6 +143,43 @@ describe("Portfolio Database", () => {
     database.close();
   });
 
+  it("returns the ten most recent market refresh runs with their trigger mode", () => {
+    const database = createPortfolioDatabase(":memory:");
+    for (let index = 0; index < 12; index += 1) {
+      database.recordMarketData({
+        observations: [],
+        refresh: {
+          mode: index % 2 === 0 ? "automatic" : "manual",
+          provider: "synthetic-provider",
+          completedAt: `2026-09-${String(index + 1).padStart(2, "0")}T10:00:00.000Z`,
+          updated: index,
+          unchanged: 1,
+          failed: 0,
+          failures: [],
+        },
+      });
+    }
+
+    const marketData = database.readMarketData();
+    expect(marketData.marketRefreshHistory).toHaveLength(10);
+    expect(marketData.marketRefreshHistory!.map((run) => run.completedAt)).toEqual([
+      "2026-09-12T10:00:00.000Z",
+      "2026-09-11T10:00:00.000Z",
+      "2026-09-10T10:00:00.000Z",
+      "2026-09-09T10:00:00.000Z",
+      "2026-09-08T10:00:00.000Z",
+      "2026-09-07T10:00:00.000Z",
+      "2026-09-06T10:00:00.000Z",
+      "2026-09-05T10:00:00.000Z",
+      "2026-09-04T10:00:00.000Z",
+      "2026-09-03T10:00:00.000Z",
+    ]);
+    expect(marketData.latestMarketRefresh).toEqual(
+      marketData.marketRefreshHistory![0],
+    );
+    database.close();
+  });
+
   it("upgrades a v2 database in place without losing existing data", () => {
     const directory = mkdtempSync(join(tmpdir(), "invest-monitor-upgrade-"));
     const filename = join(directory, "portfolio.sqlite");
@@ -153,6 +190,7 @@ describe("Portfolio Database", () => {
     const previous = new DatabaseSync(filename);
     previous.exec(`
       ALTER TABLE opening_snapshots DROP COLUMN payload_scope;
+      ALTER TABLE market_refresh_runs DROP COLUMN mode;
       DROP TABLE portfolio_narratives;
       UPDATE schema_metadata SET version = 2;
     `);
@@ -166,6 +204,53 @@ describe("Portfolio Database", () => {
       expect(upgraded.readLatestPortfolioNarrative()).toBeUndefined();
       upgraded.savePortfolioNarrative(narrative);
       expect(upgraded.readLatestPortfolioNarrative()).toEqual(narrative);
+      upgraded.close();
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("upgrades v4 refresh runs in place and labels their unknown trigger", () => {
+    const directory = mkdtempSync(join(tmpdir(), "invest-monitor-v4-refresh-"));
+    const filename = join(directory, "portfolio.sqlite");
+    const current = createPortfolioDatabase(filename);
+    current.recordMarketData({
+      observations: [],
+      refresh: {
+        mode: "manual",
+        provider: "synthetic-provider",
+        completedAt: "2026-09-05T10:00:00.000Z",
+        updated: 1,
+        unchanged: 0,
+        failed: 1,
+        failures: [{
+          instrumentCode: "XX0000000001",
+          category: "provider-error",
+          message: "request failed for https://example.test?token=sensitive",
+        }],
+      },
+    });
+    current.close();
+
+    const previous = new DatabaseSync(filename);
+    previous.exec(`
+      ALTER TABLE market_refresh_runs DROP COLUMN mode;
+      UPDATE schema_metadata SET version = 4;
+    `);
+    previous.close();
+
+    try {
+      const upgraded = createPortfolioDatabase(filename);
+      expect(upgraded.readMarketData().latestMarketRefresh).toMatchObject({
+        mode: "unknown",
+        provider: "synthetic-provider",
+        completedAt: "2026-09-05T10:00:00.000Z",
+        failures: [{
+          instrumentCode: "Earlier run",
+          category: "legacy-redacted",
+          message: "Failure details from this earlier run were removed for privacy",
+        }],
+      });
       upgraded.close();
     } finally {
       rmSync(directory, { recursive: true, force: true });
@@ -254,6 +339,7 @@ describe("Portfolio Database", () => {
     ).run("draft-v3-backdated");
     previous.exec(`
       ALTER TABLE opening_snapshots DROP COLUMN payload_scope;
+      ALTER TABLE market_refresh_runs DROP COLUMN mode;
       UPDATE schema_metadata SET version = 3;
     `);
     previous.close();

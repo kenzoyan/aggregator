@@ -1,3 +1,5 @@
+import type { MarketRefreshFailure } from "@/domain/market-data";
+
 export type Period = "today" | "week" | "month";
 
 export interface HoldingPriceHistoryReadModel {
@@ -98,8 +100,19 @@ export interface MarketDataStatusReadModel {
     updated: number;
     unchanged: number;
     failed: number;
-    failures: ReadonlyArray<{ instrumentCode: string; message: string }>;
+    failures: ReadonlyArray<MarketRefreshFailure>;
   };
+  refreshHistory?: MarketRefreshRunReadModel[];
+}
+
+export interface MarketRefreshRunReadModel {
+  mode: "manual" | "automatic" | "unknown";
+  provider: string;
+  completedAt: string;
+  updated: number;
+  unchanged: number;
+  failed: number;
+  failures: ReadonlyArray<MarketRefreshFailure>;
 }
 
 export interface FxOverviewReadModel {

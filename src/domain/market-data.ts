@@ -29,6 +29,7 @@ export interface FxRateObservation {
 }
 
 export interface MarketRefreshRecord {
+  mode: "manual" | "automatic" | "unknown";
   provider: string;
   completedAt: string;
   updated: number;
@@ -39,8 +40,20 @@ export interface MarketRefreshRecord {
 
 export interface MarketRefreshFailure {
   instrumentCode: string;
+  category: MarketRefreshFailureCategory;
   message: string;
 }
+
+export type MarketRefreshFailureCategory =
+  | "configuration"
+  | "authentication"
+  | "rate-limit"
+  | "timeout"
+  | "unexpected-currency"
+  | "no-data"
+  | "safety-limit"
+  | "provider-error"
+  | "legacy-redacted";
 
 export interface FundNavProvider {
   readonly id: string;
