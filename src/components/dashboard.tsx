@@ -35,6 +35,7 @@ import {
   toDemoDashboardHoldings,
 } from "@/application/demo-portfolio";
 import type { MarketRefreshResult } from "@/application/market-refresh";
+import { PortfolioAnalyst } from "@/components/portfolio-analyst";
 import { PortfolioInsights } from "@/components/portfolio-insights";
 
 const eur = new Intl.NumberFormat("en-FI", {
@@ -586,10 +587,10 @@ export function Dashboard() {
       <aside className="sidebar" aria-hidden={Boolean(selectedHolding || priceEditor)}>
         <div className="brand-mark" aria-hidden="true">IM</div>
         <nav aria-label="Main navigation">
-          <a className="nav-item active" href="#overview"><span>◫</span>Overview</a>
-          <a className="nav-item" href="#holdings"><span>◎</span>Holdings</a>
-          <Link className="nav-item" href="/accounts"><span>⌁</span>Accounts</Link>
-          <Link className="nav-item" href="/imports"><span>↥</span>Import</Link>
+          <a className="nav-item active" href="#overview" title="Overview"><span>◫</span>Overview</a>
+          <a className="nav-item" href="#holdings" title="Holdings"><span>◎</span>Holdings</a>
+          <Link className="nav-item" href="/accounts" title="Accounts"><span>⌁</span>Accounts</Link>
+          <Link className="nav-item" href="/imports" title="Import"><span>↥</span>Import</Link>
         </nav>
         <div className="privacy-note"><span className="status-dot" />Local portfolio<br /><small>Confirmed records stay on this device</small></div>
       </aside>
@@ -929,6 +930,8 @@ export function Dashboard() {
           </div>
         </section>
       </main>
+
+      <PortfolioAnalyst />
 
       {selectedHolding?.detail && (
         <div className="holding-drawer-backdrop" role="presentation" onMouseDown={closeHoldingDrawer}>

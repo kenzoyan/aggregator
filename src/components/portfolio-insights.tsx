@@ -14,7 +14,6 @@ import type {
   PortfolioNarrativeStatement as NarrativeStatement,
 } from "@/application/portfolio-narrative";
 import type { PortfolioInsightsReadModel } from "@/application/portfolio-read-model";
-import { PortfolioAnalyst } from "@/components/portfolio-analyst";
 
 interface NarrativeConfiguration {
   defaultProvider: ProviderId;
@@ -309,7 +308,6 @@ export function PortfolioInsights({
           </article>
         )}
       </section>
-      <PortfolioAnalyst />
     </section>
   );
 }

@@ -55,6 +55,22 @@ function completedResponse(payload: unknown) {
   });
 }
 
+function streamingResponse(payload: unknown) {
+  const encoder = new TextEncoder();
+  const json = JSON.stringify(payload);
+  return new Response(new ReadableStream({
+    start(controller) {
+      for (const delta of json) {
+        controller.enqueue(encoder.encode(
+          `data: ${JSON.stringify({ type: "response.output_text.delta", delta })}\n\n`,
+        ));
+      }
+      controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+      controller.close();
+    },
+  }), { headers: { "content-type": "text/event-stream" } });
+}
+
 describe("portfolio analyst providers", () => {
   it("calls OpenAI Responses with strict output, no storage and the bounded context", async () => {
     const requests: Array<{ url: string; init?: RequestInit }> = [];
@@ -100,6 +116,69 @@ describe("portfolio analyst providers", () => {
     const body = JSON.parse(String(requests[0]?.body));
     expect(body).not.toHaveProperty("store");
     expect(body.text.format.strict).toBe(true);
+  });
+
+  it("sends bounded dialogue text for reference without treating old answers as evidence", async () => {
+    const requests: RequestInit[] = [];
+    const provider = new OpenAIAnalystProvider({
+      apiKey: "synthetic-openai-key",
+      model: "gpt-synthetic",
+      fetch: async (_input, init) => {
+        requests.push(init ?? {});
+        return completedResponse(answer);
+      },
+    });
+
+    await provider.generate(context, {
+      question: "Why was that positive?",
+      history: [
+        { role: "user", text: "How did the portfolio do?" },
+        {
+          role: "assistant",
+          text: "It gained €9 in the earlier snapshot.",
+          factsAsOf: "2026-09-07T10:00:00.000Z",
+        },
+      ],
+    });
+
+    const body = JSON.parse(String(requests[0]?.body));
+    expect(JSON.parse(body.input)).toEqual({
+      portfolioAnalystContext: context,
+      conversation: {
+        history: [
+          { role: "user", text: "How did the portfolio do?" },
+          {
+            role: "assistant",
+            text: "It gained €9 in the earlier snapshot.",
+            factsAsOf: "2026-09-07T10:00:00.000Z",
+          },
+        ],
+        currentQuestion: "Why was that positive?",
+      },
+    });
+    expect(body.instructions).toContain("Historical assistant text is not current evidence");
+  });
+
+  it("streams the primary answer text while retaining final semantic validation", async () => {
+    const deltas: string[] = [];
+    const requests: RequestInit[] = [];
+    const provider = new OpenAIAnalystProvider({
+      apiKey: "synthetic-openai-key",
+      model: "gpt-synthetic",
+      fetch: async (_input, init) => {
+        requests.push(init ?? {});
+        return streamingResponse(answer);
+      },
+    });
+
+    await expect(provider.generate(context, {
+      question: "What changed?",
+      history: [],
+      onAnswerTextDelta: (delta) => deltas.push(delta),
+    })).resolves.toEqual(answer);
+
+    expect(deltas.join("")).toBe(answer.answer.text);
+    expect(JSON.parse(String(requests[0]?.body))).toMatchObject({ stream: true });
   });
 
   it("rejects structurally valid output that cites evidence outside this context", async () => {

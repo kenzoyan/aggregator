@@ -17,13 +17,17 @@ export class DeepSeekAnalystProvider implements PortfolioAnalystProvider {
     this.fetch = input.fetch ?? globalThis.fetch;
   }
 
-  generate(context: Parameters<PortfolioAnalystProvider["generate"]>[0]) {
+  generate(
+    context: Parameters<PortfolioAnalystProvider["generate"]>[0],
+    turn?: Parameters<PortfolioAnalystProvider["generate"]>[1],
+  ) {
     return requestPortfolioAnalystAnswer({
       endpoint: "https://api.deepseek.com/responses",
       apiKey: this.apiKey,
       model: this.model,
       providerName: "DeepSeek",
       context,
+      turn,
       fetch: this.fetch,
     });
   }

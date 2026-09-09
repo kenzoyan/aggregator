@@ -1,7 +1,14 @@
 import { NextResponse } from "next/server";
+import { randomUUID } from "node:crypto";
 import { z } from "zod";
 
 import type { PortfolioAnalystAnswer } from "@/application/portfolio-analyst-answer";
+import {
+  appendPortfolioAnalystTurn,
+  createPortfolioAnalystConversation,
+  createPortfolioAnalystHistory,
+  type PortfolioAnalystConversationStore,
+} from "@/application/portfolio-analyst-conversation";
 import {
   createPortfolioAnalystTools,
   PortfolioAnalystContextError,
@@ -14,6 +21,12 @@ import {
   PortfolioAnalystProviderError,
   type PortfolioAnalystReport,
 } from "@/application/portfolio-analyst-provider";
+import type { PortfolioAnalystSessionFactory } from "@/application/portfolio-analyst-session";
+import {
+  portfolioAnalystStreamContentType,
+  type PortfolioAnalystStreamEvent,
+} from "@/application/portfolio-analyst-stream";
+import { piPortfolioAnalystSessionFactory } from "@/infrastructure/pi/pi-portfolio-analyst-session";
 import { getPortfolioDatabase } from "@/server/portfolio-db";
 import {
   getPortfolioAnalystProviderRegistry,
@@ -29,6 +42,8 @@ const commonRequest = {
   provider: z.enum(portfolioAnalystProviderIds),
   language: z.enum(["en", "zh-CN"]),
   includeHoldingNames: z.boolean(),
+  conversationId: z.string().trim().min(1).max(80).optional(),
+  question: z.string().trim().min(1).max(600).optional(),
 };
 const requestSchema = z.discriminatedUnion("job", [
   z.object({
@@ -43,6 +58,17 @@ const requestSchema = z.discriminatedUnion("job", [
 ]);
 
 const providerNames = { openai: "OpenAI", deepseek: "DeepSeek" } as const;
+
+const defaultQuestions = {
+  en: {
+    "explain-period-drivers": "Explain the performance drivers for the selected period.",
+    "diagnose-data-quality": "Diagnose the current portfolio data quality.",
+  },
+  "zh-CN": {
+    "explain-period-drivers": "请解释所选期间的表现驱动因素。",
+    "diagnose-data-quality": "请诊断当前投资组合的数据质量。",
+  },
+} as const;
 
 function json(body: unknown, init?: ResponseInit) {
   return NextResponse.json(body, {
@@ -69,10 +95,14 @@ export function createPortfolioAnalystHandlers(
   options: {
     readCurrentPortfolio: () => AnalystPortfolioReadModel | undefined;
     now?: () => string;
+    createId?: () => string;
+    conversations?: PortfolioAnalystConversationStore;
+    sessionFactory?: PortfolioAnalystSessionFactory;
   },
 ) {
   return {
     async GET() {
+      const conversation = options.conversations?.readLatestPortfolioAnalystConversation();
       return json({
         defaultProvider: registry.defaultProvider,
         providers: portfolioAnalystProviderIds.map((id) => ({
@@ -80,10 +110,14 @@ export function createPortfolioAnalystHandlers(
           configured: Boolean(registry.providers[id]),
           model: registry.models[id],
         })),
+        ...(conversation ? { conversation } : {}),
       });
     },
 
-    async POST(request: Request) {
+    async POST(
+      request: Request,
+      emit?: (event: PortfolioAnalystStreamEvent) => void,
+    ) {
       let body: z.infer<typeof requestSchema>;
       try {
         const text = await request.text();
@@ -101,6 +135,11 @@ export function createPortfolioAnalystHandlers(
         );
       }
 
+      emit?.({
+        type: "accepted",
+        question: body.question ?? defaultQuestions[body.language][body.job],
+      });
+
       const provider = registry.providers[body.provider];
       if (!provider) {
         return json({
@@ -108,6 +147,7 @@ export function createPortfolioAnalystHandlers(
           code: "provider-not-configured",
         }, { status: 503 });
       }
+      emit?.({ type: "status", phase: "reading-current-facts" });
       const portfolio = options.readCurrentPortfolio();
       if (!portfolio) {
         return json(
@@ -115,6 +155,39 @@ export function createPortfolioAnalystHandlers(
           { status: 409 },
         );
       }
+
+      let conversation = body.conversationId
+        ? options.conversations?.readPortfolioAnalystConversation(body.conversationId)
+        : undefined;
+      if (body.conversationId && !conversation) {
+        return json(
+          { error: "Analyst conversation was not found.", code: "conversation-not-found" },
+          { status: 404 },
+        );
+      }
+      if (
+        conversation &&
+        (conversation.provider !== body.provider ||
+          conversation.language !== body.language ||
+          conversation.includeHoldingNames !== body.includeHoldingNames)
+      ) {
+        return json(
+          {
+            error: "Provider, language or holding-name privacy changed. Reset the conversation before continuing.",
+            code: "conversation-settings-mismatch",
+          },
+          { status: 409 },
+        );
+      }
+      const generatedAt = options.now?.() ?? new Date().toISOString();
+      const createId = options.createId ?? randomUUID;
+      conversation ??= createPortfolioAnalystConversation({
+        id: createId(),
+        provider: body.provider,
+        language: body.language,
+        includeHoldingNames: body.includeHoldingNames,
+        now: generatedAt,
+      });
 
       let context: PortfolioAnalystContextV1;
       try {
@@ -138,10 +211,19 @@ export function createPortfolioAnalystHandlers(
         }
         throw error;
       }
+      emit?.({ type: "status", phase: "generating-answer" });
 
       let answer: PortfolioAnalystAnswer;
       try {
-        answer = await provider.generate(context);
+        answer = await (options.sessionFactory ?? piPortfolioAnalystSessionFactory)
+          .create(provider)
+          .runTurn({
+            context,
+            question: body.question ?? defaultQuestions[body.language][body.job],
+            history: createPortfolioAnalystHistory(conversation),
+            signal: request.signal,
+            onAnswerTextDelta: (delta) => emit?.({ type: "answer-delta", delta }),
+          });
       } catch (error) {
         const code = error instanceof PortfolioAnalystProviderError
           ? error.code
@@ -155,7 +237,7 @@ export function createPortfolioAnalystHandlers(
       const result: PortfolioAnalystReport = {
           provider: provider.id,
           model: provider.model,
-          generatedAt: options.now?.() ?? new Date().toISOString(),
+          generatedAt,
           contextVersion: context.version,
           job: context.job,
           language: context.language,
@@ -165,7 +247,33 @@ export function createPortfolioAnalystHandlers(
           evidence: citedEvidence(context, answer),
           disclaimer: "AI-generated factual explanation · Not investment advice",
       };
-      return json({ result });
+      const nextConversation = appendPortfolioAnalystTurn(conversation, {
+        id: createId(),
+        question: body.question ?? defaultQuestions[body.language][body.job],
+        createdAt: generatedAt,
+        report: result,
+      });
+      options.conversations?.savePortfolioAnalystConversation(nextConversation);
+      return json({
+        result,
+        ...(body.question || body.conversationId ? { conversation: nextConversation } : {}),
+      });
+    },
+
+    async DELETE(request: Request) {
+      let body: { conversationId: string };
+      try {
+        body = z.object({
+          conversationId: z.string().trim().min(1).max(80),
+        }).strict().parse(await request.json());
+      } catch {
+        return json(
+          { error: "Conversation delete request is invalid.", code: "invalid-request" },
+          { status: 400 },
+        );
+      }
+      options.conversations?.deletePortfolioAnalystConversation(body.conversationId);
+      return json({ deleted: true });
     },
   };
 }
@@ -182,6 +290,7 @@ function getProductionHandlers() {
           database,
           new Date().toISOString(),
         ),
+        conversations: database,
       },
     );
   }
@@ -193,5 +302,62 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  return getProductionHandlers().POST(request);
+  const handlers = getProductionHandlers();
+  if (request.headers.get("accept") !== portfolioAnalystStreamContentType) {
+    return handlers.POST(request);
+  }
+
+  const encoder = new TextEncoder();
+  return new Response(new ReadableStream({
+    start(controller) {
+      let open = true;
+      const emit = (event: PortfolioAnalystStreamEvent) => {
+        if (!open) return;
+        try {
+          controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
+        } catch {
+          open = false;
+        }
+      };
+      void handlers.POST(request, emit)
+        .then(async (response) => {
+          const body = await response.json() as {
+            conversation?: ReturnType<
+              PortfolioAnalystConversationStore["readLatestPortfolioAnalystConversation"]
+            >;
+            error?: string;
+            code?: string;
+          };
+          if (response.ok && body.conversation) {
+            emit({ type: "completed", conversation: body.conversation });
+          } else {
+            emit({
+              type: "failed",
+              error: body.error ?? "The analyst could not complete this job.",
+              ...(body.code ? { code: body.code } : {}),
+            });
+          }
+        })
+        .catch(() => emit({
+          type: "failed",
+          error: "The analyst could not complete this job.",
+        }))
+        .finally(() => {
+          if (!open) return;
+          open = false;
+          controller.close();
+        });
+    },
+  }), {
+    headers: {
+      "content-type": `${portfolioAnalystStreamContentType}; charset=utf-8`,
+      "cache-control": "no-store",
+      connection: "keep-alive",
+      "x-content-type-options": "nosniff",
+    },
+  });
+}
+
+export async function DELETE(request: Request) {
+  return getProductionHandlers().DELETE(request);
 }

@@ -11,6 +11,8 @@
     "test:watch": "NODE_OPTIONS=--experimental-sqlite vitest"
   },
   "dependencies": {
+    "@earendil-works/pi-agent-core": "0.85.1",
+    "@earendil-works/pi-ai": "0.85.1",
     "decimal.js": "10.6.0",
     "next": "16.2.10",
     "react": "19.2.7",

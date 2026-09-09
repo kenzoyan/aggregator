@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import type { PortfolioAnalystAnswer } from "@/application/portfolio-analyst-answer";
+import type { PortfolioAnalystConversation } from "@/application/portfolio-analyst-conversation";
 import type {
   AnalystEvidenceFact,
   PortfolioAnalystLanguage,
@@ -18,6 +19,13 @@ import type {
   PortfolioAnalystReport,
 } from "@/application/portfolio-analyst-provider";
 import type { Period } from "@/application/portfolio-read-model";
+import {
+  applyPortfolioAnalystStreamEvent,
+  beginPendingPortfolioAnalystTurn,
+  consumePortfolioAnalystStream,
+  portfolioAnalystStreamContentType,
+  type PendingPortfolioAnalystTurn,
+} from "@/application/portfolio-analyst-stream";
 
 interface AnalystConfiguration {
   defaultProvider: PortfolioAnalystProviderId;
@@ -26,6 +34,7 @@ interface AnalystConfiguration {
     configured: boolean;
     model: string;
   }>;
+  conversation?: PortfolioAnalystConversation;
 }
 
 const providerNames: Record<PortfolioAnalystProviderId, string> = {
@@ -44,13 +53,18 @@ const classificationLabels: Record<
 };
 
 export function PortfolioAnalyst() {
+  const activeRequest = useRef<AbortController | undefined>(undefined);
+  const conversationView = useRef<HTMLDivElement | null>(null);
+  const [open, setOpen] = useState(false);
   const [configuration, setConfiguration] = useState<AnalystConfiguration>();
   const [provider, setProvider] = useState<PortfolioAnalystProviderId>("openai");
   const [job, setJob] = useState<PortfolioAnalystRequest["job"]>("explain-period-drivers");
   const [period, setPeriod] = useState<Period>("week");
   const [language, setLanguage] = useState<PortfolioAnalystLanguage>("zh-CN");
   const [includeHoldingNames, setIncludeHoldingNames] = useState(true);
-  const [report, setReport] = useState<PortfolioAnalystReport>();
+  const [conversation, setConversation] = useState<PortfolioAnalystConversation>();
+  const [pendingTurn, setPendingTurn] = useState<PendingPortfolioAnalystTurn>();
+  const [question, setQuestion] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>();
   const selectedProvider = configuration?.providers.find((item) => item.id === provider);
@@ -68,7 +82,18 @@ export function PortfolioAnalyst() {
         const preferred = value.providers.find((item) =>
           item.id === value.defaultProvider && item.configured
         ) ?? value.providers.find((item) => item.configured);
-        setProvider(preferred?.id ?? value.defaultProvider);
+        const restored = value.conversation;
+        const latestReport = restored?.turns.at(-1)?.report;
+        setConversation(restored);
+        setProvider(restored?.provider ?? preferred?.id ?? value.defaultProvider);
+        setLanguage(restored?.language ?? "zh-CN");
+        setIncludeHoldingNames(restored?.includeHoldingNames ?? true);
+        if (latestReport) {
+          setJob(latestReport.job);
+          if (latestReport.job === "explain-period-drivers" && latestReport.scope.period) {
+            setPeriod(latestReport.scope.period);
+          }
+        }
       })
       .catch(() => {
         if (active) setError("Analyst configuration is unavailable.");
@@ -76,55 +101,172 @@ export function PortfolioAnalyst() {
     return () => { active = false; };
   }, []);
 
+  useEffect(() => {
+    const view = conversationView.current;
+    if (view) view.scrollTop = view.scrollHeight;
+  }, [conversation?.turns.length, pendingTurn?.answerText]);
+
+  useEffect(() => {
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") setOpen(false);
+    }
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      window.removeEventListener("keydown", closeOnEscape);
+      activeRequest.current?.abort();
+    };
+  }, []);
+
   async function runAnalyst() {
-    if (!selectedProvider?.configured || loading) return;
+    const normalizedQuestion = question.trim();
+    if (!selectedProvider?.configured || loading || !normalizedQuestion) return;
     setLoading(true);
     setError(undefined);
+    setPendingTurn(beginPendingPortfolioAnalystTurn(normalizedQuestion));
+    setQuestion("");
+    const controller = new AbortController();
+    activeRequest.current = controller;
     try {
-      const body: PortfolioAnalystRequest & { provider: PortfolioAnalystProviderId } =
+      const body: PortfolioAnalystRequest & {
+        provider: PortfolioAnalystProviderId;
+        question: string;
+        conversationId?: string;
+      } =
         job === "explain-period-drivers"
-          ? { provider, job, period, language, includeHoldingNames }
-          : { provider, job, language, includeHoldingNames };
+          ? {
+              provider,
+              job,
+              period,
+              language,
+              includeHoldingNames,
+              question: normalizedQuestion,
+              ...(conversation ? { conversationId: conversation.id } : {}),
+            }
+          : {
+              provider,
+              job,
+              language,
+              includeHoldingNames,
+              question: normalizedQuestion,
+              ...(conversation ? { conversationId: conversation.id } : {}),
+            };
       const response = await fetch("/api/portfolio/analyst", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: {
+          accept: portfolioAnalystStreamContentType,
+          "content-type": "application/json",
+        },
         body: JSON.stringify(body),
+        signal: controller.signal,
       });
-      const value = await response.json() as { result?: PortfolioAnalystReport; error?: string };
-      if (!response.ok || !value.result) {
-        throw new Error(value.error ?? "The analyst could not complete this job.");
+      if (!response.ok) throw new Error("The analyst stream could not be opened.");
+      let streamError: string | undefined;
+      let streamFinished = false;
+      await consumePortfolioAnalystStream(response, (event) => {
+        if (event.type === "completed") {
+          streamFinished = true;
+          setConversation(event.conversation);
+          setPendingTurn(undefined);
+          return;
+        }
+        if (event.type === "failed") {
+          streamFinished = true;
+          streamError = event.error;
+        }
+        setPendingTurn((current) => current
+          ? applyPortfolioAnalystStreamEvent(current, event)
+          : current);
+      });
+      if (streamError) setError(streamError);
+      if (!streamFinished) {
+        throw new Error("The analyst stream ended before the answer was complete.");
       }
-      setReport(value.result);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "The analyst could not complete this job.");
+      if (cause instanceof DOMException && cause.name === "AbortError") {
+        setPendingTurn((current) => current
+          ? { ...current, answerText: "", phase: "stopped" }
+          : current);
+      } else {
+        setPendingTurn((current) => current
+          ? { ...current, answerText: "", phase: "failed" }
+          : current);
+        setError(cause instanceof Error ? cause.message : "The analyst could not complete this job.");
+      }
     } finally {
+      activeRequest.current = undefined;
       setLoading(false);
     }
   }
 
-  return (
-    <section className="portfolio-analyst" aria-labelledby="portfolio-analyst-title">
-      <div className="portfolio-analyst-intro">
-        <span className="insight-kicker">ON-DEMAND ANALYST</span>
-        <h3 id="portfolio-analyst-title">Ask one bounded question</h3>
-        <p>
-          The app selects a specific local tool, then sends only its bounded facts to the model.
-          Nothing runs until you click Analyze.
-        </p>
-        <ul>
-          <li>No screenshots, credentials, quantities or cost basis</li>
-          <li>Portfolio totals and values may be included when relevant</li>
-          <li>Suggested data updates are never executed automatically</li>
-        </ul>
-      </div>
+  async function resetConversation() {
+    if (loading) return;
+    setError(undefined);
+    try {
+      if (conversation) {
+        const response = await fetch("/api/portfolio/analyst", {
+          method: "DELETE",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ conversationId: conversation.id }),
+        });
+        if (!response.ok) {
+          setError("The local conversation could not be deleted.");
+          return;
+        }
+      }
+      setConversation(undefined);
+      setPendingTurn(undefined);
+      setQuestion("");
+    } catch {
+      if (conversation) {
+        setError("The local conversation could not be deleted.");
+      }
+    }
+  }
 
-      <div className="portfolio-analyst-workspace">
+  const settingsLocked = Boolean(conversation?.turns.length);
+
+  return (
+    <div className={`portfolio-agent-shell${open ? " open" : ""}`}>
+      {!open && (
+        <button
+          type="button"
+          className="portfolio-agent-launcher"
+          aria-label="Open Portfolio Agent"
+          onClick={() => setOpen(true)}
+        >
+          <span aria-hidden="true">✦</span>
+          <strong>Agent</strong>
+          {conversation?.turns.length ? <small>{conversation.turns.length}</small> : null}
+        </button>
+      )}
+      {open && <aside
+        className="portfolio-analyst"
+        aria-labelledby="portfolio-analyst-title"
+      >
+        <header className="portfolio-agent-header">
+          <div className="portfolio-agent-identity">
+            <span aria-hidden="true">✦</span>
+            <div>
+              <h2 id="portfolio-analyst-title">Portfolio Agent</h2>
+              <p>Read-only · fresh facts every turn</p>
+            </div>
+          </div>
+          <button type="button" aria-label="Close Portfolio Agent" onClick={() => setOpen(false)}>×</button>
+        </header>
+
+        <div className="portfolio-analyst-workspace">
+        <details className="portfolio-agent-settings">
+          <summary>
+            <span>{language === "zh-CN" ? "对话设置" : "Conversation settings"}</span>
+            <small>
+              {providerNames[provider]} · {job === "explain-period-drivers" ? period : "data quality"} · {language === "zh-CN" ? "中文" : "English"}
+            </small>
+          </summary>
         <div className="portfolio-analyst-controls">
           <label>
             <span>Job</span>
             <select disabled={loading} value={job} onChange={(event) => {
               setJob(event.target.value as PortfolioAnalystRequest["job"]);
-              setReport(undefined);
               setError(undefined);
             }}>
               <option value="explain-period-drivers">Explain performance drivers</option>
@@ -136,7 +278,6 @@ export function PortfolioAnalyst() {
               <span>Period</span>
               <select disabled={loading} value={period} onChange={(event) => {
                 setPeriod(event.target.value as Period);
-                setReport(undefined);
                 setError(undefined);
               }}>
                 <option value="today">Today</option>
@@ -147,9 +288,8 @@ export function PortfolioAnalyst() {
           )}
           <label>
             <span>Provider</span>
-            <select disabled={loading} value={provider} onChange={(event) => {
+            <select disabled={loading || settingsLocked} value={provider} onChange={(event) => {
               setProvider(event.target.value as PortfolioAnalystProviderId);
-              setReport(undefined);
               setError(undefined);
             }}>
               {(configuration?.providers ?? [
@@ -164,9 +304,8 @@ export function PortfolioAnalyst() {
           </label>
           <label>
             <span>Language</span>
-            <select disabled={loading} value={language} onChange={(event) => {
+            <select disabled={loading || settingsLocked} value={language} onChange={(event) => {
               setLanguage(event.target.value as PortfolioAnalystLanguage);
-              setReport(undefined);
               setError(undefined);
             }}>
               <option value="zh-CN">简体中文</option>
@@ -176,24 +315,20 @@ export function PortfolioAnalyst() {
           <label className="analyst-name-toggle">
             <input
               type="checkbox"
-              disabled={loading}
+              disabled={loading || settingsLocked}
               checked={includeHoldingNames}
               onChange={(event) => {
                 setIncludeHoldingNames(event.target.checked);
-                setReport(undefined);
                 setError(undefined);
               }}
             />
             <span>Allow up to 3 relevant holding names</span>
           </label>
-          <button
-            type="button"
-            onClick={() => void runAnalyst()}
-            disabled={!selectedProvider?.configured || loading}
-          >
-            {loading ? "Analyzing…" : "Analyze"}
-          </button>
+          {settingsLocked && (
+            <span className="analyst-settings-note">Reset the conversation to change provider, language or name privacy.</span>
+          )}
         </div>
+        </details>
 
         {!configuration && !error && <p className="portfolio-analyst-state">Checking provider configuration…</p>}
         {selectedProvider && !selectedProvider.configured && !error && (
@@ -202,10 +337,109 @@ export function PortfolioAnalyst() {
           </p>
         )}
         {error && <p className="portfolio-analyst-error" role="alert">{error}</p>}
-        {report && <AnalystReport report={report} />}
-      </div>
-    </section>
+        <div ref={conversationView} className="analyst-conversation" aria-live="polite">
+          {!conversation?.turns.length && !pendingTurn && (
+            <div className="analyst-conversation-empty">
+              <strong>{language === "zh-CN" ? "从一个有范围的问题开始" : "Start with one bounded question"}</strong>
+              <p>{language === "zh-CN"
+                ? "例如：本周为什么上涨？然后继续问：FX 为什么是正的？"
+                : "For example: Why did the portfolio rise this week? Then ask why the FX effect was positive."}</p>
+            </div>
+          )}
+          {conversation?.turns.map((turn) => (
+            <div className="analyst-turn" key={turn.id}>
+              <div className="analyst-user-message">
+                <span>You</span>
+                <p>{turn.question}</p>
+              </div>
+              <AnalystReport report={turn.report} />
+            </div>
+          ))}
+          {pendingTurn && (
+            <div className="analyst-turn pending">
+              <div className="analyst-user-message">
+                <span>You</span>
+                <p>{pendingTurn.question}</p>
+              </div>
+              <div className={`analyst-streaming-message ${pendingTurn.phase}`}>
+                <span>Portfolio Agent</span>
+                {pendingTurn.answerText ? (
+                  <>
+                    <p>{pendingTurn.answerText}<i aria-hidden="true" /></p>
+                    <small>{language === "zh-CN" ? "生成中 · 完成后验证证据" : "Generating · evidence is validated on completion"}</small>
+                  </>
+                ) : (
+                  <p>{pendingPhaseLabel(pendingTurn.phase, language)}</p>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+        <div className="analyst-composer">
+          <textarea
+            rows={3}
+            maxLength={600}
+            disabled={loading || !selectedProvider?.configured}
+            value={question}
+            placeholder={language === "zh-CN" ? "继续追问这次分析……" : "Ask a follow-up about this analysis…"}
+            onChange={(event) => setQuestion(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && !event.shiftKey) {
+                event.preventDefault();
+                void runAnalyst();
+              }
+            }}
+          />
+          <div className="analyst-composer-actions">
+            <small>
+              {language === "zh-CN"
+                ? "发送当前有界事实及最多 3 轮本地对话；不会发送截图、凭据、数量或成本基础。"
+                : "Sends current bounded facts and up to 3 local turns; never screenshots, credentials, quantities or cost basis."}
+            </small>
+            {conversation && (
+              <button type="button" className="secondary" disabled={loading} onClick={() => void resetConversation()}>
+                {language === "zh-CN" ? "重置并删除" : "Reset & delete"}
+              </button>
+            )}
+            {loading ? (
+              <button type="button" onClick={() => activeRequest.current?.abort()}>
+                {language === "zh-CN" ? "停止" : "Stop"}
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => void runAnalyst()}
+                disabled={!selectedProvider?.configured || !question.trim()}
+              >
+                {language === "zh-CN" ? "发送" : "Send"}
+              </button>
+            )}
+          </div>
+        </div>
+        </div>
+      </aside>}
+    </div>
   );
+}
+
+function pendingPhaseLabel(
+  phase: PendingPortfolioAnalystTurn["phase"],
+  language: PortfolioAnalystLanguage,
+) {
+  const labels = language === "zh-CN" ? {
+    sending: "正在连接……",
+    "reading-current-facts": "正在读取当前本地事实……",
+    "generating-answer": "正在生成回答……",
+    stopped: "已停止。",
+    failed: "这次回答没有完成。",
+  } : {
+    sending: "Connecting…",
+    "reading-current-facts": "Reading current local facts…",
+    "generating-answer": "Generating an answer…",
+    stopped: "Stopped.",
+    failed: "This answer did not complete.",
+  };
+  return labels[phase];
 }
 
 function AnalystReport({
