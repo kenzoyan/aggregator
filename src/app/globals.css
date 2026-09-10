@@ -245,6 +245,14 @@ h2 { margin-bottom: 0; font-size: 25px; letter-spacing: -.03em; }
 @keyframes analyst-cursor { 50% { opacity: 0; } }
 .portfolio-analyst-result { padding: 15px; border: 1px solid #d9e4df; border-radius: 3px 14px 14px 14px; background: rgba(255,255,255,.42); }
 .portfolio-analyst-meta { display: flex; flex-wrap: wrap; gap: 6px 14px; color: #75877e; font-size: 9px; font-weight: 750; }
+.portfolio-agent-audit { margin-top: 10px; padding: 9px 11px; border: 1px solid #cfe0d9; border-radius: 10px; background: #edf7f3; }
+.portfolio-agent-audit summary { display: flex; align-items: center; gap: 8px; color: #315f50; cursor: pointer; font-size: 10px; font-weight: 850; }
+.portfolio-agent-audit summary span { margin-left: auto; color: #648176; font-size: 9px; font-weight: 750; }
+.portfolio-agent-audit p { margin: 9px 0 0; color: #557066; font-size: 10px; line-height: 1.5; }
+.portfolio-agent-audit ul { display: grid; gap: 6px; margin: 9px 0 0; padding: 0; list-style: none; }
+.portfolio-agent-audit li { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; padding-top: 6px; border-top: 1px solid #d9e8e2; }
+.portfolio-agent-audit code, .portfolio-agent-audit li span { color: #325e50; font-size: 9px; font-weight: 800; }
+.portfolio-agent-audit li small { grid-column: 1 / -1; color: #71877f; font-size: 9px; }
 .analyst-primary-answer { margin-top: 11px; padding: 14px; border-radius: 12px; background: white; box-shadow: 0 5px 15px rgba(20,70,53,.05); }
 .analyst-primary-answer p, .analyst-claims p { margin: 6px 0 3px; color: #30483f; font-size: 13px; line-height: 1.65; }
 .analyst-classification { display: inline-flex; padding: 3px 7px; border-radius: 999px; background: #e7f1ed; color: #356557; font-size: 7px; font-weight: 850; letter-spacing: .05em; text-transform: uppercase; }

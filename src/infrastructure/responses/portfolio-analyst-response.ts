@@ -3,6 +3,7 @@ import {
   createPortfolioAnalystInstructions,
   portfolioAnalystAnswerCandidateSchema,
   portfolioAnalystAnswerJsonSchema,
+  projectPartialPortfolioAnalystAnswer,
   validatePortfolioAnalystAnswer,
 } from "@/application/portfolio-analyst-answer";
 import type { PortfolioAnalystContextV1 } from "@/application/portfolio-analyst-context";
@@ -12,30 +13,6 @@ import {
   requestStructuredResponse,
   StructuredResponseError,
 } from "@/infrastructure/responses/structured-response-client";
-
-function projectPartialPrimaryAnswer(json: string): string | undefined {
-  const match = /"answer"\s*:\s*\{\s*"text"\s*:\s*"/.exec(json);
-  if (!match) return undefined;
-  const start = match.index + match[0].length;
-  let raw = "";
-  let escaped = false;
-  for (let index = start; index < json.length; index += 1) {
-    const character = json[index]!;
-    if (!escaped && character === '"') break;
-    raw += character;
-    if (escaped) {
-      escaped = false;
-    } else if (character === "\\") {
-      escaped = true;
-    }
-  }
-  if (escaped) raw = raw.slice(0, -1);
-  try {
-    return JSON.parse(`"${raw}"`) as string;
-  } catch {
-    return undefined;
-  }
-}
 
 export async function requestPortfolioAnalystAnswer(input: {
   endpoint: string;
@@ -66,7 +43,7 @@ export async function requestPortfolioAnalystAnswer(input: {
       signal: input.turn?.signal,
       streamProjection: input.turn?.onAnswerTextDelta
         ? {
-            project: projectPartialPrimaryAnswer,
+            project: projectPartialPortfolioAnalystAnswer,
             onDelta: input.turn.onAnswerTextDelta,
           }
         : undefined,

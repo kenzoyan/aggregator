@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 
 import type { PortfolioAnalystAnswer } from "@/application/portfolio-analyst-answer";
+import type { PortfolioAnalystAgentAudit } from "@/application/portfolio-analyst-agent";
 import {
   appendPortfolioAnalystTurn,
   createPortfolioAnalystConversation,
@@ -45,7 +46,7 @@ const commonRequest = {
   conversationId: z.string().trim().min(1).max(80).optional(),
   question: z.string().trim().min(1).max(600).optional(),
 };
-const requestSchema = z.discriminatedUnion("job", [
+const legacyRequestSchema = z.discriminatedUnion("job", [
   z.object({
     ...commonRequest,
     job: z.literal("explain-period-drivers"),
@@ -56,6 +57,14 @@ const requestSchema = z.discriminatedUnion("job", [
     job: z.literal("diagnose-data-quality"),
   }).strict(),
 ]);
+const agentRequestSchema = z.object({
+  ...commonRequest,
+  mode: z.literal("agent"),
+  defaultPeriod: z.enum(["today", "week", "month"]),
+  question: z.string().trim().min(1).max(600),
+}).strict();
+const requestSchema = z.union([agentRequestSchema, legacyRequestSchema]);
+type AnalystApiRequest = z.infer<typeof requestSchema>;
 
 const providerNames = { openai: "OpenAI", deepseek: "DeepSeek" } as const;
 
@@ -69,6 +78,16 @@ const defaultQuestions = {
     "diagnose-data-quality": "请诊断当前投资组合的数据质量。",
   },
 } as const;
+
+function requestQuestion(body: AnalystApiRequest): string {
+  if ("mode" in body) return body.question;
+  return body.question ?? defaultQuestions[body.language][body.job];
+}
+
+function requestDefaultPeriod(body: AnalystApiRequest) {
+  if ("mode" in body) return body.defaultPeriod;
+  return body.job === "explain-period-drivers" ? body.period : "week";
+}
 
 function json(body: unknown, init?: ResponseInit) {
   return NextResponse.json(body, {
@@ -137,7 +156,7 @@ export function createPortfolioAnalystHandlers(
 
       emit?.({
         type: "accepted",
-        question: body.question ?? defaultQuestions[body.language][body.job],
+        question: requestQuestion(body),
       });
 
       const provider = registry.providers[body.provider];
@@ -190,18 +209,49 @@ export function createPortfolioAnalystHandlers(
       });
 
       let context: PortfolioAnalystContextV1;
+      let answer: PortfolioAnalystAnswer;
+      let agentAudit: PortfolioAnalystAgentAudit | undefined;
       try {
         const tools = createPortfolioAnalystTools(portfolio);
-        context = body.job === "explain-period-drivers"
-          ? tools.readPeriodDrivers({
-              period: body.period,
-              language: body.language,
-              includeHoldingNames: body.includeHoldingNames,
-            })
-          : tools.readDataQuality({
-              language: body.language,
-              includeHoldingNames: body.includeHoldingNames,
+        const agentRuntime = registry.agentRuntimes?.[body.provider];
+        if (agentRuntime) {
+          emit?.({ type: "status", phase: "selecting-tool" });
+          const result = await agentRuntime.runTurn({
+            question: requestQuestion(body),
+            history: createPortfolioAnalystHistory(conversation),
+            tools,
+            language: body.language,
+            includeHoldingNames: body.includeHoldingNames,
+            defaultPeriod: requestDefaultPeriod(body),
+            signal: request.signal,
+            onPhase: (phase) => emit?.({ type: "status", phase }),
+            onAnswerTextDelta: (delta) => emit?.({ type: "answer-delta", delta }),
+          });
+          context = result.context;
+          answer = result.answer;
+          agentAudit = result.audit;
+        } else {
+          context = "mode" in body || body.job === "explain-period-drivers"
+            ? tools.readPeriodDrivers({
+                period: requestDefaultPeriod(body),
+                language: body.language,
+                includeHoldingNames: body.includeHoldingNames,
+              })
+            : tools.readDataQuality({
+                language: body.language,
+                includeHoldingNames: body.includeHoldingNames,
+              });
+          emit?.({ type: "status", phase: "generating-answer" });
+          answer = await (options.sessionFactory ?? piPortfolioAnalystSessionFactory)
+            .create(provider)
+            .runTurn({
+              context,
+              question: requestQuestion(body),
+              history: createPortfolioAnalystHistory(conversation),
+              signal: request.signal,
+              onAnswerTextDelta: (delta) => emit?.({ type: "answer-delta", delta }),
             });
+        }
       } catch (error) {
         if (error instanceof PortfolioAnalystContextError) {
           return json(
@@ -209,22 +259,6 @@ export function createPortfolioAnalystHandlers(
             { status: 422 },
           );
         }
-        throw error;
-      }
-      emit?.({ type: "status", phase: "generating-answer" });
-
-      let answer: PortfolioAnalystAnswer;
-      try {
-        answer = await (options.sessionFactory ?? piPortfolioAnalystSessionFactory)
-          .create(provider)
-          .runTurn({
-            context,
-            question: body.question ?? defaultQuestions[body.language][body.job],
-            history: createPortfolioAnalystHistory(conversation),
-            signal: request.signal,
-            onAnswerTextDelta: (delta) => emit?.({ type: "answer-delta", delta }),
-          });
-      } catch (error) {
         const code = error instanceof PortfolioAnalystProviderError
           ? error.code
           : "provider-unavailable";
@@ -235,28 +269,31 @@ export function createPortfolioAnalystHandlers(
       }
 
       const result: PortfolioAnalystReport = {
-          provider: provider.id,
-          model: provider.model,
-          generatedAt,
-          contextVersion: context.version,
-          job: context.job,
-          language: context.language,
-          scope: context.scope,
-          factsAsOf: context.factsAsOf,
-          answer,
-          evidence: citedEvidence(context, answer),
-          disclaimer: "AI-generated factual explanation · Not investment advice",
+        provider: provider.id,
+        model: provider.model,
+        generatedAt,
+        contextVersion: context.version,
+        job: context.job,
+        language: context.language,
+        scope: context.scope,
+        factsAsOf: context.factsAsOf,
+        answer,
+        evidence: citedEvidence(context, answer),
+        ...(agentAudit ? { agentAudit } : {}),
+        disclaimer: "AI-generated factual explanation · Not investment advice",
       };
       const nextConversation = appendPortfolioAnalystTurn(conversation, {
         id: createId(),
-        question: body.question ?? defaultQuestions[body.language][body.job],
+        question: requestQuestion(body),
         createdAt: generatedAt,
         report: result,
       });
       options.conversations?.savePortfolioAnalystConversation(nextConversation);
       return json({
         result,
-        ...(body.question || body.conversationId ? { conversation: nextConversation } : {}),
+        ...("mode" in body || body.question || body.conversationId
+          ? { conversation: nextConversation }
+          : {}),
       });
     },
 

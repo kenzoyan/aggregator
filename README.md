@@ -98,7 +98,7 @@ The milestone letters are retained for continuity, but their execution order is 
 
 ### Planned execution order
 
-1. **Milestone S — Model-controlled read-only tools and audit (next):** allow the runtime to choose from an allowlist of narrow domain tools such as period drivers, data quality, period comparison, holding timeline and refresh-history inspection. Record bounded inputs, evidence provenance, model metadata, stop reason and safe failures locally. Evaluate real-provider tool selection with synthetic cases before enabling it. Tools may suggest a refresh or open an import workflow, but they cannot execute a Holding State change.
+1. **Milestone S — Model-controlled read-only tools and audit (in progress):** the first production slice now lets Pi and `pi-ai` call the configured OpenAI or DeepSeek model directly. The model chooses exactly one tool from the initial allowlist (`read_period_drivers` or `read_data_quality`), Pi executes it, and a second model turn answers from that fresh result. A per-turn audit records the bounded input, selected tool, facts timestamp, Evidence Keys, model-turn count, stop reason and any blocked over-budget call; the completed audit is stored with the locally persisted report and can be inspected in the Agent UI. Synthetic runtime tests and a real-OpenAI evaluation verify tool selection without using the owner's portfolio. Next slices can add period comparison, holding timeline, refresh-history inspection and durable audit records for failed runs. Tools may suggest a refresh or open an import workflow, but they cannot execute a Holding State change.
 
 ### Deferred and optional work
 

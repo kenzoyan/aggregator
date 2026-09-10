@@ -4,7 +4,7 @@ export const portfolioAnalystStreamContentType = "application/x-ndjson";
 
 export type PortfolioAnalystStreamEvent =
   | { type: "accepted"; question: string }
-  | { type: "status"; phase: "reading-current-facts" | "generating-answer" }
+  | { type: "status"; phase: "selecting-tool" | "reading-current-facts" | "generating-answer" }
   | { type: "answer-delta"; delta: string }
   | { type: "completed"; conversation: PortfolioAnalystConversation }
   | { type: "failed"; error: string; code?: string };
@@ -14,6 +14,7 @@ export interface PendingPortfolioAnalystTurn {
   answerText: string;
   phase:
     | "sending"
+    | "selecting-tool"
     | "reading-current-facts"
     | "generating-answer"
     | "stopped"

@@ -7,7 +7,6 @@ import type { PortfolioAnalystConversation } from "@/application/portfolio-analy
 import type {
   AnalystEvidenceFact,
   PortfolioAnalystLanguage,
-  PortfolioAnalystRequest,
 } from "@/application/portfolio-analyst-context";
 import {
   portfolioAnalystActionLabel,
@@ -58,7 +57,6 @@ export function PortfolioAnalyst() {
   const [open, setOpen] = useState(false);
   const [configuration, setConfiguration] = useState<AnalystConfiguration>();
   const [provider, setProvider] = useState<PortfolioAnalystProviderId>("openai");
-  const [job, setJob] = useState<PortfolioAnalystRequest["job"]>("explain-period-drivers");
   const [period, setPeriod] = useState<Period>("week");
   const [language, setLanguage] = useState<PortfolioAnalystLanguage>("zh-CN");
   const [includeHoldingNames, setIncludeHoldingNames] = useState(true);
@@ -89,7 +87,6 @@ export function PortfolioAnalyst() {
         setLanguage(restored?.language ?? "zh-CN");
         setIncludeHoldingNames(restored?.includeHoldingNames ?? true);
         if (latestReport) {
-          setJob(latestReport.job);
           if (latestReport.job === "explain-period-drivers" && latestReport.scope.period) {
             setPeriod(latestReport.scope.period);
           }
@@ -127,29 +124,23 @@ export function PortfolioAnalyst() {
     const controller = new AbortController();
     activeRequest.current = controller;
     try {
-      const body: PortfolioAnalystRequest & {
+      const body: {
+        mode: "agent";
         provider: PortfolioAnalystProviderId;
+        defaultPeriod: Period;
+        language: PortfolioAnalystLanguage;
+        includeHoldingNames: boolean;
         question: string;
         conversationId?: string;
-      } =
-        job === "explain-period-drivers"
-          ? {
-              provider,
-              job,
-              period,
-              language,
-              includeHoldingNames,
-              question: normalizedQuestion,
-              ...(conversation ? { conversationId: conversation.id } : {}),
-            }
-          : {
-              provider,
-              job,
-              language,
-              includeHoldingNames,
-              question: normalizedQuestion,
-              ...(conversation ? { conversationId: conversation.id } : {}),
-            };
+      } = {
+        mode: "agent",
+        provider,
+        defaultPeriod: period,
+        language,
+        includeHoldingNames,
+        question: normalizedQuestion,
+        ...(conversation ? { conversationId: conversation.id } : {}),
+      };
       const response = await fetch("/api/portfolio/analyst", {
         method: "POST",
         headers: {
@@ -259,33 +250,21 @@ export function PortfolioAnalyst() {
           <summary>
             <span>{language === "zh-CN" ? "对话设置" : "Conversation settings"}</span>
             <small>
-              {providerNames[provider]} · {job === "explain-period-drivers" ? period : "data quality"} · {language === "zh-CN" ? "中文" : "English"}
+              {providerNames[provider]} · {period} · {language === "zh-CN" ? "中文" : "English"}
             </small>
           </summary>
         <div className="portfolio-analyst-controls">
           <label>
-            <span>Job</span>
-            <select disabled={loading} value={job} onChange={(event) => {
-              setJob(event.target.value as PortfolioAnalystRequest["job"]);
+            <span>Default period</span>
+            <select disabled={loading} value={period} onChange={(event) => {
+              setPeriod(event.target.value as Period);
               setError(undefined);
             }}>
-              <option value="explain-period-drivers">Explain performance drivers</option>
-              <option value="diagnose-data-quality">Diagnose data quality</option>
+              <option value="today">Today</option>
+              <option value="week">Week</option>
+              <option value="month">Month</option>
             </select>
           </label>
-          {job === "explain-period-drivers" && (
-            <label>
-              <span>Period</span>
-              <select disabled={loading} value={period} onChange={(event) => {
-                setPeriod(event.target.value as Period);
-                setError(undefined);
-              }}>
-                <option value="today">Today</option>
-                <option value="week">Week</option>
-                <option value="month">Month</option>
-              </select>
-            </label>
-          )}
           <label>
             <span>Provider</span>
             <select disabled={loading || settingsLocked} value={provider} onChange={(event) => {
@@ -428,12 +407,14 @@ function pendingPhaseLabel(
 ) {
   const labels = language === "zh-CN" ? {
     sending: "正在连接……",
+    "selecting-tool": "正在选择合适的只读工具……",
     "reading-current-facts": "正在读取当前本地事实……",
     "generating-answer": "正在生成回答……",
     stopped: "已停止。",
     failed: "这次回答没有完成。",
   } : {
     sending: "Connecting…",
+    "selecting-tool": "Choosing a read-only tool…",
     "reading-current-facts": "Reading current local facts…",
     "generating-answer": "Generating an answer…",
     stopped: "Stopped.",
@@ -462,6 +443,41 @@ function AnalystReport({
         <span>Facts as of {new Date(report.factsAsOf).toLocaleString()}</span>
         <span>Generated {new Date(report.generatedAt).toLocaleString()}</span>
       </div>
+      {report.agentAudit && (
+        <details className="portfolio-agent-audit">
+          <summary>
+            {language === "zh-CN" ? "Agent 执行记录" : "Agent run"}
+            <span>
+              {report.agentAudit.toolCalls
+                .filter((call) => call.status === "completed")
+                .map((call) => call.name === "read_period_drivers"
+                  ? (language === "zh-CN" ? "期间表现" : "Period drivers")
+                  : (language === "zh-CN" ? "数据质量" : "Data quality"))
+                .join(" · ")}
+            </span>
+          </summary>
+          <p>
+            {language === "zh-CN"
+              ? `Pi 用 ${report.agentAudit.modelTurns} 个模型回合完成：先选择只读工具，再基于新读取的事实回答。`
+              : `Pi completed in ${report.agentAudit.modelTurns} model turns: choose a read-only tool, then answer from freshly read facts.`}
+          </p>
+          <ul>
+            {report.agentAudit.toolCalls.map((call) => (
+              <li key={call.toolCallId}>
+                <code>{call.name}</code>
+                <span>{language === "zh-CN"
+                  ? ({ completed: "完成", blocked: "已阻止", failed: "失败" } as const)[call.status]
+                  : call.status}</span>
+                <small>
+                  {call.factsAsOf
+                    ? `${new Date(call.factsAsOf).toLocaleString()} · ${call.evidenceKeys.length} Evidence Keys`
+                    : call.errorCode}
+                </small>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
       <div className="analyst-primary-answer">
         <Classification value={answer.answer.classification} />
         <p>{answer.answer.text}</p>

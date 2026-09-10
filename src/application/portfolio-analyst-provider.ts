@@ -4,6 +4,7 @@ import type {
   PortfolioAnalystContextV1,
 } from "@/application/portfolio-analyst-context";
 import type { PortfolioAnalystHistoryMessage } from "@/application/portfolio-analyst-conversation";
+import type { PortfolioAnalystAgentAudit } from "@/application/portfolio-analyst-agent";
 
 export const portfolioAnalystProviderIds = ["openai", "deepseek"] as const;
 export type PortfolioAnalystProviderId = typeof portfolioAnalystProviderIds[number];
@@ -35,6 +36,7 @@ export interface PortfolioAnalystReport {
   factsAsOf: string;
   answer: PortfolioAnalystAnswer;
   evidence: AnalystEvidenceFact[];
+  agentAudit?: PortfolioAnalystAgentAudit;
   disclaimer: string;
 }
 

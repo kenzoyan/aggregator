@@ -139,6 +139,70 @@ function conversationStore(): PortfolioAnalystConversationStore {
 }
 
 describe("/api/portfolio/analyst", () => {
+  it("uses the model-controlled runtime tool choice and persists its safe audit", async () => {
+    const store = conversationStore();
+    const handlers = createPortfolioAnalystHandlers({
+      providers: { openai: provider() },
+      models: { openai: "gpt-synthetic", deepseek: "deepseek-synthetic" },
+      defaultProvider: "openai",
+      agentRuntimes: {
+        openai: {
+          async runTurn(input) {
+            const selected = input.tools.readDataQuality({
+              language: input.language,
+              includeHoldingNames: input.includeHoldingNames,
+            });
+            return {
+              context: selected,
+              answer: await provider().generate(selected),
+              audit: {
+                runtime: "pi-agent-core",
+                modelTurns: 2,
+                stopReason: "completed",
+                toolCalls: [{
+                  toolCallId: "tool-1",
+                  name: "read_data_quality",
+                  input: {},
+                  status: "completed",
+                  factsAsOf: selected.factsAsOf,
+                  evidenceKeys: selected.facts.map((fact) => fact.key),
+                }],
+              },
+            };
+          },
+        },
+      },
+    }, {
+      readCurrentPortfolio: portfolio,
+      conversations: store,
+      createId: (() => {
+        const ids = ["agent-conversation", "agent-turn"];
+        return () => ids.shift()!;
+      })(),
+    });
+
+    const response = await handlers.POST(request({
+      provider: "openai",
+      mode: "agent",
+      defaultPeriod: "week",
+      language: "en",
+      includeHoldingNames: false,
+      question: "Is my data current?",
+    }));
+
+    expect(response.status).toBe(200);
+    const saved = store.readLatestPortfolioAnalystConversation();
+    expect(saved?.turns[0]?.report).toMatchObject({
+      job: "diagnose-data-quality",
+      agentAudit: {
+        runtime: "pi-agent-core",
+        modelTurns: 2,
+        stopReason: "completed",
+        toolCalls: [{ name: "read_data_quality", status: "completed" }],
+      },
+    });
+  });
+
   it("directly calls the period tool, then returns only cited evidence", async () => {
     let received: PortfolioAnalystContextV1 | undefined;
     const handlers = createPortfolioAnalystHandlers({

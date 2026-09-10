@@ -25,12 +25,15 @@ describe("portfolio analyst provider configuration", () => {
       id: "deepseek",
       model: "deepseek-narrative-fallback",
     });
+    expect(registry.agentRuntimes?.openai).toBeDefined();
+    expect(registry.agentRuntimes?.deepseek).toBeDefined();
   });
 
   it("does not construct cloud providers without their server-side keys", () => {
     const registry = getPortfolioAnalystProviderRegistry({});
 
     expect(registry.providers).toEqual({});
+    expect(registry.agentRuntimes).toEqual({});
     expect(registry.defaultProvider).toBe("openai");
     expect(registry.models).toEqual({
       openai: "gpt-5.6-terra",

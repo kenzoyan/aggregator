@@ -2,11 +2,14 @@ import type {
   PortfolioAnalystProvider,
   PortfolioAnalystProviderId,
 } from "@/application/portfolio-analyst-provider";
+import type { PortfolioAnalystAgentRuntime } from "@/application/portfolio-analyst-agent";
 import { DeepSeekAnalystProvider } from "@/infrastructure/deepseek/deepseek-analyst-provider";
 import { OpenAIAnalystProvider } from "@/infrastructure/openai/openai-analyst-provider";
+import { createPiNativePortfolioAnalystRuntime } from "@/infrastructure/pi/pi-native-portfolio-analyst-runtime";
 
 export interface PortfolioAnalystProviderRegistry {
   providers: Partial<Record<PortfolioAnalystProviderId, PortfolioAnalystProvider>>;
+  agentRuntimes?: Partial<Record<PortfolioAnalystProviderId, PortfolioAnalystAgentRuntime>>;
   models: Record<PortfolioAnalystProviderId, string>;
   defaultProvider: PortfolioAnalystProviderId;
 }
@@ -41,6 +44,22 @@ export function getPortfolioAnalystProviderRegistry(
         : {}),
       ...(deepSeekKey
         ? { deepseek: new DeepSeekAnalystProvider({ apiKey: deepSeekKey, model: deepSeekModel }) }
+        : {}),
+    },
+    agentRuntimes: {
+      ...(openAIKey
+        ? { openai: createPiNativePortfolioAnalystRuntime({
+            provider: "openai",
+            model: openAIModel,
+            apiKey: openAIKey,
+          }) }
+        : {}),
+      ...(deepSeekKey
+        ? { deepseek: createPiNativePortfolioAnalystRuntime({
+            provider: "deepseek",
+            model: deepSeekModel,
+            apiKey: deepSeekKey,
+          }) }
         : {}),
     },
     models: { openai: openAIModel, deepseek: deepSeekModel },
