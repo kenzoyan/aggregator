@@ -423,7 +423,7 @@ function pendingPhaseLabel(
   return labels[phase];
 }
 
-function AnalystReport({
+export function AnalystReport({
   report,
 }: {
   report: PortfolioAnalystReport;
@@ -431,68 +431,42 @@ function AnalystReport({
   const language = report.language;
   const evidence = new Map(report.evidence.map((fact) => [fact.key, fact]));
   const answer = report.answer;
+  const completedToolLabels = report.agentAudit?.toolCalls
+    .filter((call) => call.status === "completed")
+    .map((call) => call.name === "read_period_drivers"
+      ? (language === "zh-CN" ? "期间表现" : "Period drivers")
+      : (language === "zh-CN" ? "数据质量" : "Data quality")) ?? [];
   return (
     <article className="portfolio-analyst-result" aria-live="polite">
       <div className="portfolio-analyst-meta">
-        <span>{providerNames[report.provider]} · {report.model}</span>
         <span>
           {report.job === "explain-period-drivers"
             ? `Performance drivers · ${report.scope.period ?? "period"}`
             : "Data quality diagnosis"}
         </span>
         <span>Facts as of {new Date(report.factsAsOf).toLocaleString()}</span>
-        <span>Generated {new Date(report.generatedAt).toLocaleString()}</span>
       </div>
-      {report.agentAudit && (
-        <details className="portfolio-agent-audit">
+      <div className="analyst-primary-answer">
+        <Classification value={answer.answer.classification} />
+        <p>{answer.answer.text}</p>
+        <EvidenceKeys keys={answer.answer.evidence} facts={evidence} language={language} />
+      </div>
+      {answer.claims.length > 0 && (
+        <details className="analyst-supporting-facts">
           <summary>
-            {language === "zh-CN" ? "Agent 执行记录" : "Agent run"}
-            <span>
-              {report.agentAudit.toolCalls
-                .filter((call) => call.status === "completed")
-                .map((call) => call.name === "read_period_drivers"
-                  ? (language === "zh-CN" ? "期间表现" : "Period drivers")
-                  : (language === "zh-CN" ? "数据质量" : "Data quality"))
-                .join(" · ")}
-            </span>
+            <span>{language === "zh-CN" ? "补充事实" : "Supporting facts"}</span>
+            <small>{answer.claims.length}{language === "zh-CN" ? " 条" : ""}</small>
           </summary>
-          <p>
-            {language === "zh-CN"
-              ? `Pi 用 ${report.agentAudit.modelTurns} 个模型回合完成：先选择只读工具，再基于新读取的事实回答。`
-              : `Pi completed in ${report.agentAudit.modelTurns} model turns: choose a read-only tool, then answer from freshly read facts.`}
-          </p>
-          <ul>
-            {report.agentAudit.toolCalls.map((call) => (
-              <li key={call.toolCallId}>
-                <code>{call.name}</code>
-                <span>{language === "zh-CN"
-                  ? ({ completed: "完成", blocked: "已阻止", failed: "失败" } as const)[call.status]
-                  : call.status}</span>
-                <small>
-                  {call.factsAsOf
-                    ? `${new Date(call.factsAsOf).toLocaleString()} · ${call.evidenceKeys.length} Evidence Keys`
-                    : call.errorCode}
-                </small>
+          <ul className="analyst-claims">
+            {answer.claims.map((claim, index) => (
+              <li key={`${index}:${claim.text}`}>
+                <Classification value={claim.classification} />
+                <p>{claim.text}</p>
+                <EvidenceKeys keys={claim.evidence} facts={evidence} language={language} />
               </li>
             ))}
           </ul>
         </details>
-      )}
-      <div className="analyst-primary-answer">
-        <Classification value={answer.answer.classification} />
-        <p>{answer.answer.text}</p>
-        <EvidenceKeys keys={answer.answer.evidence} facts={evidence} />
-      </div>
-      {answer.claims.length > 0 && (
-        <ul className="analyst-claims">
-          {answer.claims.map((claim, index) => (
-            <li key={`${index}:${claim.text}`}>
-              <Classification value={claim.classification} />
-              <p>{claim.text}</p>
-              <EvidenceKeys keys={claim.evidence} facts={evidence} />
-            </li>
-          ))}
-        </ul>
       )}
       {answer.limitations.length > 0 && (
         <div className="analyst-limitations">
@@ -501,7 +475,7 @@ function AnalystReport({
             {answer.limitations.map((limitation) => (
               <li key={limitation.code}>
                 {portfolioAnalystLimitationLabel(limitation.code, language)}
-                <EvidenceKeys keys={[limitation.evidenceKey]} facts={evidence} />
+                <EvidenceKeys keys={[limitation.evidenceKey]} facts={evidence} language={language} />
               </li>
             ))}
           </ul>
@@ -511,21 +485,63 @@ function AnalystReport({
         <div className="analyst-proposed-update">
           <span>{language === "zh-CN" ? "建议的事实更新（未执行）" : "Suggested factual update (not executed)"}</span>
           <strong>{portfolioAnalystActionLabel(answer.proposedUpdate, language)}</strong>
-          <EvidenceKeys keys={[answer.proposedUpdate.reasonEvidenceKey]} facts={evidence} />
+          <EvidenceKeys keys={[answer.proposedUpdate.reasonEvidenceKey]} facts={evidence} language={language} />
         </div>
       )}
-      <details className="portfolio-analyst-evidence">
-        <summary>{language === "zh-CN" ? `查看引用的 ${report.evidence.length} 条本地事实` : `View ${report.evidence.length} cited local facts`}</summary>
-        <dl>
-          {report.evidence.map((fact) => (
-            <div key={fact.key} id={`analyst-fact-${fact.key}`}>
-              <dt>{fact.label}<small>{fact.key} · {fact.provenance}</small></dt>
-              <dd>{portfolioAnalystEvidenceValue(fact, language)}</dd>
-            </div>
-          ))}
-        </dl>
+      <details className="analyst-evidence-run">
+        <summary>
+          <span>{report.agentAudit
+            ? (language === "zh-CN" ? "依据与执行" : "Evidence & run")
+            : (language === "zh-CN" ? "回答依据" : "Answer evidence")}</span>
+          <small>
+            {language === "zh-CN"
+              ? `${report.evidence.length} 条事实`
+              : `${report.evidence.length} cited facts`}
+            {completedToolLabels.length > 0 ? ` · ${completedToolLabels.join(" · ")}` : ""}
+          </small>
+        </summary>
+        <div className="analyst-evidence-run-body">
+          <section className="portfolio-analyst-evidence">
+            <h4>{language === "zh-CN" ? "回答依据" : "Answer evidence"}</h4>
+            <dl>
+              {report.evidence.map((fact) => (
+                <div key={fact.key} id={`analyst-fact-${fact.key}`}>
+                  <dt>{fact.label}<small>{fact.key} · {fact.provenance}</small></dt>
+                  <dd>{portfolioAnalystEvidenceValue(fact, language)}</dd>
+                </div>
+              ))}
+            </dl>
+          </section>
+          {report.agentAudit && (
+            <section className="portfolio-agent-audit">
+              <h4>{language === "zh-CN" ? "获取过程" : "How it was obtained"}</h4>
+            <p>
+              {language === "zh-CN"
+                ? `Pi 用 ${report.agentAudit.modelTurns} 个模型回合完成：先选择只读工具，再基于新读取的事实回答。`
+                : `Pi completed in ${report.agentAudit.modelTurns} model turns: choose a read-only tool, then answer from freshly read facts.`}
+            </p>
+            <ul>
+              {report.agentAudit.toolCalls.map((call) => (
+                <li key={call.toolCallId}>
+                  <code>{call.name}</code>
+                  <span>{language === "zh-CN"
+                    ? ({ completed: "完成", blocked: "已阻止", failed: "失败" } as const)[call.status]
+                    : call.status}</span>
+                  <small>
+                    {call.factsAsOf
+                      ? `${new Date(call.factsAsOf).toLocaleString()} · ${call.evidenceKeys.length} Evidence Keys`
+                      : call.errorCode}
+                  </small>
+                </li>
+              ))}
+            </ul>
+            </section>
+          )}
+        </div>
       </details>
-      <small className="analyst-disclaimer">{report.disclaimer}</small>
+      <small className="analyst-disclaimer">
+        {providerNames[report.provider]} · {report.model} · {language === "zh-CN" ? "生成于" : "Generated"} {new Date(report.generatedAt).toLocaleString()} · {report.disclaimer}
+      </small>
     </article>
   );
 }
@@ -541,13 +557,16 @@ function Classification({
 function EvidenceKeys({
   keys,
   facts,
+  language,
 }: {
   keys: string[];
   facts: Map<string, AnalystEvidenceFact>;
+  language: PortfolioAnalystLanguage;
 }) {
+  const labels = [...new Set(keys.map((key) => facts.get(key)?.label ?? key))];
   return (
     <small className="analyst-evidence-keys">
-      Based on: {keys.map((key) => facts.get(key)?.label ?? key).join(" · ")}
+      {language === "zh-CN" ? "依据：" : "Based on: "}{labels.join(" · ")}
     </small>
   );
 }
