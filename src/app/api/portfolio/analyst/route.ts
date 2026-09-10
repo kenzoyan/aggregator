@@ -166,7 +166,6 @@ export function createPortfolioAnalystHandlers(
           code: "provider-not-configured",
         }, { status: 503 });
       }
-      emit?.({ type: "status", phase: "reading-current-facts" });
       const portfolio = options.readCurrentPortfolio();
       if (!portfolio) {
         return json(
@@ -225,12 +224,14 @@ export function createPortfolioAnalystHandlers(
             defaultPeriod: requestDefaultPeriod(body),
             signal: request.signal,
             onPhase: (phase) => emit?.({ type: "status", phase }),
+            onToolActivity: (activity) => emit?.({ type: "tool-activity", activity }),
             onAnswerTextDelta: (delta) => emit?.({ type: "answer-delta", delta }),
           });
           context = result.context;
           answer = result.answer;
           agentAudit = result.audit;
         } else {
+          emit?.({ type: "status", phase: "reading-current-facts" });
           context = "mode" in body || body.job === "explain-period-drivers"
             ? tools.readPeriodDrivers({
                 period: requestDefaultPeriod(body),

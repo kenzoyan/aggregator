@@ -13,8 +13,41 @@ describe("portfolio analyst streaming view state", () => {
     expect(pending).toEqual({
       question: "本周为什么下跌？",
       answerText: "",
+      activities: [],
+      statusHistory: [],
       phase: "sending",
     });
+  });
+
+  it("accumulates safe tool activity separately from the answer text", () => {
+    let pending = beginPendingPortfolioAnalystTurn("本周为什么下跌？");
+    pending = applyPortfolioAnalystStreamEvent(pending, {
+      type: "tool-activity",
+      activity: {
+        stage: "started",
+        toolCallId: "tool-1",
+        name: "read_period_drivers",
+        input: { period: "week" },
+      },
+    });
+    pending = applyPortfolioAnalystStreamEvent(pending, {
+      type: "tool-activity",
+      activity: {
+        stage: "completed",
+        toolCallId: "tool-1",
+        name: "read_period_drivers",
+        input: { period: "week" },
+        factsAsOf: "2026-09-10T12:00:00.000Z",
+        evidenceCount: 4,
+      },
+    });
+
+    expect(pending.activities).toHaveLength(2);
+    expect(pending.activities[1]).toMatchObject({
+      stage: "completed",
+      evidenceCount: 4,
+    });
+    expect(pending.answerText).toBe("");
   });
 
   it("accumulates genuine provider deltas into the pending assistant turn", () => {

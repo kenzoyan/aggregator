@@ -1,10 +1,17 @@
 import type { PortfolioAnalystConversation } from "@/application/portfolio-analyst-conversation";
+import type { PortfolioAnalystToolActivity } from "@/application/portfolio-analyst-agent";
 
 export const portfolioAnalystStreamContentType = "application/x-ndjson";
 
+export type PortfolioAnalystStreamPhase =
+  | "selecting-tool"
+  | "reading-current-facts"
+  | "generating-answer";
+
 export type PortfolioAnalystStreamEvent =
   | { type: "accepted"; question: string }
-  | { type: "status"; phase: "selecting-tool" | "reading-current-facts" | "generating-answer" }
+  | { type: "status"; phase: PortfolioAnalystStreamPhase }
+  | { type: "tool-activity"; activity: PortfolioAnalystToolActivity }
   | { type: "answer-delta"; delta: string }
   | { type: "completed"; conversation: PortfolioAnalystConversation }
   | { type: "failed"; error: string; code?: string };
@@ -12,6 +19,8 @@ export type PortfolioAnalystStreamEvent =
 export interface PendingPortfolioAnalystTurn {
   question: string;
   answerText: string;
+  activities: PortfolioAnalystToolActivity[];
+  statusHistory: PortfolioAnalystStreamPhase[];
   phase:
     | "sending"
     | "selecting-tool"
@@ -24,7 +33,13 @@ export interface PendingPortfolioAnalystTurn {
 export function beginPendingPortfolioAnalystTurn(
   question: string,
 ): PendingPortfolioAnalystTurn {
-  return { question, answerText: "", phase: "sending" };
+  return {
+    question,
+    answerText: "",
+    activities: [],
+    statusHistory: [],
+    phase: "sending",
+  };
 }
 
 export function applyPortfolioAnalystStreamEvent(
@@ -35,7 +50,15 @@ export function applyPortfolioAnalystStreamEvent(
     case "accepted":
       return { ...pending, question: event.question };
     case "status":
-      return { ...pending, phase: event.phase };
+      return {
+        ...pending,
+        phase: event.phase,
+        statusHistory: pending.statusHistory.includes(event.phase)
+          ? pending.statusHistory
+          : [...pending.statusHistory, event.phase],
+      };
+    case "tool-activity":
+      return { ...pending, activities: [...pending.activities, event.activity] };
     case "answer-delta":
       return {
         ...pending,

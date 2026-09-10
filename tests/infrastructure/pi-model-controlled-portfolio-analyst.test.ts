@@ -128,6 +128,7 @@ describe("Pi model-controlled Portfolio Analyst", () => {
       readDataQuality: () => { throw new Error("wrong tool"); },
     };
     const deltas: string[] = [];
+    const activities: unknown[] = [];
 
     const result = await createPiModelControlledPortfolioAnalyst({ model, streamFn }).runTurn({
       question: "本周为什么上涨？",
@@ -136,6 +137,7 @@ describe("Pi model-controlled Portfolio Analyst", () => {
       language: "zh-CN",
       includeHoldingNames: false,
       defaultPeriod: "month",
+      onToolActivity: (activity) => activities.push(activity),
       onAnswerTextDelta: (delta) => deltas.push(delta),
     });
 
@@ -164,6 +166,19 @@ describe("Pi model-controlled Portfolio Analyst", () => {
       }],
     });
     expect(deltas.join("")).toBe(answer.answer.text);
+    expect(activities).toEqual([{
+      stage: "started",
+      toolCallId: "tool-call-1",
+      name: "read_period_drivers",
+      input: { period: "week" },
+    }, {
+      stage: "completed",
+      toolCallId: "tool-call-1",
+      name: "read_period_drivers",
+      input: { period: "week" },
+      factsAsOf: context.factsAsOf,
+      evidenceCount: 1,
+    }]);
   });
 
   it("blocks a second tool call and never gives it access to portfolio facts", async () => {

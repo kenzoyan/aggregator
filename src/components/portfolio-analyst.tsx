@@ -3,6 +3,11 @@
 import { useEffect, useRef, useState } from "react";
 
 import type { PortfolioAnalystAnswer } from "@/application/portfolio-analyst-answer";
+import type {
+  PortfolioAnalystAgentAudit,
+  PortfolioAnalystToolActivity,
+  PortfolioAnalystToolName,
+} from "@/application/portfolio-analyst-agent";
 import type { PortfolioAnalystConversation } from "@/application/portfolio-analyst-conversation";
 import type {
   AnalystEvidenceFact,
@@ -340,17 +345,24 @@ export function PortfolioAnalyst() {
                 <span>You</span>
                 <p>{pendingTurn.question}</p>
               </div>
-              <div className={`analyst-streaming-message ${pendingTurn.phase}`}>
-                <span>Portfolio Agent</span>
-                {pendingTurn.answerText ? (
-                  <>
+              <AgentActivityTimeline
+                activities={pendingTurn.activities}
+                language={language}
+                phase={pendingTurn.phase}
+                statusHistory={pendingTurn.statusHistory}
+              />
+              {pendingTurn.answerText ? (
+                <div className={`analyst-streaming-message analyst-assistant-message ${pendingTurn.phase}`}>
+                  <span>Portfolio Agent</span>
                     <p>{pendingTurn.answerText}<i aria-hidden="true" /></p>
                     <small>{language === "zh-CN" ? "生成中 · 完成后验证证据" : "Generating · evidence is validated on completion"}</small>
-                  </>
-                ) : (
+                </div>
+              ) : pendingTurn.phase === "failed" || pendingTurn.phase === "stopped" ? (
+                <div className={`analyst-streaming-message analyst-assistant-message ${pendingTurn.phase}`}>
+                  <span>Portfolio Agent</span>
                   <p>{pendingPhaseLabel(pendingTurn.phase, language)}</p>
-                )}
-              </div>
+                </div>
+              ) : null}
             </div>
           )}
         </div>
@@ -423,6 +435,100 @@ function pendingPhaseLabel(
   return labels[phase];
 }
 
+function analystToolLabel(
+  name: PortfolioAnalystToolName,
+  language: PortfolioAnalystLanguage,
+) {
+  return name === "read_period_drivers"
+    ? (language === "zh-CN" ? "期间表现" : "Period drivers")
+    : (language === "zh-CN" ? "数据质量" : "Data quality");
+}
+
+export function AgentActivityTimeline({
+  activities,
+  audit,
+  language,
+  phase,
+  statusHistory = [],
+}: {
+  activities?: PortfolioAnalystToolActivity[];
+  audit?: PortfolioAnalystAgentAudit;
+  language: PortfolioAnalystLanguage;
+  phase: PendingPortfolioAnalystTurn["phase"] | "completed";
+  statusHistory?: PendingPortfolioAnalystTurn["statusHistory"];
+}) {
+  const streamedActivities = activities ?? [];
+  const completedStreamedCalls = new Set(streamedActivities
+    .filter((activity) => activity.stage === "completed")
+    .map((activity) => activity.toolCallId));
+  const isWaiting = phase === "sending";
+  const interrupted = phase === "failed" || phase === "stopped";
+  const showSelection = Boolean(audit) || [
+    "selecting-tool",
+    "reading-current-facts",
+    "generating-answer",
+    "completed",
+  ].includes(phase) || statusHistory.includes("selecting-tool");
+  const selectionCompleted = Boolean(audit) || streamedActivities.length > 0 || [
+    "reading-current-facts",
+    "generating-answer",
+    "completed",
+  ].includes(phase) || statusHistory.some((item) => item !== "selecting-tool");
+  const showGeneration = phase === "generating-answer" || phase === "completed" ||
+    statusHistory.includes("generating-answer");
+  if (interrupted && !showSelection && streamedActivities.length === 0) return null;
+  return (
+    <ol className="analyst-agent-activity" aria-label={language === "zh-CN" ? "Agent 活动" : "Agent activity"}>
+      {isWaiting && <li className="active"><i aria-hidden="true" />{language === "zh-CN" ? "连接 Agent" : "Connecting to Agent"}</li>}
+      {showSelection && <li className={selectionCompleted ? "done" : interrupted ? "failed" : "active"}>
+        <i aria-hidden="true" />{language === "zh-CN" ? "选择合适的只读工具" : "Choose a read-only tool"}
+      </li>}
+      {audit
+        ? audit.toolCalls.flatMap((call) => call.status === "completed" ? [
+            <li className="done" key={`${call.toolCallId}:started`}>
+              <i aria-hidden="true" />{language === "zh-CN" ? "调用" : "Use"} {analystToolLabel(call.name, language)}
+              {call.input.period ? <small>{call.input.period}</small> : null}
+            </li>,
+            <li className="done" key={`${call.toolCallId}:completed`}>
+              <i aria-hidden="true" />{language === "zh-CN"
+                ? `返回 ${call.evidenceKeys.length} 条${analystToolLabel(call.name, language)}事实`
+                : `${analystToolLabel(call.name, language)} returned ${call.evidenceKeys.length} current facts`}
+              {call.factsAsOf ? <small>{new Date(call.factsAsOf).toLocaleString()}</small> : null}
+            </li>,
+          ] : [
+            <li className={call.status} key={`${call.toolCallId}:${call.status}`}>
+              <i aria-hidden="true" />{call.status === "blocked"
+                ? (language === "zh-CN" ? "阻止额外工具调用" : "Blocked an extra tool call")
+                : (language === "zh-CN" ? "工具调用失败" : "Tool call failed")}
+              <small>{analystToolLabel(call.name, language)}</small>
+            </li>,
+          ])
+        : streamedActivities.map((activity) => (
+            <li
+              className={activity.stage === "completed" || completedStreamedCalls.has(activity.toolCallId)
+                ? "done"
+                : interrupted ? "failed" : "active"}
+              key={`${activity.toolCallId}:${activity.stage}`}
+            >
+              <i aria-hidden="true" />{activity.stage === "started"
+                ? `${language === "zh-CN" ? "调用" : "Use"} ${analystToolLabel(activity.name, language)}`
+                : (language === "zh-CN"
+                    ? `返回 ${activity.evidenceCount} 条${analystToolLabel(activity.name, language)}事实`
+                    : `${analystToolLabel(activity.name, language)} returned ${activity.evidenceCount} current facts`)}
+              <small>{activity.stage === "started"
+                ? activity.input.period
+                : new Date(activity.factsAsOf).toLocaleString()}</small>
+            </li>
+          ))}
+      {showGeneration && <li className={phase === "completed" ? "done" : interrupted ? "failed" : "active"}>
+        <i aria-hidden="true" />{interrupted
+          ? (language === "zh-CN" ? "回答生成未完成" : "Answer generation did not complete")
+          : (language === "zh-CN" ? "生成并验证回答" : "Generate and validate the answer")}
+      </li>}
+    </ol>
+  );
+}
+
 export function AnalystReport({
   report,
 }: {
@@ -431,78 +537,66 @@ export function AnalystReport({
   const language = report.language;
   const evidence = new Map(report.evidence.map((fact) => [fact.key, fact]));
   const answer = report.answer;
-  const completedToolLabels = report.agentAudit?.toolCalls
-    .filter((call) => call.status === "completed")
-    .map((call) => call.name === "read_period_drivers"
-      ? (language === "zh-CN" ? "期间表现" : "Period drivers")
-      : (language === "zh-CN" ? "数据质量" : "Data quality")) ?? [];
   return (
     <article className="portfolio-analyst-result" aria-live="polite">
-      <div className="portfolio-analyst-meta">
-        <span>
-          {report.job === "explain-period-drivers"
-            ? `Performance drivers · ${report.scope.period ?? "period"}`
-            : "Data quality diagnosis"}
-        </span>
-        <span>Facts as of {new Date(report.factsAsOf).toLocaleString()}</span>
-      </div>
-      <div className="analyst-primary-answer">
-        <Classification value={answer.answer.classification} />
+      {report.agentAudit && (
+        <AgentActivityTimeline audit={report.agentAudit} language={language} phase="completed" />
+      )}
+      <div className="analyst-primary-answer analyst-assistant-message">
+        <span>Portfolio Agent</span>
         <p>{answer.answer.text}</p>
-        <EvidenceKeys keys={answer.answer.evidence} facts={evidence} language={language} />
       </div>
-      {answer.claims.length > 0 && (
-        <details className="analyst-supporting-facts">
-          <summary>
-            <span>{language === "zh-CN" ? "补充事实" : "Supporting facts"}</span>
-            <small>{answer.claims.length}{language === "zh-CN" ? " 条" : ""}</small>
-          </summary>
-          <ul className="analyst-claims">
-            {answer.claims.map((claim, index) => (
-              <li key={`${index}:${claim.text}`}>
-                <Classification value={claim.classification} />
-                <p>{claim.text}</p>
-                <EvidenceKeys keys={claim.evidence} facts={evidence} language={language} />
-              </li>
-            ))}
-          </ul>
-        </details>
-      )}
-      {answer.limitations.length > 0 && (
-        <div className="analyst-limitations">
-          <strong>{language === "zh-CN" ? "已知限制" : "Known limitations"}</strong>
-          <ul>
-            {answer.limitations.map((limitation) => (
-              <li key={limitation.code}>
-                {portfolioAnalystLimitationLabel(limitation.code, language)}
-                <EvidenceKeys keys={[limitation.evidenceKey]} facts={evidence} language={language} />
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-      {answer.proposedUpdate && (
-        <div className="analyst-proposed-update">
-          <span>{language === "zh-CN" ? "建议的事实更新（未执行）" : "Suggested factual update (not executed)"}</span>
-          <strong>{portfolioAnalystActionLabel(answer.proposedUpdate, language)}</strong>
-          <EvidenceKeys keys={[answer.proposedUpdate.reasonEvidenceKey]} facts={evidence} language={language} />
-        </div>
-      )}
-      <details className="analyst-evidence-run">
+      <details className="analyst-facts-evidence">
         <summary>
-          <span>{report.agentAudit
-            ? (language === "zh-CN" ? "依据与执行" : "Evidence & run")
-            : (language === "zh-CN" ? "回答依据" : "Answer evidence")}</span>
+          <span>{language === "zh-CN" ? "事实与依据" : "Facts & evidence"}</span>
           <small>
-            {language === "zh-CN"
-              ? `${report.evidence.length} 条事实`
-              : `${report.evidence.length} cited facts`}
-            {completedToolLabels.length > 0 ? ` · ${completedToolLabels.join(" · ")}` : ""}
+            {answer.claims.length > 0
+              ? `${answer.claims.length} ${language === "zh-CN" ? "条补充事实" : "claims"} · `
+              : ""}
+            {language === "zh-CN" ? `${report.evidence.length} 条依据` : `${report.evidence.length} evidence facts`}
           </small>
         </summary>
-        <div className="analyst-evidence-run-body">
+        <div className="analyst-facts-evidence-body">
+          {answer.claims.length > 0 && (
+            <section className="analyst-supporting-facts">
+              <h4>{language === "zh-CN" ? "补充事实" : "Supporting facts"}</h4>
+              <ul className="analyst-claims">
+                {answer.claims.map((claim, index) => (
+                  <li key={`${index}:${claim.text}`}>
+                    <Classification value={claim.classification} />
+                    <p>{claim.text}</p>
+                    <EvidenceKeys keys={claim.evidence} facts={evidence} language={language} />
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+          {answer.limitations.length > 0 && (
+            <section className="analyst-limitations">
+              <strong>{language === "zh-CN" ? "已知限制" : "Known limitations"}</strong>
+              <ul>
+                {answer.limitations.map((limitation) => (
+                  <li key={limitation.code}>
+                    {portfolioAnalystLimitationLabel(limitation.code, language)}
+                    <EvidenceKeys keys={[limitation.evidenceKey]} facts={evidence} language={language} />
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+          {answer.proposedUpdate && (
+            <section className="analyst-proposed-update">
+              <span>{language === "zh-CN" ? "建议的事实更新（未执行）" : "Suggested factual update (not executed)"}</span>
+              <strong>{portfolioAnalystActionLabel(answer.proposedUpdate, language)}</strong>
+              <EvidenceKeys keys={[answer.proposedUpdate.reasonEvidenceKey]} facts={evidence} language={language} />
+            </section>
+          )}
           <section className="portfolio-analyst-evidence">
             <h4>{language === "zh-CN" ? "回答依据" : "Answer evidence"}</h4>
+            <div className="analyst-answer-basis">
+              <Classification value={answer.answer.classification} />
+              <EvidenceKeys keys={answer.answer.evidence} facts={evidence} language={language} />
+            </div>
             <dl>
               {report.evidence.map((fact) => (
                 <div key={fact.key} id={`analyst-fact-${fact.key}`}>
@@ -512,35 +606,12 @@ export function AnalystReport({
               ))}
             </dl>
           </section>
-          {report.agentAudit && (
-            <section className="portfolio-agent-audit">
-              <h4>{language === "zh-CN" ? "获取过程" : "How it was obtained"}</h4>
-            <p>
-              {language === "zh-CN"
-                ? `Pi 用 ${report.agentAudit.modelTurns} 个模型回合完成：先选择只读工具，再基于新读取的事实回答。`
-                : `Pi completed in ${report.agentAudit.modelTurns} model turns: choose a read-only tool, then answer from freshly read facts.`}
-            </p>
-            <ul>
-              {report.agentAudit.toolCalls.map((call) => (
-                <li key={call.toolCallId}>
-                  <code>{call.name}</code>
-                  <span>{language === "zh-CN"
-                    ? ({ completed: "完成", blocked: "已阻止", failed: "失败" } as const)[call.status]
-                    : call.status}</span>
-                  <small>
-                    {call.factsAsOf
-                      ? `${new Date(call.factsAsOf).toLocaleString()} · ${call.evidenceKeys.length} Evidence Keys`
-                      : call.errorCode}
-                  </small>
-                </li>
-              ))}
-            </ul>
-            </section>
-          )}
         </div>
       </details>
       <small className="analyst-disclaimer">
-        {providerNames[report.provider]} · {report.model} · {language === "zh-CN" ? "生成于" : "Generated"} {new Date(report.generatedAt).toLocaleString()} · {report.disclaimer}
+        {report.job === "explain-period-drivers"
+          ? `Performance drivers · ${report.scope.period ?? "period"}`
+          : "Data quality diagnosis"} · Facts as of {new Date(report.factsAsOf).toLocaleString()} · {providerNames[report.provider]} · {report.model} · {language === "zh-CN" ? "生成于" : "Generated"} {new Date(report.generatedAt).toLocaleString()} · {report.disclaimer}
       </small>
     </article>
   );

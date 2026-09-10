@@ -31,6 +31,22 @@ export interface PortfolioAnalystAgentAudit {
   toolCalls: PortfolioAnalystToolAudit[];
 }
 
+export type PortfolioAnalystToolActivity =
+  | {
+      stage: "started";
+      toolCallId: string;
+      name: PortfolioAnalystToolName;
+      input: PortfolioAnalystToolAudit["input"];
+    }
+  | {
+      stage: "completed";
+      toolCallId: string;
+      name: PortfolioAnalystToolName;
+      input: PortfolioAnalystToolAudit["input"];
+      factsAsOf: string;
+      evidenceCount: number;
+    };
+
 export interface PortfolioAnalystAgentTurn {
   question: string;
   history: PortfolioAnalystHistoryMessage[];
@@ -40,6 +56,7 @@ export interface PortfolioAnalystAgentTurn {
   defaultPeriod: Period;
   signal?: AbortSignal;
   onPhase?: (phase: "reading-current-facts" | "generating-answer") => void;
+  onToolActivity?: (activity: PortfolioAnalystToolActivity) => void;
   onAnswerTextDelta?: (delta: string) => void;
 }
 

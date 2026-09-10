@@ -9,6 +9,7 @@ import { Type, type Model, type Usage } from "@earendil-works/pi-ai";
 import {
   portfolioAnalystAnswerCandidateSchema,
   portfolioAnalystAnswerJsonSchema,
+  portfolioAnalystConversationalAnswerInstruction,
   projectPartialPortfolioAnalystAnswer,
   validatePortfolioAnalystAnswer,
 } from "@/application/portfolio-analyst-answer";
@@ -69,6 +70,7 @@ function systemPrompt(input: PortfolioAnalystAgentTurn): string {
     `Use ${input.defaultPeriod} when the question needs a performance period but does not specify one.`,
     `Answer language: ${input.language}.`,
     "Only tool output from this turn is current evidence. Historical answers resolve references only.",
+    portfolioAnalystConversationalAnswerInstruction,
     "After the tool result, return only JSON matching this schema:",
     JSON.stringify(portfolioAnalystAnswerJsonSchema),
     "Every factual claim must cite a current Evidence Key. Copy every limitation and never execute proposed actions.",
@@ -113,6 +115,12 @@ function createTools(
     parameters: periodParameters,
     executionMode: "sequential",
     async execute(toolCallId, params) {
+      const activity = {
+        toolCallId,
+        name: "read_period_drivers" as const,
+        input: { period: params.period },
+      };
+      input.onToolActivity?.({ stage: "started", ...activity });
       input.onPhase?.("reading-current-facts");
       const context = input.tools.readPeriodDrivers({
         period: params.period,
@@ -125,6 +133,12 @@ function createTools(
         { period: params.period },
         context,
       ));
+      input.onToolActivity?.({
+        stage: "completed",
+        ...activity,
+        factsAsOf: context.factsAsOf,
+        evidenceCount: context.facts.length,
+      });
       input.onPhase?.("generating-answer");
       return {
         content: [{ type: "text", text: JSON.stringify(context) }],
@@ -139,6 +153,12 @@ function createTools(
     parameters: noParameters,
     executionMode: "sequential",
     async execute(toolCallId) {
+      const activity = {
+        toolCallId,
+        name: "read_data_quality" as const,
+        input: {},
+      };
+      input.onToolActivity?.({ stage: "started", ...activity });
       input.onPhase?.("reading-current-facts");
       const context = input.tools.readDataQuality({
         language: input.language,
@@ -150,6 +170,12 @@ function createTools(
         {},
         context,
       ));
+      input.onToolActivity?.({
+        stage: "completed",
+        ...activity,
+        factsAsOf: context.factsAsOf,
+        evidenceCount: context.facts.length,
+      });
       input.onPhase?.("generating-answer");
       return {
         content: [{ type: "text", text: JSON.stringify(context) }],

@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
 import type { PortfolioAnalystReport } from "@/application/portfolio-analyst-provider";
-import { AnalystReport } from "@/components/portfolio-analyst";
+import { AgentActivityTimeline, AnalystReport } from "@/components/portfolio-analyst";
 
 const report = {
   provider: "openai",
@@ -30,8 +30,14 @@ const report = {
       classification: "fact",
       evidence: ["period.total"],
     }],
-    limitations: [],
-    proposedUpdate: null,
+    limitations: [{
+      code: "partial-period-coverage",
+      evidenceKey: "period.total",
+    }],
+    proposedUpdate: {
+      kind: "retry-market-data-refresh",
+      reasonEvidenceKey: "period.total",
+    },
   },
   evidence: [{
     key: "period.total",
@@ -62,37 +68,97 @@ const report = {
 } as PortfolioAnalystReport;
 
 describe("Portfolio Analyst report hierarchy", () => {
-  it("shows the primary answer before collapsed supporting facts", () => {
+  it("keeps the completed answer conversational and moves supporting facts below it", () => {
     const markup = renderToStaticMarkup(createElement(AnalystReport, { report }));
+    const messageStart = markup.indexOf("analyst-primary-answer");
+    const messageEnd = markup.indexOf("</div>", messageStart);
     const primaryAnswer = markup.indexOf("主答案应该先被看到。");
-    const supportingFacts = markup.indexOf('class="analyst-supporting-facts"');
+    const disclosure = markup.indexOf('class="analyst-facts-evidence"');
+    const supportingFact = markup.indexOf("第一条补充事实。");
 
     expect(primaryAnswer).toBeGreaterThan(-1);
-    expect(supportingFacts).toBeGreaterThan(primaryAnswer);
-    expect(markup.slice(supportingFacts, supportingFacts + 100)).not.toContain("open=");
+    expect(markup.slice(messageStart, messageEnd)).not.toContain("analyst-classification");
+    expect(markup.slice(messageStart, messageEnd)).not.toContain("依据：");
+    expect(markup.slice(messageStart, messageEnd)).toContain("analyst-assistant-message");
+    expect(markup).not.toContain('<details class="analyst-supporting-facts"');
+    expect(disclosure).toBeGreaterThan(primaryAnswer);
+    expect(supportingFact).toBeGreaterThan(disclosure);
+    expect(markup.indexOf("已知限制")).toBeGreaterThan(disclosure);
+    expect(markup.indexOf("建议的事实更新")).toBeGreaterThan(disclosure);
   });
 
-  it("combines cited facts and agent execution behind one disclosure", () => {
+  it("shows agent activity before the answer and keeps facts in one disclosure below", () => {
     const markup = renderToStaticMarkup(createElement(AnalystReport, { report }));
-    const disclosure = markup.indexOf('class="analyst-evidence-run"');
+    const activity = markup.indexOf('class="analyst-agent-activity"');
+    const answer = markup.indexOf("主答案应该先被看到。");
+    const disclosure = markup.indexOf('class="analyst-facts-evidence"');
     const evidence = markup.indexOf("回答依据");
-    const execution = markup.indexOf("获取过程");
 
+    expect(activity).toBeGreaterThan(-1);
+    expect(answer).toBeGreaterThan(activity);
     expect(disclosure).toBeGreaterThan(-1);
+    expect(disclosure).toBeGreaterThan(answer);
     expect(markup.slice(disclosure, disclosure + 100)).not.toContain("open=");
-    expect(markup).not.toContain('<details class="portfolio-agent-audit"');
-    expect(markup).not.toContain('<details class="portfolio-analyst-evidence"');
     expect(evidence).toBeGreaterThan(disclosure);
-    expect(execution).toBeGreaterThan(evidence);
+    expect(markup).toContain("调用 期间表现");
+    expect(markup).toContain("返回 1 条期间表现事实");
   });
 
-  it("shows an evidence-only disclosure for reports without an agent audit", () => {
+  it("omits the activity timeline for old reports without an agent audit", () => {
     const markup = renderToStaticMarkup(createElement(AnalystReport, {
       report: { ...report, agentAudit: undefined },
     }));
 
+    expect(markup).not.toContain('class="analyst-agent-activity"');
     expect(markup).toContain("回答依据");
-    expect(markup).not.toContain("依据与执行");
-    expect(markup).not.toContain("获取过程");
+    expect(markup).toContain("事实与依据");
+  });
+
+  it("does not leave interrupted work looking active", () => {
+    const markup = renderToStaticMarkup(createElement(AgentActivityTimeline, {
+      activities: [{
+        stage: "started",
+        toolCallId: "tool-interrupted",
+        name: "read_data_quality",
+        input: {},
+      }],
+      language: "zh-CN",
+      phase: "failed",
+      statusHistory: ["selecting-tool", "reading-current-facts"],
+    }));
+
+    expect(markup).not.toContain('class="active"');
+    expect(markup).toContain('class="failed"');
+  });
+
+  it("keeps streamed and persisted tool activity labels consistent", () => {
+    const streamed = renderToStaticMarkup(createElement(AgentActivityTimeline, {
+      activities: [{
+        stage: "started",
+        toolCallId: "tool-1",
+        name: "read_period_drivers",
+        input: { period: "week" },
+      }, {
+        stage: "completed",
+        toolCallId: "tool-1",
+        name: "read_period_drivers",
+        input: { period: "week" },
+        factsAsOf: "2026-09-10T11:59:00.000Z",
+        evidenceCount: 1,
+      }],
+      language: "zh-CN",
+      phase: "generating-answer",
+      statusHistory: ["selecting-tool", "reading-current-facts", "generating-answer"],
+    }));
+    const persisted = renderToStaticMarkup(createElement(AgentActivityTimeline, {
+      audit: report.agentAudit,
+      language: "zh-CN",
+      phase: "completed",
+    }));
+
+    for (const label of ["选择合适的只读工具", "调用 期间表现", "返回 1 条期间表现事实", "生成并验证回答"]) {
+      expect(streamed).toContain(label);
+      expect(persisted).toContain(label);
+    }
   });
 });

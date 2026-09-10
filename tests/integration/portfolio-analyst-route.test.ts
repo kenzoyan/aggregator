@@ -141,6 +141,7 @@ function conversationStore(): PortfolioAnalystConversationStore {
 describe("/api/portfolio/analyst", () => {
   it("uses the model-controlled runtime tool choice and persists its safe audit", async () => {
     const store = conversationStore();
+    const events: unknown[] = [];
     const handlers = createPortfolioAnalystHandlers({
       providers: { openai: provider() },
       models: { openai: "gpt-synthetic", deepseek: "deepseek-synthetic" },
@@ -148,9 +149,23 @@ describe("/api/portfolio/analyst", () => {
       agentRuntimes: {
         openai: {
           async runTurn(input) {
+            input.onToolActivity?.({
+              stage: "started",
+              toolCallId: "tool-1",
+              name: "read_data_quality",
+              input: {},
+            });
             const selected = input.tools.readDataQuality({
               language: input.language,
               includeHoldingNames: input.includeHoldingNames,
+            });
+            input.onToolActivity?.({
+              stage: "completed",
+              toolCallId: "tool-1",
+              name: "read_data_quality",
+              input: {},
+              factsAsOf: selected.factsAsOf,
+              evidenceCount: selected.facts.length,
             });
             return {
               context: selected,
@@ -188,7 +203,7 @@ describe("/api/portfolio/analyst", () => {
       language: "en",
       includeHoldingNames: false,
       question: "Is my data current?",
-    }));
+    }), (event) => events.push(event));
 
     expect(response.status).toBe(200);
     const saved = store.readLatestPortfolioAnalystConversation();
@@ -199,6 +214,30 @@ describe("/api/portfolio/analyst", () => {
         modelTurns: 2,
         stopReason: "completed",
         toolCalls: [{ name: "read_data_quality", status: "completed" }],
+      },
+    });
+    expect(events.slice(0, 2)).toEqual([
+      { type: "accepted", question: "Is my data current?" },
+      { type: "status", phase: "selecting-tool" },
+    ]);
+    expect(events).toContainEqual({
+      type: "tool-activity",
+      activity: {
+        stage: "started",
+        toolCallId: "tool-1",
+        name: "read_data_quality",
+        input: {},
+      },
+    });
+    expect(events).toContainEqual({
+      type: "tool-activity",
+      activity: {
+        stage: "completed",
+        toolCallId: "tool-1",
+        name: "read_data_quality",
+        input: {},
+        factsAsOf: "2026-09-08T10:00:00.000Z",
+        evidenceCount: 1,
       },
     });
   });

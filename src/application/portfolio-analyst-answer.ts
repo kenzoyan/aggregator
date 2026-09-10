@@ -73,6 +73,9 @@ const { $schema: _schemaDialect, ...generatedAnswerJsonSchema } =
 
 export const portfolioAnalystAnswerJsonSchema = generatedAnswerJsonSchema;
 
+export const portfolioAnalystConversationalAnswerInstruction =
+  "Make answer.text a self-contained conversational response that directly and fully answers the current question, including any material limitations. It must remain useful without opening claims or evidence details; use claims only as a supporting factual breakdown.";
+
 export function projectPartialPortfolioAnalystAnswer(
   json: string,
 ): string | undefined {
@@ -219,6 +222,7 @@ export function createPortfolioAnalystInstructions(
         ]
       : []),
     "Every answer and claim must cite one or more directly supporting Evidence Keys.",
+    portfolioAnalystConversationalAnswerInstruction,
     "Copy factsAsOf and every supplied limitation exactly.",
     "proposedUpdate must be null or exactly one action from allowedActions; never claim to have executed it.",
     "Do not recommend trades, allocation changes, or market timing, and do not predict performance.",

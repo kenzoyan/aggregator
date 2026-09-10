@@ -224,6 +224,7 @@ describe("portfolio analyst answer contract", () => {
       expect(instructions).toContain("do not recalculate");
       expect(instructions).toContain("never claim to have executed it");
       expect(instructions).toContain("Do not recommend trades");
+      expect(instructions).toContain("self-contained conversational response");
     }
     expect(english).toContain("Write answer text in English");
     expect(chinese).toContain("Write answer text in Simplified Chinese");
