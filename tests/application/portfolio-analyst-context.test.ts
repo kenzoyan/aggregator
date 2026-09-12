@@ -467,6 +467,80 @@ describe("portfolio analyst context", () => {
     expect(JSON.stringify(context)).not.toContain("Zeta");
   });
 
+  it("builds a bounded overview without exposing account identifiers or labels", () => {
+    const value = portfolio();
+    value.insights.holdingCurrencyAllocation = [{
+      currency: "EUR",
+      valueEur: 1_000,
+      sharePercent: 100,
+      holdingCount: 4,
+    }];
+    value.insights.categoryAllocation = [{
+      category: "Fund",
+      valueEur: 1_000,
+      sharePercent: 100,
+      holdingCount: 4,
+    }];
+    value.insights.summary.topHolding = {
+      id: "private-top-id",
+      name: "Alpha",
+      valueEur: 600,
+      sharePercent: 60,
+    };
+    value.insights.recentMovers = {
+      period: "today",
+      strongest: { id: "private-a", name: "Alpha", changeEur: 8, percent: 1.2 },
+      weakest: { id: "private-c", name: "Gamma", changeEur: -3, percent: -0.8 },
+    };
+
+    const context = createPortfolioAnalystTools(value).readPortfolioOverview({
+      language: "en",
+      includeHoldingNames: true,
+    });
+
+    expect(context.job).toBe("summarize-portfolio");
+    expect(context.facts).toContainEqual(expect.objectContaining({
+      key: "overview.summary",
+      kind: "portfolio-overview-summary",
+      totalValueEur: 1_000,
+      topHoldingName: "Alpha",
+      topThreeSharePercent: 95,
+    }));
+    expect(context.facts).toContainEqual(expect.objectContaining({
+      key: "overview.currency.1",
+      dimension: "holding-currency",
+      group: "EUR",
+    }));
+    expect(context.facts).toContainEqual(expect.objectContaining({
+      key: "overview.account.1",
+      dimension: "source-account",
+      rank: 1,
+    }));
+    expect(JSON.stringify(context)).not.toMatch(/account-private|Private Account|private-top-id|private-a|private-c/);
+  });
+
+  it("withholds holding names from portfolio overview facts", () => {
+    const value = portfolio();
+    value.insights.summary.topHolding = {
+      id: "private-top-id",
+      name: "Alpha",
+      valueEur: 600,
+      sharePercent: 60,
+    };
+    value.insights.recentMovers = {
+      period: "today",
+      strongest: { id: "private-a", name: "Alpha", changeEur: 8, percent: 1.2 },
+      weakest: { id: "private-c", name: "Gamma", changeEur: -3, percent: -0.8 },
+    };
+
+    const context = createPortfolioAnalystTools(value).readPortfolioOverview({
+      language: "en",
+      includeHoldingNames: false,
+    });
+
+    expect(JSON.stringify(context)).not.toMatch(/Alpha|Gamma|private-/);
+  });
+
   it("never substitutes an internal instrument id for an absent display name", () => {
     const value = portfolio();
     value.holdings[0]!.name = "internal-instrument-id";

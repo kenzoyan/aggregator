@@ -420,9 +420,28 @@ function analystToolLabel(
   name: PortfolioAnalystToolName,
   language: PortfolioAnalystLanguage,
 ) {
-  return name === "read_period_drivers"
-    ? (language === "zh-CN" ? "期间表现" : "Period drivers")
-    : (language === "zh-CN" ? "数据质量" : "Data quality");
+  const labels = language === "zh-CN" ? {
+    read_period_drivers: "期间表现",
+    read_data_quality: "数据质量",
+    read_portfolio_overview: "组合概览",
+  } : {
+    read_period_drivers: "period performance",
+    read_data_quality: "data quality",
+    read_portfolio_overview: "portfolio overview",
+  };
+  return labels[name];
+}
+
+function analystToolScope(
+  name: PortfolioAnalystToolName,
+  input: { period?: "today" | "week" | "month" },
+  language: PortfolioAnalystLanguage,
+) {
+  if (name !== "read_period_drivers" || !input.period) return analystToolLabel(name, language);
+  const periods = language === "zh-CN"
+    ? { today: "今日", week: "7 天", month: "30 天" }
+    : { today: "today's", week: "7-day", month: "30-day" };
+  return `${periods[input.period]}${language === "zh-CN" ? "" : " "}${analystToolLabel(name, language)}`;
 }
 
 export function AgentActivityTimeline({
@@ -430,7 +449,6 @@ export function AgentActivityTimeline({
   audit,
   language,
   phase,
-  statusHistory = [],
 }: {
   activities?: PortfolioAnalystToolActivity[];
   audit?: PortfolioAnalystAgentAudit;
@@ -439,73 +457,41 @@ export function AgentActivityTimeline({
   statusHistory?: PendingPortfolioAnalystTurn["statusHistory"];
 }) {
   const streamedActivities = activities ?? [];
-  const completedStreamedCalls = new Set(streamedActivities
-    .filter((activity) => activity.stage === "completed")
-    .map((activity) => activity.toolCallId));
-  const isWaiting = phase === "sending";
+  const latestStreamedCalls = Array.from(streamedActivities.reduce((calls, activity) => {
+    calls.set(activity.toolCallId, activity);
+    return calls;
+  }, new Map<string, PortfolioAnalystToolActivity>()).values());
   const interrupted = phase === "failed" || phase === "stopped";
-  const showSelection = Boolean(audit) || [
-    "selecting-tool",
-    "reading-current-facts",
-    "generating-answer",
-    "completed",
-  ].includes(phase) || statusHistory.includes("selecting-tool");
-  const selectionCompleted = Boolean(audit) || streamedActivities.length > 0 || [
-    "reading-current-facts",
-    "generating-answer",
-    "completed",
-  ].includes(phase) || statusHistory.some((item) => item !== "selecting-tool");
-  const showGeneration = phase === "generating-answer" || phase === "completed" ||
-    statusHistory.includes("generating-answer");
-  if (interrupted && !showSelection && streamedActivities.length === 0) return null;
+  const calls = audit?.toolCalls ?? latestStreamedCalls;
+  if (calls.length === 0) return null;
   return (
     <ol className="analyst-agent-activity" aria-label={language === "zh-CN" ? "Agent 活动" : "Agent activity"}>
-      {isWaiting && <li className="active"><i aria-hidden="true" />{language === "zh-CN" ? "连接 Agent" : "Connecting to Agent"}</li>}
-      {showSelection && <li className={selectionCompleted ? "done" : interrupted ? "failed" : "active"}>
-        <i aria-hidden="true" />{language === "zh-CN" ? "选择合适的只读工具" : "Choose a read-only tool"}
-      </li>}
       {audit
-        ? audit.toolCalls.flatMap((call) => call.status === "completed" ? [
-            <li className="done" key={`${call.toolCallId}:started`}>
-              <i aria-hidden="true" />{language === "zh-CN" ? "调用" : "Use"} {analystToolLabel(call.name, language)}
-              {call.input.period ? <small>{call.input.period}</small> : null}
-            </li>,
-            <li className="done" key={`${call.toolCallId}:completed`}>
-              <i aria-hidden="true" />{language === "zh-CN"
-                ? `返回 ${call.evidenceKeys.length} 条${analystToolLabel(call.name, language)}事实`
-                : `${analystToolLabel(call.name, language)} returned ${call.evidenceKeys.length} current facts`}
-              {call.factsAsOf ? <small>{new Date(call.factsAsOf).toLocaleString()}</small> : null}
-            </li>,
-          ] : [
-            <li className={call.status} key={`${call.toolCallId}:${call.status}`}>
-              <i aria-hidden="true" />{call.status === "blocked"
-                ? (language === "zh-CN" ? "阻止额外工具调用" : "Blocked an extra tool call")
-                : (language === "zh-CN" ? "工具调用失败" : "Tool call failed")}
-              <small>{analystToolLabel(call.name, language)}</small>
-            </li>,
-          ])
-        : streamedActivities.map((activity) => (
+        ? audit.toolCalls.map((call) => (
+            <li className={call.status === "completed" ? "done" : call.status} key={call.toolCallId}>
+              <i aria-hidden="true" />{call.status === "completed"
+                ? (language === "zh-CN"
+                    ? `已读取 ${analystToolScope(call.name, call.input, language)} · ${call.evidenceKeys.length} 条当前事实`
+                    : `Read ${analystToolScope(call.name, call.input, language)} · ${call.evidenceKeys.length} current facts`)
+                : call.status === "blocked"
+                  ? (language === "zh-CN" ? `已停止额外读取：${analystToolScope(call.name, call.input, language)}` : `Stopped extra read: ${analystToolScope(call.name, call.input, language)}`)
+                  : (language === "zh-CN" ? `读取失败：${analystToolScope(call.name, call.input, language)}` : `Failed to read ${analystToolScope(call.name, call.input, language)}`)}
+            </li>
+          ))
+        : latestStreamedCalls.map((activity) => (
             <li
-              className={activity.stage === "completed" || completedStreamedCalls.has(activity.toolCallId)
-                ? "done"
-                : interrupted ? "failed" : "active"}
-              key={`${activity.toolCallId}:${activity.stage}`}
+              className={activity.stage === "completed" ? "done" : interrupted ? "failed" : "active"}
+              key={activity.toolCallId}
             >
               <i aria-hidden="true" />{activity.stage === "started"
-                ? `${language === "zh-CN" ? "调用" : "Use"} ${analystToolLabel(activity.name, language)}`
+                ? (language === "zh-CN"
+                    ? `正在读取 ${analystToolScope(activity.name, activity.input, language)}……`
+                    : `Reading ${analystToolScope(activity.name, activity.input, language)}…`)
                 : (language === "zh-CN"
-                    ? `返回 ${activity.evidenceCount} 条${analystToolLabel(activity.name, language)}事实`
-                    : `${analystToolLabel(activity.name, language)} returned ${activity.evidenceCount} current facts`)}
-              <small>{activity.stage === "started"
-                ? activity.input.period
-                : new Date(activity.factsAsOf).toLocaleString()}</small>
+                    ? `已读取 ${analystToolScope(activity.name, activity.input, language)} · ${activity.evidenceCount} 条当前事实`
+                    : `Read ${analystToolScope(activity.name, activity.input, language)} · ${activity.evidenceCount} current facts`)}
             </li>
           ))}
-      {showGeneration && <li className={phase === "completed" ? "done" : interrupted ? "failed" : "active"}>
-        <i aria-hidden="true" />{interrupted
-          ? (language === "zh-CN" ? "回答生成未完成" : "Answer generation did not complete")
-          : (language === "zh-CN" ? "生成并验证回答" : "Generate and validate the answer")}
-      </li>}
     </ol>
   );
 }
@@ -518,6 +504,14 @@ export function AnalystReport({
   const language = report.language;
   const evidence = new Map(report.evidence.map((fact) => [fact.key, fact]));
   const answer = report.answer;
+  const completedToolCount = report.agentAudit?.toolCalls.filter((call) => call.status === "completed").length ?? 0;
+  const reportKind = completedToolCount > 1
+    ? (language === "zh-CN" ? "组合分析" : "Combined portfolio analysis")
+    : report.job === "explain-period-drivers"
+      ? `${language === "zh-CN" ? "期间表现" : "Performance drivers"} · ${report.scope.period ?? "period"}`
+      : report.job === "summarize-portfolio"
+        ? (language === "zh-CN" ? "组合概览" : "Portfolio overview")
+        : (language === "zh-CN" ? "数据质量诊断" : "Data quality diagnosis");
   return (
     <article className="portfolio-analyst-result" aria-live="polite">
       {report.agentAudit && (
@@ -557,7 +551,7 @@ export function AnalystReport({
               <strong>{language === "zh-CN" ? "已知限制" : "Known limitations"}</strong>
               <ul>
                 {answer.limitations.map((limitation) => (
-                  <li key={limitation.code}>
+                  <li key={analystLimitationKey(limitation)}>
                     {portfolioAnalystLimitationLabel(limitation.code, language)}
                     <EvidenceKeys keys={[limitation.evidenceKey]} facts={evidence} language={language} />
                   </li>
@@ -590,12 +584,16 @@ export function AnalystReport({
         </div>
       </details>
       <small className="analyst-disclaimer">
-        {report.job === "explain-period-drivers"
-          ? `Performance drivers · ${report.scope.period ?? "period"}`
-          : "Data quality diagnosis"} · Facts as of {new Date(report.factsAsOf).toLocaleString()} · {providerNames[report.provider]} · {report.model} · {language === "zh-CN" ? "生成于" : "Generated"} {new Date(report.generatedAt).toLocaleString()} · {report.disclaimer}
+        {reportKind} · Facts as of {new Date(report.factsAsOf).toLocaleString()} · {providerNames[report.provider]} · {report.model} · {language === "zh-CN" ? "生成于" : "Generated"} {new Date(report.generatedAt).toLocaleString()} · {report.disclaimer}
       </small>
     </article>
   );
+}
+
+export function analystLimitationKey(
+  limitation: PortfolioAnalystAnswer["limitations"][number],
+): string {
+  return `${limitation.code}:${limitation.evidenceKey}`;
 }
 
 function Classification({

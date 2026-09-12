@@ -11,6 +11,7 @@ export const ANALYST_CONTEXT_MAX_BYTES = 32 * 1024;
 const MAX_PERIOD_DRIVER_HOLDINGS = 5;
 const MAX_NAMED_DATA_QUALITY_GAPS = 5;
 const MAX_REFRESH_RESULTS = 3;
+const MAX_OVERVIEW_ALLOCATION_GROUPS = 5;
 
 export type AnalystPortfolioReadModel = PortfolioOverviewReadModel & {
   insights: PortfolioInsightsReadModel;
@@ -29,10 +30,15 @@ export type PortfolioAnalystRequest =
       job: "diagnose-data-quality";
       language: PortfolioAnalystLanguage;
       includeHoldingNames: boolean;
+    }
+  | {
+      job: "summarize-portfolio";
+      language: PortfolioAnalystLanguage;
+      includeHoldingNames: boolean;
     };
 
 interface PortfolioTotalFact {
-  key: "portfolio.total";
+  key: string;
   kind: "portfolio-total";
   label: "Portfolio total";
   valueEur: number;
@@ -40,7 +46,7 @@ interface PortfolioTotalFact {
 }
 
 interface PeriodPerformanceFact {
-  key: "period.total";
+  key: string;
   kind: "period-performance";
   label: "Period performance";
   period: Period;
@@ -56,7 +62,7 @@ interface PeriodPerformanceFact {
 }
 
 interface HoldingDriverFact {
-  key: `driver.${number}`;
+  key: string;
   kind: "holding-driver";
   label: "Holding contribution";
   name?: string;
@@ -71,7 +77,7 @@ interface HoldingDriverFact {
 }
 
 interface QualitySummaryFact {
-  key: "quality.summary";
+  key: string;
   kind: "quality-summary";
   label: "Data quality summary";
   valuedHoldingCount: number;
@@ -95,7 +101,7 @@ export type DataGapCategory =
   | "refresh-provider-failure";
 
 interface DataGapFact {
-  key: `quality.gap.${number}`;
+  key: string;
   kind: "data-gap";
   label: "Data gap";
   category: DataGapCategory;
@@ -121,7 +127,7 @@ export type RefreshFailureCategory =
   | "provider-error";
 
 interface RefreshResultFact {
-  key: `refresh.${number}`;
+  key: string;
   kind: "refresh-result";
   label: "Market refresh result";
   mode: MarketRefreshRunReadModel["mode"];
@@ -134,13 +140,55 @@ interface RefreshResultFact {
   provenance: "market-refresh";
 }
 
+interface PortfolioOverviewSummaryFact {
+  key: string;
+  kind: "portfolio-overview-summary";
+  label: "Portfolio overview";
+  totalValueEur: number;
+  investmentPositionCount: number;
+  sourceAccountCount: number;
+  topHoldingName?: string;
+  topHoldingValueEur?: number;
+  topHoldingSharePercent?: number;
+  topThreeSharePercent: number;
+  provenance: "portfolio-insights";
+}
+
+interface PortfolioAllocationFact {
+  key: string;
+  kind: "portfolio-allocation";
+  label: "Portfolio allocation";
+  dimension: "holding-currency" | "asset-category" | "source-account";
+  rank: number;
+  group?: string;
+  valueEur: number;
+  sharePercent: number;
+  holdingCount: number;
+  provenance: "portfolio-insights" | "portfolio-valuation";
+}
+
+interface PortfolioMoverFact {
+  key: string;
+  kind: "portfolio-mover";
+  label: "Recent portfolio mover";
+  direction: "strongest" | "weakest";
+  period: "today";
+  name?: string;
+  changeEur: number;
+  percent: number;
+  provenance: "holding-performance";
+}
+
 export type AnalystEvidenceFact =
   | PortfolioTotalFact
   | PeriodPerformanceFact
   | HoldingDriverFact
   | QualitySummaryFact
   | DataGapFact
-  | RefreshResultFact;
+  | RefreshResultFact
+  | PortfolioOverviewSummaryFact
+  | PortfolioAllocationFact
+  | PortfolioMoverFact;
 
 export const analystLimitationCodes = [
   "period-unavailable",
@@ -191,6 +239,10 @@ export interface PortfolioAnalystTools {
     includeHoldingNames: boolean;
   }): AnalystEvidenceBundleV1;
   readDataQuality(input: {
+    language: PortfolioAnalystLanguage;
+    includeHoldingNames: boolean;
+  }): AnalystEvidenceBundleV1;
+  readPortfolioOverview(input: {
     language: PortfolioAnalystLanguage;
     includeHoldingNames: boolean;
   }): AnalystEvidenceBundleV1;
@@ -562,10 +614,151 @@ function qualityContext(
   };
 }
 
+function overviewContext(
+  portfolio: AnalystPortfolioReadModel,
+  request: Extract<PortfolioAnalystRequest, { job: "summarize-portfolio" }>,
+): PortfolioAnalystContextV1 {
+  const insights = portfolio.insights;
+  const topHolding = insights.summary.topHolding;
+  const summary: PortfolioOverviewSummaryFact = {
+    key: "overview.summary",
+    kind: "portfolio-overview-summary",
+    label: "Portfolio overview",
+    totalValueEur: portfolio.totalValueEur,
+    investmentPositionCount: insights.summary.investmentPositionCount,
+    sourceAccountCount: insights.summary.sourceAccountCount,
+    ...(topHolding
+      ? {
+          ...(request.includeHoldingNames ? { topHoldingName: topHolding.name } : {}),
+          topHoldingValueEur: topHolding.valueEur,
+          topHoldingSharePercent: topHolding.sharePercent,
+        }
+      : {}),
+    topThreeSharePercent: insights.summary.topThreeSharePercent,
+    provenance: "portfolio-insights",
+  };
+  const currencyAllocation: PortfolioAllocationFact[] = insights.holdingCurrencyAllocation
+    .slice(0, MAX_OVERVIEW_ALLOCATION_GROUPS)
+    .map((allocation, index) => ({
+      key: `overview.currency.${index + 1}`,
+      kind: "portfolio-allocation",
+      label: "Portfolio allocation",
+      dimension: "holding-currency",
+      rank: index + 1,
+      group: allocation.currency,
+      valueEur: allocation.valueEur,
+      sharePercent: allocation.sharePercent,
+      holdingCount: allocation.holdingCount,
+      provenance: "portfolio-insights",
+    }));
+  const categoryAllocation: PortfolioAllocationFact[] = insights.categoryAllocation
+    .slice(0, MAX_OVERVIEW_ALLOCATION_GROUPS)
+    .map((allocation, index) => ({
+      key: `overview.category.${index + 1}`,
+      kind: "portfolio-allocation",
+      label: "Portfolio allocation",
+      dimension: "asset-category",
+      rank: index + 1,
+      group: allocation.category,
+      valueEur: allocation.valueEur,
+      sharePercent: allocation.sharePercent,
+      holdingCount: allocation.holdingCount,
+      provenance: "portfolio-insights",
+    }));
+  const accountAllocation: PortfolioAllocationFact[] = portfolio.accountAllocation
+    .slice(0, MAX_OVERVIEW_ALLOCATION_GROUPS)
+    .map((allocation, index) => ({
+      key: `overview.account.${index + 1}`,
+      kind: "portfolio-allocation",
+      label: "Portfolio allocation",
+      dimension: "source-account",
+      rank: index + 1,
+      valueEur: allocation.valueEur,
+      sharePercent: allocation.sharePercent,
+      holdingCount: allocation.holdingCount,
+      provenance: "portfolio-valuation",
+    }));
+  const movers: PortfolioMoverFact[] = insights.recentMovers
+    ? (["strongest", "weakest"] as const).map((direction) => {
+        const mover = insights.recentMovers![direction];
+        return {
+          key: `overview.mover.${direction}`,
+          kind: "portfolio-mover",
+          label: "Recent portfolio mover",
+          direction,
+          period: "today",
+          ...(request.includeHoldingNames ? { name: mover.name } : {}),
+          changeEur: mover.changeEur,
+          percent: mover.percent,
+          provenance: "holding-performance",
+        };
+      })
+    : [];
+  return {
+    ...baseContext(portfolio, request),
+    facts: [
+      summary,
+      ...currencyAllocation,
+      ...categoryAllocation,
+      ...accountAllocation,
+      ...movers,
+      qualitySummary(portfolio),
+    ],
+    limitations: [],
+    allowedActions: [],
+  };
+}
+
 function assertContextSize(context: PortfolioAnalystContextV1): void {
   if (new TextEncoder().encode(JSON.stringify(context)).byteLength > ANALYST_CONTEXT_MAX_BYTES) {
     throw new PortfolioAnalystContextError("context-too-large");
   }
+}
+
+function namespaceEvidenceKey(namespace: string, key: string): string {
+  return `${namespace}.${key}`;
+}
+
+export function namespacePortfolioAnalystContext(
+  context: PortfolioAnalystContextV1,
+  namespace: string,
+): PortfolioAnalystContextV1 {
+  const namespaced: PortfolioAnalystContextV1 = {
+    ...context,
+    facts: context.facts.map((fact) => ({
+      ...fact,
+      key: namespaceEvidenceKey(namespace, fact.key),
+    })),
+    limitations: context.limitations.map((limitation) => ({
+      ...limitation,
+      evidenceKey: namespaceEvidenceKey(namespace, limitation.evidenceKey),
+    })),
+    allowedActions: context.allowedActions.map((action) => ({
+      ...action,
+      reasonEvidenceKey: namespaceEvidenceKey(namespace, action.reasonEvidenceKey),
+    })),
+  };
+  assertContextSize(namespaced);
+  return namespaced;
+}
+
+export function combinePortfolioAnalystContexts(
+  contexts: readonly PortfolioAnalystContextV1[],
+): PortfolioAnalystContextV1 {
+  const first = contexts[0];
+  if (!first || contexts.some((context) =>
+    context.factsAsOf !== first.factsAsOf || context.language !== first.language
+  )) {
+    throw new Error("Portfolio analyst contexts do not share one current snapshot.");
+  }
+  const combined: PortfolioAnalystContextV1 = {
+    ...first,
+    facts: contexts.flatMap((context) => context.facts),
+    limitations: contexts.flatMap((context) => context.limitations),
+    allowedActions: contexts.flatMap((context) => context.allowedActions),
+  };
+  assertContextSize(combined);
+  return combined;
 }
 
 export function createPortfolioAnalystContext(input: {
@@ -574,7 +767,9 @@ export function createPortfolioAnalystContext(input: {
 }): PortfolioAnalystContextV1 {
   const context = input.request.job === "explain-period-drivers"
     ? periodContext(input.portfolio, input.request)
-    : qualityContext(input.portfolio, input.request);
+    : input.request.job === "diagnose-data-quality"
+      ? qualityContext(input.portfolio, input.request)
+      : overviewContext(input.portfolio, input.request);
   assertContextSize(context);
   return context;
 }
@@ -600,6 +795,15 @@ export function createPortfolioAnalystTools(
       return createPortfolioAnalystContext({
         portfolio,
         request: { job: "diagnose-data-quality", ...input },
+      });
+    },
+    readPortfolioOverview(input: {
+      language: PortfolioAnalystLanguage;
+      includeHoldingNames: boolean;
+    }): AnalystEvidenceBundleV1 {
+      return createPortfolioAnalystContext({
+        portfolio,
+        request: { job: "summarize-portfolio", ...input },
       });
     },
   };

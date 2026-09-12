@@ -103,5 +103,31 @@ export function portfolioAnalystEvidenceValue(
         .join(" · ");
     case "refresh-result":
       return `${fact.provider} · ${fact.mode} · completed ${fact.completedAt} · ${fact.updated} updated · ${fact.unchanged} unchanged · ${fact.failed} failed${fact.failureCategories.length ? ` · ${fact.failureCategories.join(", ")}` : ""}`;
+    case "portfolio-overview-summary":
+      return [
+        eur.format(fact.totalValueEur),
+        `${fact.investmentPositionCount} ${language === "zh-CN" ? "项持仓" : "positions"}`,
+        `${fact.sourceAccountCount} ${language === "zh-CN" ? "个账户" : "accounts"}`,
+        fact.topHoldingValueEur === undefined
+          ? undefined
+          : `${fact.topHoldingName ?? (language === "zh-CN" ? "最大持仓" : "Largest holding")} ${eur.format(fact.topHoldingValueEur)} (${fact.topHoldingSharePercent?.toFixed(1)}%)`,
+        `${language === "zh-CN" ? "前三大占比" : "Top three share"} ${fact.topThreeSharePercent.toFixed(1)}%`,
+      ].filter(Boolean).join(" · ");
+    case "portfolio-allocation": {
+      const dimension = language === "zh-CN"
+        ? { "holding-currency": "持仓币种", "asset-category": "资产类别", "source-account": "来源账户" }[fact.dimension]
+        : { "holding-currency": "Holding currency", "asset-category": "Asset category", "source-account": "Source account" }[fact.dimension];
+      const group = fact.group ?? `${language === "zh-CN" ? "第" : "#"}${fact.rank}${language === "zh-CN" ? "大账户" : " account"}`;
+      return `${dimension} · ${group} · ${eur.format(fact.valueEur)} · ${fact.sharePercent.toFixed(1)}% · ${fact.holdingCount} ${language === "zh-CN" ? "项" : "holdings"}`;
+    }
+    case "portfolio-mover":
+      return [
+        fact.direction === "strongest"
+          ? (language === "zh-CN" ? "今日最强" : "Strongest today")
+          : (language === "zh-CN" ? "今日最弱" : "Weakest today"),
+        fact.name ?? (language === "zh-CN" ? "未发送持仓名称" : "Holding name withheld"),
+        signedEur(fact.changeEur),
+        `${fact.percent.toFixed(2)}%`,
+      ].join(" · ");
   }
 }

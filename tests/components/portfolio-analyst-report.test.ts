@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
 import type { PortfolioAnalystReport } from "@/application/portfolio-analyst-provider";
-import { AgentActivityTimeline, AnalystReport } from "@/components/portfolio-analyst";
+import { AgentActivityTimeline, analystLimitationKey, AnalystReport } from "@/components/portfolio-analyst";
 
 const report = {
   provider: "openai",
@@ -100,8 +100,9 @@ describe("Portfolio Analyst report hierarchy", () => {
     expect(disclosure).toBeGreaterThan(answer);
     expect(markup.slice(disclosure, disclosure + 100)).not.toContain("open=");
     expect(evidence).toBeGreaterThan(disclosure);
-    expect(markup).toContain("调用 期间表现");
-    expect(markup).toContain("返回 1 条期间表现事实");
+    expect(markup).toContain("已读取 7 天期间表现 · 1 条当前事实");
+    expect(markup).not.toContain("选择合适的只读工具");
+    expect(markup).not.toContain("生成并验证回答");
   });
 
   it("omits the activity timeline for old reports without an agent audit", () => {
@@ -156,9 +157,21 @@ describe("Portfolio Analyst report hierarchy", () => {
       phase: "completed",
     }));
 
-    for (const label of ["选择合适的只读工具", "调用 期间表现", "返回 1 条期间表现事实", "生成并验证回答"]) {
-      expect(streamed).toContain(label);
-      expect(persisted).toContain(label);
-    }
+    expect(streamed).toContain("已读取 7 天期间表现 · 1 条当前事实");
+    expect(persisted).toContain("已读取 7 天期间表现 · 1 条当前事实");
+    expect(streamed.match(/<li/g)).toHaveLength(1);
+    expect(persisted.match(/<li/g)).toHaveLength(1);
+  });
+
+  it("renders the same limitation for two period evidence keys without duplicate React keys", () => {
+    const limitations = [{
+      code: "portfolio-activity-cause-unknown" as const,
+      evidenceKey: "call1.period.total",
+    }, {
+      code: "portfolio-activity-cause-unknown" as const,
+      evidenceKey: "call2.period.total",
+    }];
+
+    expect(new Set(limitations.map(analystLimitationKey)).size).toBe(limitations.length);
   });
 });

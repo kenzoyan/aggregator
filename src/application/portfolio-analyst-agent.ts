@@ -10,6 +10,7 @@ import type { Period } from "@/application/portfolio-read-model";
 export const portfolioAnalystToolNames = [
   "read_period_drivers",
   "read_data_quality",
+  "read_portfolio_overview",
 ] as const;
 
 export type PortfolioAnalystToolName = typeof portfolioAnalystToolNames[number];

@@ -64,6 +64,12 @@ describe.skipIf(!runCloudEvaluation)("Portfolio Agent real-provider tool selecti
           provenance: "portfolio-read-model",
         }],
       }),
+      readPortfolioOverview: () => ({
+        ...periodContext,
+        job: "summarize-portfolio",
+        scope: {},
+        facts: [],
+      }),
     };
     const runtime = createPiNativePortfolioAnalystRuntime({
       provider: "openai",
@@ -87,6 +93,6 @@ describe.skipIf(!runCloudEvaluation)("Portfolio Agent real-provider tool selecti
     expect(result.audit.toolCalls).toMatchObject([
       { name: "read_period_drivers", input: { period: "week" }, status: "completed" },
     ]);
-    expect(result.answer.answer.evidence).toContain("period.total");
+    expect(result.answer.answer.evidence).toContain("call1.period.total");
   }, 120_000);
 });

@@ -8,7 +8,11 @@ import {
 } from "@earendil-works/pi-ai";
 import { describe, expect, it } from "vitest";
 
-import type { PortfolioAnalystContextV1, PortfolioAnalystTools } from "@/application/portfolio-analyst-context";
+import {
+  namespacePortfolioAnalystContext,
+  type PortfolioAnalystContextV1,
+  type PortfolioAnalystTools,
+} from "@/application/portfolio-analyst-context";
 import { createPiModelControlledPortfolioAnalyst } from "@/infrastructure/pi/pi-model-controlled-portfolio-analyst";
 
 const usage: Usage = {
@@ -65,7 +69,7 @@ const answer = {
   answer: {
     text: "本周上涨 10 欧元，主要来自价格变化。",
     classification: "fact",
-    evidence: ["period.total"],
+    evidence: ["call1.period.total"],
   },
   claims: [],
   limitations: [],
@@ -107,7 +111,7 @@ function completedStream(message: AssistantMessage) {
 }
 
 describe("Pi model-controlled Portfolio Analyst", () => {
-  it("lets the model choose one allowlisted read tool, then validates and audits the answer", async () => {
+  it("lets the model choose an allowlisted read tool, then validates and audits the answer", async () => {
     const seenContexts: Context[] = [];
     const streamFn: StreamFn = (_model, piContext) => {
       seenContexts.push(piContext);
@@ -126,6 +130,7 @@ describe("Pi model-controlled Portfolio Analyst", () => {
     const tools: PortfolioAnalystTools = {
       readPeriodDrivers: () => context,
       readDataQuality: () => { throw new Error("wrong tool"); },
+      readPortfolioOverview: () => { throw new Error("wrong tool"); },
     };
     const deltas: string[] = [];
     const activities: unknown[] = [];
@@ -144,6 +149,7 @@ describe("Pi model-controlled Portfolio Analyst", () => {
     expect(seenContexts[0]?.tools?.map((tool) => tool.name)).toEqual([
       "read_period_drivers",
       "read_data_quality",
+      "read_portfolio_overview",
     ]);
     expect(seenContexts[1]?.messages.at(-1)).toMatchObject({
       role: "toolResult",
@@ -151,7 +157,7 @@ describe("Pi model-controlled Portfolio Analyst", () => {
       isError: false,
     });
     expect(result.answer).toEqual(answer);
-    expect(result.context).toEqual(context);
+    expect(result.context).toEqual(namespacePortfolioAnalystContext(context, "call1"));
     expect(result.audit).toEqual({
       runtime: "pi-agent-core",
       modelTurns: 2,
@@ -162,7 +168,7 @@ describe("Pi model-controlled Portfolio Analyst", () => {
         input: { period: "week" },
         status: "completed",
         factsAsOf: context.factsAsOf,
-        evidenceKeys: ["period.total"],
+        evidenceKeys: ["call1.period.total"],
       }],
     });
     expect(deltas.join("")).toBe(answer.answer.text);
@@ -181,7 +187,7 @@ describe("Pi model-controlled Portfolio Analyst", () => {
     }]);
   });
 
-  it("blocks a second tool call and never gives it access to portfolio facts", async () => {
+  it("combines multiple read tools into one validated evidence set", async () => {
     let modelCall = 0;
     let periodReads = 0;
     let qualityReads = 0;
@@ -189,23 +195,20 @@ describe("Pi model-controlled Portfolio Analyst", () => {
       modelCall += 1;
       if (modelCall === 1) {
         return completedStream(assistant([
+          { type: "toolCall", id: "period-call", name: "read_period_drivers", arguments: { period: "week" } },
           {
             type: "toolCall",
-            id: "allowed-call",
-            name: "read_period_drivers",
-            arguments: { period: "week" },
-          },
-          {
-            type: "toolCall",
-            id: "blocked-call",
+            id: "quality-call",
             name: "read_data_quality",
             arguments: {},
           },
         ], "toolUse"));
       }
-      return completedStream(assistant([
-        { type: "text", text: JSON.stringify(answer) },
-      ], "stop"));
+      const combinedAnswer = {
+        ...answer,
+        answer: { ...answer.answer, evidence: ["call1.period.total", "call2.quality.summary"] },
+      };
+      return completedStream(assistant([{ type: "text", text: JSON.stringify(combinedAnswer) }], "stop"));
     };
     const tools: PortfolioAnalystTools = {
       readPeriodDrivers: () => {
@@ -214,8 +217,26 @@ describe("Pi model-controlled Portfolio Analyst", () => {
       },
       readDataQuality: () => {
         qualityReads += 1;
-        return context;
+        return {
+          ...context,
+          job: "diagnose-data-quality",
+          scope: {},
+          facts: [{
+            key: "quality.summary",
+            kind: "quality-summary",
+            label: "Data quality summary",
+            valuedHoldingCount: 1,
+            freshCount: 1,
+            manualCount: 0,
+            staleCount: 0,
+            awaitingNavCount: 0,
+            missingInputCount: 0,
+            availablePerformancePeriods: ["week"],
+            provenance: "portfolio-read-model",
+          }],
+        };
       },
+      readPortfolioOverview: () => { throw new Error("wrong tool"); },
     };
 
     const result = await createPiModelControlledPortfolioAnalyst({ model, streamFn }).runTurn({
@@ -228,14 +249,70 @@ describe("Pi model-controlled Portfolio Analyst", () => {
     });
 
     expect(periodReads).toBe(1);
-    expect(qualityReads).toBe(0);
-    expect(result.audit.toolCalls).toMatchObject([
-      { toolCallId: "allowed-call", status: "completed" },
-      {
-        toolCallId: "blocked-call",
-        status: "blocked",
-        errorCode: "tool-budget-exceeded",
-      },
+    expect(qualityReads).toBe(1);
+    expect(result.context.facts.map((fact) => fact.key)).toEqual([
+      "call1.period.total",
+      "call2.quality.summary",
     ]);
+    expect(result.audit.toolCalls).toMatchObject([
+      { toolCallId: "period-call", status: "completed", evidenceKeys: ["call1.period.total"] },
+      { toolCallId: "quality-call", status: "completed", evidenceKeys: ["call2.quality.summary"] },
+    ]);
+  });
+
+  it("lets the model read the bounded portfolio overview", async () => {
+    let modelCall = 0;
+    const overviewContext: PortfolioAnalystContextV1 = {
+      ...context,
+      job: "summarize-portfolio",
+      scope: {},
+      facts: [{
+        key: "overview.summary",
+        kind: "portfolio-overview-summary",
+        label: "Portfolio overview",
+        totalValueEur: 1_000,
+        investmentPositionCount: 3,
+        sourceAccountCount: 2,
+        topThreeSharePercent: 80,
+        provenance: "portfolio-insights",
+      }],
+    };
+    const streamFn: StreamFn = () => {
+      modelCall += 1;
+      if (modelCall === 1) {
+        return completedStream(assistant([{
+          type: "toolCall",
+          id: "overview-call",
+          name: "read_portfolio_overview",
+          arguments: {},
+        }], "toolUse"));
+      }
+      return completedStream(assistant([{ type: "text", text: JSON.stringify({
+        ...answer,
+        answer: { ...answer.answer, evidence: ["call1.overview.summary"] },
+      }) }], "stop"));
+    };
+    const tools: PortfolioAnalystTools = {
+      readPeriodDrivers: () => { throw new Error("wrong tool"); },
+      readDataQuality: () => { throw new Error("wrong tool"); },
+      readPortfolioOverview: () => overviewContext,
+    };
+
+    const result = await createPiModelControlledPortfolioAnalyst({ model, streamFn }).runTurn({
+      question: "概括一下我的投资组合。",
+      history: [],
+      tools,
+      language: "zh-CN",
+      includeHoldingNames: false,
+      defaultPeriod: "week",
+    });
+
+    expect(result.context.job).toBe("summarize-portfolio");
+    expect(result.context.facts[0]?.key).toBe("call1.overview.summary");
+    expect(result.audit.toolCalls[0]).toMatchObject({
+      name: "read_portfolio_overview",
+      status: "completed",
+      evidenceKeys: ["call1.overview.summary"],
+    });
   });
 });
