@@ -15,6 +15,10 @@ import {
   demoHoldings,
   periodData,
 } from "@/application/demo-dashboard";
+import {
+  createPortfolioChartPresentation,
+  minimumVisiblePortfolioActivityEur,
+} from "@/application/portfolio-chart-presentation";
 import { formatSignedOriginalMoney } from "@/application/money-format";
 import { portfolioCalendarDate } from "@/application/portfolio-calendar";
 import type {
@@ -116,6 +120,7 @@ function Sparkline({
   label = "Portfolio value trend",
   comparableModel,
   valueTimeline,
+  activityMarkerDates,
 }: {
   points?: number[];
   negative: boolean;
@@ -124,6 +129,7 @@ function Sparkline({
   label?: string;
   comparableModel?: ComparableSparklineModel;
   valueTimeline?: PortfolioValuePointReadModel[];
+  activityMarkerDates?: ReadonlySet<string>;
 }) {
   const gradientId = `chart-fill-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
   const chartPoints = valueTimeline?.map((point) => point.valueEur) ?? points ?? [];
@@ -162,18 +168,14 @@ function Sparkline({
       <path d={geometry.path} fill="none" stroke={negative ? "#d95763" : "#078d68"} strokeWidth="2.2" vectorEffect="non-scaling-stroke" />
       {valueTimeline?.map((point, index) => {
         const coordinate = geometry.coordinates[index];
-        if (
-          !coordinate ||
-          (Math.abs(point.portfolioActivityEur) < 0.01 &&
-            point.holdingActivities.length === 0)
-        ) return null;
+        if (!coordinate || !activityMarkerDates?.has(point.asOf)) return null;
         const holdingSummary = point.holdingActivities
           .map((activity) => `${activity.name} ${activity.kind}`)
           .join(", ");
         const title = [
           formatChartDate(point.asOf),
           holdingSummary,
-          Math.abs(point.portfolioActivityEur) >= 0.01
+          Math.abs(point.portfolioActivityEur) >= minimumVisiblePortfolioActivityEur
             ? `estimated portfolio activity ${signedEur(point.portfolioActivityEur)}`
             : "",
         ].filter(Boolean).join(" · ");
@@ -272,7 +274,7 @@ function returnPercent(percent?: number) {
 
 export function Dashboard() {
   const [period, setPeriod] = useState<Period>("today");
-  const [chartMode, setChartMode] = useState<ChartMode>("value");
+  const [chartMode, setChartMode] = useState<ChartMode>("daily-change");
   const [selectedDailyDate, setSelectedDailyDate] = useState<string>();
   const [source, setSource] = useState(allAccounts);
   const [demoEnabled, setDemoEnabled] = useState(false);
@@ -563,17 +565,13 @@ export function Dashboard() {
           timeline: demoValueTimeline,
         }
       : undefined;
-  const portfolioActivities = valueHistory?.activityAvailable
-    ? valueHistory.timeline.filter((point) =>
-        Math.abs(point.portfolioActivityEur) >= 0.01
-      )
-    : [];
-  const holdingActivities = valueHistory?.timeline.flatMap((point) =>
-    point.holdingActivities.map((activity) => ({
-      asOf: point.asOf,
-      ...activity,
-    }))
-  ) ?? [];
+  const chartPresentation = createPortfolioChartPresentation(
+    period,
+    valueHistory?.timeline ?? [],
+    valueHistory?.activityAvailable ?? false,
+  );
+  const activityGroups = chartPresentation.activityGroups;
+  const activityMarkerDates = new Set(chartPresentation.markerDates);
   const persistedMarketMessage = latestMarketResult
     ? latestMarketResult.failed > 0
       ? `Last check failed: ${formatRefreshFailures(latestMarketResult.failures)}; previous prices kept`
@@ -667,12 +665,12 @@ export function Dashboard() {
             <p className="subtle">EUR base currency · original currencies retained</p>
             <div className="chart-toolbar">
               <div className="chart-mode-tabs" role="group" aria-label="Select chart metric">
-                <button type="button" className={chartMode === "value" ? "selected" : ""} onClick={() => setChartMode("value")} aria-pressed={chartMode === "value"}>Total value</button>
-                <button type="button" className={chartMode === "daily-change" ? "selected" : ""} onClick={() => setChartMode("daily-change")} aria-pressed={chartMode === "daily-change"}>Daily change</button>
+                <button type="button" className={chartMode === "daily-change" ? "selected" : ""} onClick={() => setChartMode("daily-change")} aria-pressed={chartMode === "daily-change"}>Investment change</button>
+                <button type="button" className={chartMode === "value" ? "selected" : ""} onClick={() => setChartMode("value")} aria-pressed={chartMode === "value"} disabled={period === "today"}>Total value</button>
               </div>
               <div className="period-tabs" role="group" aria-label="Select chart period">
                 {(Object.keys(periodData) as Period[]).map((key) => (
-                  <button key={key} className={period === key ? "selected" : ""} onClick={() => { setPeriod(key); setSelectedDailyDate(undefined); }} aria-pressed={period === key}>
+                  <button key={key} className={period === key ? "selected" : ""} onClick={() => { setPeriod(key); if (key === "today") setChartMode("daily-change"); setSelectedDailyDate(undefined); }} aria-pressed={period === key}>
                     {periodData[key].label}
                   </button>
                 ))}
@@ -709,7 +707,7 @@ export function Dashboard() {
                 <div><span>{current.label} change</span><strong className="pending-change">Waiting for another dated NAV</strong><small>Starts after two dated prices are recorded</small></div>
               ) : (
                 <div>
-                  <span>{current.label} change</span>
+                  <span>{current.label} investment change</span>
                   <strong className={current.change >= 0 ? "positive" : "negative"}>
                     {current.change >= 0 ? "+" : "−"}{eur.format(Math.abs(current.change))}
                   </strong>
@@ -726,6 +724,14 @@ export function Dashboard() {
                       Latest available daily move per holding · QDII NAVs may publish later
                     </small>
                   )}
+                  {isLocal && localHistory?.available &&
+                    localHistory.priceChange !== undefined &&
+                    localHistory.fxChange !== undefined && (
+                    <div className="investment-breakdown" aria-label="Investment change components">
+                      <span>Price <strong className={localHistory.priceChange >= 0 ? "positive" : "negative"}>{signedEur(localHistory.priceChange)}</strong></span>
+                      <span>FX <strong className={localHistory.fxChange >= 0 ? "positive" : "negative"}>{signedEur(localHistory.fxChange)}</strong></span>
+                    </div>
+                  )}
                   <small className="performance-history-note">Investment performance · capital flows excluded</small>
                 </div>
               )}
@@ -735,45 +741,52 @@ export function Dashboard() {
                   : "Prices still use confirmed imports"
                 : usingReviewedDemo ? "Stored only in this browser" : demoEnabled ? "Some funds await NAV" : "No demo data mixed in"}</span>
             </div>
-            {chartMode === "value" && valueHistory?.available && valueHistory.timeline.length > 1 ? (
+            {chartMode === "value" && valueHistory?.available && chartPresentation.showValueTrend ? (
               <>
                 <Sparkline
                   negative={valueHistory.change < 0}
                   label={`${periodData[period].label} total portfolio value trend`}
                   valueTimeline={valueHistory.timeline}
+                  activityMarkerDates={activityMarkerDates}
                 />
-                {(holdingActivities.length > 0 || portfolioActivities.length > 0) && (
+                {activityGroups.length > 0 && (
                   <section className="portfolio-activity-list" aria-label="Portfolio activity during this period">
                     <div>
-                      <strong>Portfolio events</strong>
+                      <strong>Portfolio activity</strong>
                       <small>Holding changes are ledger facts; capital activity is estimated from otherwise unexplained value movement</small>
                     </div>
                     <ul>
-                      {holdingActivities.slice(-4).map((activity) => (
-                        <li key={`${activity.asOf}:${activity.holdingId}`}>
-                          <span>{formatChartDate(activity.asOf)}</span>
-                          <strong>{activity.name}</strong>
-                          <small>{activity.kind === "added"
-                            ? "Position added"
-                            : activity.kind === "increased"
-                              ? "Position increased"
-                              : activity.kind === "reduced"
-                                ? "Position reduced"
-                                : "Position exited"} · {activity.quantityDelta.startsWith("-") ? "" : "+"}{activity.quantityDelta} units</small>
-                        </li>
-                      ))}
-                      {portfolioActivities.slice(-4).map((activity) => (
-                        <li key={`${activity.asOf}:estimated-capital`}>
-                          <span>{formatChartDate(activity.asOf)}</span>
-                          <strong className={activity.portfolioActivityEur > 0 ? "positive" : "negative"}>{signedEur(activity.portfolioActivityEur)}</strong>
-                          <small>Estimated capital activity</small>
+                      {activityGroups.map((group) => (
+                        <li key={group.asOf}>
+                          <span>{formatChartDate(group.asOf)}</span>
+                          {group.holdingActivities.length > 0 ? (
+                            <>
+                              <strong>{group.holdingActivities.length === 1
+                                ? group.holdingActivities[0]!.name
+                                : `${group.holdingActivities.length} holding changes`}</strong>
+                              {group.holdingActivities.map((activity) => (
+                                <small key={activity.holdingId}>{activity.name} · {activity.kind === "added"
+                                  ? "added"
+                                  : activity.kind === "increased"
+                                    ? "increased"
+                                    : activity.kind === "reduced"
+                                      ? "reduced"
+                                      : "exited"} {activity.quantityDelta.startsWith("-") ? "" : "+"}{activity.quantityDelta} units</small>
+                              ))}
+                            </>
+                          ) : group.portfolioActivityEur !== undefined ? (
+                            <strong className={group.portfolioActivityEur > 0 ? "positive" : "negative"}>{signedEur(group.portfolioActivityEur)}</strong>
+                          ) : null}
+                          {group.portfolioActivityEur !== undefined && (
+                            <small className="activity-estimate">Estimated capital activity {signedEur(group.portfolioActivityEur)}</small>
+                          )}
                         </li>
                       ))}
                     </ul>
                   </section>
                 )}
               </>
-            ) : chartMode === "value" ? (
+            ) : chartMode === "value" && period === "today" ? null : chartMode === "value" ? (
               <div className="sparkline-empty">Value trend appears after another dated valuation</div>
             ) : period === "today" ? null : !dailyHistoryAvailable ? (
               <div className="sparkline-empty">Daily changes appear after another dated valuation</div>
@@ -782,7 +795,7 @@ export function Dashboard() {
                 changes={dailyChanges}
                 selectedAsOf={selectedDailyDate}
                 onSelect={setSelectedDailyDate}
-                label={`${periodData[period].label} daily portfolio changes`}
+                label={`${periodData[period].label} capital-flow-adjusted investment changes`}
               />
             )}
           </article>
@@ -799,7 +812,7 @@ export function Dashboard() {
             <summary>
               <span>
                 <strong>Refresh history</strong>
-                <small>Recent Market Data checks · holdings never change here</small>
+                <small>Latest 10 Market Data checks · holdings never change here</small>
               </span>
               <span>{marketRefreshHistory.length} run{marketRefreshHistory.length === 1 ? "" : "s"}</span>
             </summary>
