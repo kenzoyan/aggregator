@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { createPortfolioNarrativeHandlers } from "@/app/api/portfolio/narrative/route";
+import { createPortfolioNarrativeHandlers } from "@/app/api/portfolio/narrative/handler";
 import type {
   PortfolioNarrativeReport,
   PortfolioNarrativeProvider,

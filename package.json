@@ -2,6 +2,9 @@
   "name": "invest-assets-monitor",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": "^22.12.0 || >=24.0.0"
+  },
   "scripts": {
     "dev": "NODE_OPTIONS=--experimental-sqlite next dev",
     "build": "NODE_OPTIONS=--experimental-sqlite next build",
@@ -13,11 +16,20 @@
   "dependencies": {
     "@earendil-works/pi-agent-core": "0.85.1",
     "@earendil-works/pi-ai": "0.85.1",
+    "@tailwindcss/postcss": "^4.3.3",
+    "clsx": "^2.1.1",
     "decimal.js": "10.6.0",
-    "next": "16.2.10",
+    "geist": "^1.7.2",
+    "lucide-react": "^1.45.0",
+    "next": "^16.3.5",
+    "postcss": "^8.5.28",
     "react": "19.2.7",
     "react-dom": "19.2.7",
-    "sharp": "0.34.5",
+    "react-is": "^19.2.7",
+    "recharts": "^3.10.1",
+    "sharp": "^0.35.4",
+    "tailwind-merge": "^3.6.0",
+    "tailwindcss": "^4.3.3",
     "zod": "4.4.3"
   },
   "devDependencies": {
@@ -25,6 +37,6 @@
     "@types/react": "19.2.17",
     "@types/react-dom": "19.2.3",
     "typescript": "5.9.3",
-    "vitest": "3.2.7"
+    "vitest": "^4.1.11"
   }
 }

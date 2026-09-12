@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { createTrading212ImportHandler } from "@/app/api/imports/trading212/route";
+import { createTrading212ImportHandler } from "@/app/api/imports/trading212/handler";
 import type { ImportDraftInput, StoredImportDraft } from "@/domain/imports";
 import type { PortfolioState } from "@/domain/portfolio/types";
 import { Trading212RequestError } from "@/infrastructure/trading212/trading212-client";

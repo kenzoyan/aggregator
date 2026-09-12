@@ -2,6 +2,15 @@
 
 import Link from "next/link";
 import {
+  ArrowDownToLine,
+  ChartNoAxesCombined,
+  LayoutDashboard,
+  Plus,
+  RefreshCw,
+  ShieldCheck,
+  WalletCards,
+} from "lucide-react";
+import {
   useEffect,
   useId,
   useMemo,
@@ -41,6 +50,8 @@ import {
 import type { MarketRefreshResult } from "@/application/market-refresh";
 import { PortfolioAnalyst } from "@/components/portfolio-analyst";
 import { PortfolioInsights } from "@/components/portfolio-insights";
+import { PortfolioValueChart } from "@/components/ui/portfolio-value-chart";
+import { cn } from "@/lib/utils";
 
 const eur = new Intl.NumberFormat("en-FI", {
   style: "currency",
@@ -292,6 +303,7 @@ export function Dashboard() {
   const [manualPriceError, setManualPriceError] = useState<string>();
   const [selectedHoldingId, setSelectedHoldingId] = useState<string>();
   const [drawerPeriod, setDrawerPeriod] = useState<Period>("today");
+  const [activeSection, setActiveSection] = useState<"overview" | "holdings">("overview");
   const holdingDrawerRef = useRef<HTMLElement>(null);
   const holdingDrawerTriggerRef = useRef<HTMLElement | null>(null);
   const priceEditorRef = useRef<HTMLFormElement>(null);
@@ -343,6 +355,26 @@ export function Dashboard() {
       .catch(() => undefined)
       .finally(() => setLoading(false));
     return () => controller.abort();
+  }, []);
+
+  useEffect(() => {
+    function updateActiveSection() {
+      const holdingsSection = document.getElementById("holdings");
+      if (!holdingsSection) return;
+      setActiveSection(
+        holdingsSection.getBoundingClientRect().top <= window.innerHeight * 0.35
+          ? "holdings"
+          : "overview",
+      );
+    }
+
+    updateActiveSection();
+    window.addEventListener("scroll", updateActiveSection, { passive: true });
+    window.addEventListener("resize", updateActiveSection);
+    return () => {
+      window.removeEventListener("scroll", updateActiveSection);
+      window.removeEventListener("resize", updateActiveSection);
+    };
   }, []);
 
   useEffect(() => {
@@ -583,21 +615,25 @@ export function Dashboard() {
   return (
     <div className="app-shell">
       <aside className="sidebar" aria-hidden={Boolean(selectedHolding || priceEditor)}>
-        <div className="brand-mark" aria-hidden="true">IM</div>
+        <Link className="brand" href="/" aria-label="Invest Monitor overview">
+          <span className="brand-mark" aria-hidden="true">I</span>
+          <span className="brand-copy"><strong>Invest</strong><small>Private monitor</small></span>
+        </Link>
         <nav aria-label="Main navigation">
-          <a className="nav-item active" href="#overview" title="Overview"><span>◫</span>Overview</a>
-          <a className="nav-item" href="#holdings" title="Holdings"><span>◎</span>Holdings</a>
-          <Link className="nav-item" href="/accounts" title="Accounts"><span>⌁</span>Accounts</Link>
-          <Link className="nav-item" href="/imports" title="Import"><span>↥</span>Import</Link>
+          <a className={cn("nav-item", activeSection === "overview" && "active")} href="#overview" aria-current={activeSection === "overview" ? "location" : undefined}><LayoutDashboard aria-hidden="true" />Overview</a>
+          <a className={cn("nav-item", activeSection === "holdings" && "active")} href="#holdings" aria-current={activeSection === "holdings" ? "location" : undefined}><ChartNoAxesCombined aria-hidden="true" />Holdings</a>
+          <Link className="nav-item" href="/accounts"><WalletCards aria-hidden="true" />Accounts</Link>
+          <Link className="nav-item" href="/imports"><ArrowDownToLine aria-hidden="true" />Import</Link>
         </nav>
-        <div className="privacy-note"><span className="status-dot" />Local portfolio<br /><small>Confirmed records stay on this device</small></div>
+        <div className="privacy-note"><ShieldCheck aria-hidden="true" /><span><strong>Private by design</strong><small>Confirmed records stay on this device</small></span></div>
       </aside>
 
       <main className="main-content" id="overview" aria-hidden={Boolean(selectedHolding || priceEditor)}>
         <header className="topbar">
           <div>
-            <p className="eyebrow">INVEST ASSETS MONITOR</p>
-            <h1>Portfolio overview</h1>
+            <p className="eyebrow">YOUR PRIVATE WEALTH</p>
+            <h1>Your portfolio, at a glance.</h1>
+            <p className="page-intro">A calm view of everything you own, measured in euros.</p>
           </div>
           <div className="header-actions">
             <span className="demo-badge">{isLocal ? "Local data" : portfolioLoadError ? "Load failed" : demoEnabled ? "Demo data" : loading ? "Loading" : "No portfolio"}</span>
@@ -613,10 +649,11 @@ export function Dashboard() {
                 onClick={() => void refreshPrices()}
                 disabled={refreshingPrices}
               >
-                {refreshingPrices ? "Refreshing…" : "↻ Refresh prices"}
+                <RefreshCw aria-hidden="true" className={refreshingPrices ? "is-spinning" : undefined} />
+                {refreshingPrices ? "Refreshing…" : "Refresh prices"}
               </button>
             )}
-            <Link className="primary-button" href="/imports">Update assets</Link>
+            <Link className="primary-button" href="/imports"><Plus aria-hidden="true" />Update assets</Link>
           </div>
         </header>
 
@@ -635,7 +672,7 @@ export function Dashboard() {
         {!loading && !portfolioLoadError && !hasVisiblePortfolio && (
           <section className="empty-portfolio-banner">
             <div>
-              <span>◎</span>
+              <span><WalletCards aria-hidden="true" /></span>
               <div>
                 <p className="eyebrow">YOUR PORTFOLIO IS EMPTY</p>
                 <h2>Start with a screenshot, manual entry or Trading 212</h2>
@@ -743,10 +780,10 @@ export function Dashboard() {
             </div>
             {chartMode === "value" && valueHistory?.available && chartPresentation.showValueTrend ? (
               <>
-                <Sparkline
+                <PortfolioValueChart
                   negative={valueHistory.change < 0}
                   label={`${periodData[period].label} total portfolio value trend`}
-                  valueTimeline={valueHistory.timeline}
+                  timeline={valueHistory.timeline}
                   activityMarkerDates={activityMarkerDates}
                 />
                 {activityGroups.length > 0 && (
@@ -1082,10 +1119,10 @@ export function Dashboard() {
       )}
 
       <nav className="mobile-nav" aria-label="Mobile navigation" aria-hidden={Boolean(selectedHolding || priceEditor)}>
-        <a className="active" href="#overview"><span>◫</span>Overview</a>
-        <a href="#holdings"><span>◎</span>Holdings</a>
-        <Link href="/accounts"><span>⌁</span>Accounts</Link>
-        <Link href="/imports"><span>↥</span>Import</Link>
+        <a className={activeSection === "overview" ? "active" : undefined} href="#overview" aria-current={activeSection === "overview" ? "location" : undefined}><LayoutDashboard aria-hidden="true" />Overview</a>
+        <a className={activeSection === "holdings" ? "active" : undefined} href="#holdings" aria-current={activeSection === "holdings" ? "location" : undefined}><ChartNoAxesCombined aria-hidden="true" />Holdings</a>
+        <Link href="/accounts"><WalletCards aria-hidden="true" />Accounts</Link>
+        <Link href="/imports"><ArrowDownToLine aria-hidden="true" />Import</Link>
       </nav>
     </div>
   );

@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   createImportConfirmHandler,
-} from "@/app/api/imports/[id]/confirm/route";
+} from "@/app/api/imports/[id]/confirm/handler";
 import { createImportDraftReadModel } from "@/application/imports/import-draft-read-model";
 import {
   draftPortfolioFromOpeningSnapshot,

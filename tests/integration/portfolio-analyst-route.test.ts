@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { createPortfolioAnalystHandlers } from "@/app/api/portfolio/analyst/route";
+import { createPortfolioAnalystHandlers } from "@/app/api/portfolio/analyst/handler";
 import type {
   PortfolioAnalystConversation,
   PortfolioAnalystConversationStore,

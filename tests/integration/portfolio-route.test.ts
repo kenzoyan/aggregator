@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { createPortfolioHandler } from "@/app/api/portfolio/route";
+import { createPortfolioHandler } from "@/app/api/portfolio/handler";
 import { buildPortfolioState } from "@/domain/portfolio/ledger";
 
 describe("GET /api/portfolio", () => {
