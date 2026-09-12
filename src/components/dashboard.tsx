@@ -2,15 +2,8 @@
 
 import Link from "next/link";
 import {
-  ArrowDownToLine,
-  ChartNoAxesCombined,
-  LayoutDashboard,
-  PanelLeftClose,
-  PanelLeftOpen,
   Plus,
   RefreshCw,
-  Settings,
-  ShieldCheck,
   WalletCards,
 } from "lucide-react";
 import {
@@ -53,8 +46,8 @@ import {
 import type { MarketRefreshResult } from "@/application/market-refresh";
 import { PortfolioAnalyst } from "@/components/portfolio-analyst";
 import { PortfolioInsights } from "@/components/portfolio-insights";
+import { useAppShellModalState } from "@/components/app-shell";
 import { PortfolioValueChart } from "@/components/ui/portfolio-value-chart";
-import { cn } from "@/lib/utils";
 
 const eur = new Intl.NumberFormat("en-FI", {
   style: "currency",
@@ -85,7 +78,6 @@ const freshnessLabels: Record<HoldingReadModel["freshness"], string> = {
 };
 
 const allAccounts = "All accounts";
-const sidebarPreferenceStorageKey = "invest-monitor.sidebar-expanded.v1";
 type ChartMode = "value" | "daily-change";
 
 interface AutomaticRefreshSkip {
@@ -288,7 +280,7 @@ function returnPercent(percent?: number) {
 }
 
 export function Dashboard() {
-  const [sidebarExpanded, setSidebarExpanded] = useState(false);
+  const setAppShellModalActive = useAppShellModalState();
   const [period, setPeriod] = useState<Period>("today");
   const [chartMode, setChartMode] = useState<ChartMode>("daily-change");
   const [selectedDailyDate, setSelectedDailyDate] = useState<string>();
@@ -308,31 +300,15 @@ export function Dashboard() {
   const [manualPriceError, setManualPriceError] = useState<string>();
   const [selectedHoldingId, setSelectedHoldingId] = useState<string>();
   const [drawerPeriod, setDrawerPeriod] = useState<Period>("today");
-  const [activeSection, setActiveSection] = useState<"overview" | "holdings">("overview");
   const holdingDrawerRef = useRef<HTMLElement>(null);
   const holdingDrawerTriggerRef = useRef<HTMLElement | null>(null);
   const priceEditorRef = useRef<HTMLFormElement>(null);
   const priceEditorTriggerRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
-    try {
-      setSidebarExpanded(window.localStorage.getItem(sidebarPreferenceStorageKey) === "true");
-    } catch {
-      // The compact default still works when browser storage is unavailable.
-    }
-  }, []);
-
-  function toggleSidebar() {
-    setSidebarExpanded((current) => {
-      const next = !current;
-      try {
-        window.localStorage.setItem(sidebarPreferenceStorageKey, String(next));
-      } catch {
-        // The current page can still use the selected layout without persistence.
-      }
-      return next;
-    });
-  }
+    setAppShellModalActive(Boolean(selectedHoldingId || priceEditor));
+    return () => setAppShellModalActive(false);
+  }, [priceEditor, selectedHoldingId, setAppShellModalActive]);
 
   async function loadLocalPortfolio(signal?: AbortSignal) {
     setPortfolioLoadError(undefined);
@@ -380,26 +356,6 @@ export function Dashboard() {
       .catch(() => undefined)
       .finally(() => setLoading(false));
     return () => controller.abort();
-  }, []);
-
-  useEffect(() => {
-    function updateActiveSection() {
-      const holdingsSection = document.getElementById("holdings");
-      if (!holdingsSection) return;
-      setActiveSection(
-        holdingsSection.getBoundingClientRect().top <= window.innerHeight * 0.35
-          ? "holdings"
-          : "overview",
-      );
-    }
-
-    updateActiveSection();
-    window.addEventListener("scroll", updateActiveSection, { passive: true });
-    window.addEventListener("resize", updateActiveSection);
-    return () => {
-      window.removeEventListener("scroll", updateActiveSection);
-      window.removeEventListener("resize", updateActiveSection);
-    };
   }, []);
 
   useEffect(() => {
@@ -638,34 +594,7 @@ export function Dashboard() {
     : "Use Refresh prices to begin";
 
   return (
-    <div className={cn("app-shell", sidebarExpanded ? "sidebar-expanded" : "sidebar-collapsed")}>
-      <aside className="sidebar" aria-hidden={Boolean(selectedHolding || priceEditor)}>
-        <Link className="brand" href="/" aria-label="Invest Monitor overview">
-          <span className="brand-mark" aria-hidden="true">I</span>
-          <span className="brand-copy"><strong>Invest</strong><small>Private monitor</small></span>
-        </Link>
-        <nav aria-label="Main navigation">
-          <a className={cn("nav-item", activeSection === "overview" && "active")} href="#overview" aria-current={activeSection === "overview" ? "location" : undefined}><LayoutDashboard aria-hidden="true" />Overview</a>
-          <a className={cn("nav-item", activeSection === "holdings" && "active")} href="#holdings" aria-current={activeSection === "holdings" ? "location" : undefined}><ChartNoAxesCombined aria-hidden="true" />Holdings</a>
-          <Link className="nav-item" href="/accounts"><WalletCards aria-hidden="true" />Accounts</Link>
-          <Link className="nav-item" href="/imports"><ArrowDownToLine aria-hidden="true" />Import</Link>
-          <Link className="nav-item" href="/settings"><Settings aria-hidden="true" />Settings</Link>
-        </nav>
-        <div className="sidebar-footer">
-          <button
-            type="button"
-            className="sidebar-toggle"
-            aria-label={sidebarExpanded ? "Collapse navigation" : "Expand navigation"}
-            title={sidebarExpanded ? "Collapse navigation" : "Expand navigation"}
-            onClick={toggleSidebar}
-          >
-            {sidebarExpanded ? <PanelLeftClose aria-hidden="true" /> : <PanelLeftOpen aria-hidden="true" />}
-            <span>{sidebarExpanded ? "Collapse" : "Expand"}</span>
-          </button>
-          <div className="privacy-note"><ShieldCheck aria-hidden="true" /><span><strong>Private by design</strong><small>Confirmed records stay on this device</small></span></div>
-        </div>
-      </aside>
-
+    <>
       <main className="main-content" id="overview" aria-hidden={Boolean(selectedHolding || priceEditor)}>
         <header className="topbar">
           <div>
@@ -1019,7 +948,7 @@ export function Dashboard() {
         </section>
       </main>
 
-      <PortfolioAnalyst />
+      <PortfolioAnalyst blocked={Boolean(selectedHolding || priceEditor)} />
 
       {selectedHolding?.detail && (
         <div className="holding-drawer-backdrop" role="presentation" onMouseDown={closeHoldingDrawer}>
@@ -1156,13 +1085,6 @@ export function Dashboard() {
         </div>
       )}
 
-      <nav className="mobile-nav" aria-label="Mobile navigation" aria-hidden={Boolean(selectedHolding || priceEditor)}>
-        <a className={activeSection === "overview" ? "active" : undefined} href="#overview" aria-current={activeSection === "overview" ? "location" : undefined}><LayoutDashboard aria-hidden="true" />Overview</a>
-        <a className={activeSection === "holdings" ? "active" : undefined} href="#holdings" aria-current={activeSection === "holdings" ? "location" : undefined}><ChartNoAxesCombined aria-hidden="true" />Holdings</a>
-        <Link href="/accounts"><WalletCards aria-hidden="true" />Accounts</Link>
-        <Link href="/imports"><ArrowDownToLine aria-hidden="true" />Import</Link>
-        <Link href="/settings"><Settings aria-hidden="true" />Settings</Link>
-      </nav>
-    </div>
+    </>
   );
 }

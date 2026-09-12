@@ -72,7 +72,7 @@ const starterQuestions = {
   ],
 } as const;
 
-export function PortfolioAnalyst() {
+export function PortfolioAnalyst({ blocked = false }: { blocked?: boolean }) {
   const activeRequest = useRef<AbortController | undefined>(undefined);
   const conversationView = useRef<HTMLDivElement | null>(null);
   const [open, setOpen] = useState(false);
@@ -258,7 +258,11 @@ export function PortfolioAnalyst() {
   }
 
   return (
-    <div className={`portfolio-agent-shell${open ? " open" : ""}`}>
+    <div
+      className={`portfolio-agent-shell${open ? " open" : ""}`}
+      aria-hidden={blocked || undefined}
+      inert={blocked || undefined}
+    >
       {!open && (
         <button
           type="button"
@@ -365,8 +369,8 @@ export function PortfolioAnalyst() {
           <div className="analyst-composer-actions">
             <small>
               {language === "zh-CN"
-                ? "发送当前有界事实及最多 3 轮本地对话；不会发送截图、凭据、数量或成本基础。"
-                : "Sends current bounded facts and up to 3 local turns; never screenshots, credentials, quantities or cost basis."}
+                ? "仅供信息，不构成投资建议 · 发送当前有界事实及最多 3 轮本地对话。"
+                : "Information only, not investment advice · Sends current bounded facts and up to 3 local turns."}
             </small>
             {conversation && (
               <button type="button" className="secondary" disabled={loading} onClick={() => void resetConversation()}>
@@ -505,10 +509,15 @@ export function AnalystReport({
   const evidence = new Map(report.evidence.map((fact) => [fact.key, fact]));
   const answer = report.answer;
   const completedToolCount = report.agentAudit?.toolCalls.filter((call) => call.status === "completed").length ?? 0;
+  const periodLabel = report.scope.period
+    ? (language === "zh-CN"
+        ? { today: "今日", week: "7 天", month: "30 天" }[report.scope.period]
+        : { today: "Today", week: "7 days", month: "30 days" }[report.scope.period])
+    : undefined;
   const reportKind = completedToolCount > 1
     ? (language === "zh-CN" ? "组合分析" : "Combined portfolio analysis")
     : report.job === "explain-period-drivers"
-      ? `${language === "zh-CN" ? "期间表现" : "Performance drivers"} · ${report.scope.period ?? "period"}`
+      ? `${language === "zh-CN" ? "期间表现" : "Performance drivers"} · ${periodLabel ?? (language === "zh-CN" ? "所选期间" : "Selected period")}`
       : report.job === "summarize-portfolio"
         ? (language === "zh-CN" ? "组合概览" : "Portfolio overview")
         : (language === "zh-CN" ? "数据质量诊断" : "Data quality diagnosis");
@@ -581,10 +590,23 @@ export function AnalystReport({
               ))}
             </dl>
           </section>
+          <section className="analyst-report-metadata">
+            <h4>{language === "zh-CN" ? "回答信息" : "Answer details"}</h4>
+            <dl>
+              <div><dt>{language === "zh-CN" ? "范围" : "Scope"}</dt><dd>{reportKind}</dd></div>
+              {report.factsAsOf !== report.generatedAt && <div><dt>{language === "zh-CN" ? "分析快照" : "Analysis snapshot"}</dt><dd>{new Date(report.factsAsOf).toLocaleString()}</dd></div>}
+              <div><dt>{language === "zh-CN" ? "生成时间" : "Generated"}</dt><dd>{new Date(report.generatedAt).toLocaleString()}</dd></div>
+              <div><dt>{language === "zh-CN" ? "模型" : "Model"}</dt><dd>{providerNames[report.provider]} · {report.model}</dd></div>
+            </dl>
+          </section>
         </div>
       </details>
       <small className="analyst-disclaimer">
-        {reportKind} · Facts as of {new Date(report.factsAsOf).toLocaleString()} · {providerNames[report.provider]} · {report.model} · {language === "zh-CN" ? "生成于" : "Generated"} {new Date(report.generatedAt).toLocaleString()} · {report.disclaimer}
+        <time dateTime={report.generatedAt}>{new Intl.DateTimeFormat(
+          language === "zh-CN" ? "zh-CN" : "en-FI",
+          { hour: "2-digit", minute: "2-digit" },
+        ).format(new Date(report.generatedAt))}</time>
+        <span>{language === "zh-CN" ? "基于本地事实" : "Based on local facts"}</span>
       </small>
     </article>
   );

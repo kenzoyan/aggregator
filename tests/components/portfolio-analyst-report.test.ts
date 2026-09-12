@@ -85,6 +85,10 @@ describe("Portfolio Analyst report hierarchy", () => {
     expect(supportingFact).toBeGreaterThan(disclosure);
     expect(markup.indexOf("已知限制")).toBeGreaterThan(disclosure);
     expect(markup.indexOf("建议的事实更新")).toBeGreaterThan(disclosure);
+    expect(markup).toContain("回答信息");
+    expect(markup).toContain("OpenAI · gpt-synthetic");
+    expect(markup).toContain("基于本地事实");
+    expect(markup).not.toContain("AI-generated factual explanation");
   });
 
   it("shows agent activity before the answer and keeps facts in one disclosure below", () => {

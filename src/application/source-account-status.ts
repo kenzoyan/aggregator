@@ -4,6 +4,10 @@ import type {
 } from "@/domain/portfolio/types";
 import { selectLatestSnapshotsByAccount } from "@/domain/portfolio/ledger";
 import type { SourceAccountDefinition } from "@/domain/source-accounts";
+import type {
+  HoldingReadModel,
+  MissingValuationInputReadModel,
+} from "@/application/portfolio-read-model";
 
 export type SourceAccountConnectionStatus = "current" | "stale" | "not-connected";
 
@@ -28,7 +32,51 @@ export interface SourceAccountView extends SourceAccountStatus {
   connector?: SourceAccountConnectorStatus;
 }
 
+export interface SourceAccountMarketDataStatus {
+  sourceAccountId: string;
+  status: "current" | "attention" | "manual";
+  asOf?: string;
+  holdingCount: number;
+}
+
 const DAY_MS = 24 * 60 * 60 * 1000;
+
+export function createSourceAccountMarketDataStatuses(
+  holdings: readonly Pick<
+    HoldingReadModel,
+    "sourceAccountId" | "category" | "freshness" | "asOf" | "detail"
+  >[],
+  missingInputs: readonly Pick<MissingValuationInputReadModel, "sourceAccountId">[] = [],
+): SourceAccountMarketDataStatus[] {
+  const investments = holdings.filter((holding) => holding.category !== "Portfolio cash");
+  const accountIds = new Set([
+    ...investments.map((holding) => holding.sourceAccountId),
+    ...missingInputs.flatMap((missing) => missing.sourceAccountId ? [missing.sourceAccountId] : []),
+  ]);
+  return [...accountIds].map((sourceAccountId) => {
+    const accountHoldings = investments.filter((holding) => holding.sourceAccountId === sourceAccountId);
+    const accountMissingInputs = missingInputs.filter((missing) => missing.sourceAccountId === sourceAccountId);
+    const problemHoldings = accountHoldings.filter((holding) =>
+      holding.freshness === "stale" || holding.freshness === "awaiting-nav"
+    );
+    const status = accountMissingInputs.length > 0 || problemHoldings.length > 0
+      ? "attention" as const
+      : accountHoldings.some((holding) => holding.freshness === "manual")
+        ? "manual" as const
+        : "current" as const;
+    const datedHoldings = status === "attention" ? problemHoldings : accountHoldings;
+    const dates = datedHoldings
+      .map((holding) => holding.detail?.currentPriceAsOf ?? holding.asOf)
+      .sort();
+    const asOf = status === "attention" ? dates.at(0) : dates.at(-1);
+    return {
+      sourceAccountId,
+      status,
+      ...(asOf ? { asOf } : {}),
+      holdingCount: accountHoldings.length + accountMissingInputs.length,
+    };
+  });
+}
 
 export function createSourceAccountStatusReadModel(input: {
   accounts: readonly SourceAccountDefinition[];

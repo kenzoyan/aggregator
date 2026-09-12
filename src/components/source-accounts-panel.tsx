@@ -3,8 +3,15 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState, type CSSProperties, type FormEvent } from "react";
 
-import type { SourceAccountView } from "@/application/source-account-status";
-import type { SourceAccountAllocationReadModel } from "@/application/portfolio-read-model";
+import {
+  createSourceAccountMarketDataStatuses,
+  type SourceAccountView,
+} from "@/application/source-account-status";
+import type {
+  HoldingReadModel,
+  MissingValuationInputReadModel,
+  SourceAccountAllocationReadModel,
+} from "@/application/portfolio-read-model";
 
 type AccountView = SourceAccountView;
 
@@ -17,14 +24,22 @@ const eur = new Intl.NumberFormat("en-FI", {
 const allocationPalette = ["#2f6ed8", "#102c52", "#0ca77d", "#d9aa61", "#7d64c2"];
 
 const statusLabels: Record<AccountView["status"], string> = {
-  current: "Current",
-  stale: "Needs update",
-  "not-connected": "Not connected",
+  current: "Holdings confirmed",
+  stale: "Review holdings",
+  "not-connected": "No holdings",
 };
+
+const marketStatusLabels = {
+  current: "Current",
+  attention: "Needs attention",
+  manual: "Manual values",
+} as const;
 
 export function SourceAccountsPanel() {
   const [accounts, setAccounts] = useState<AccountView[]>([]);
   const [allocation, setAllocation] = useState<SourceAccountAllocationReadModel[]>([]);
+  const [holdings, setHoldings] = useState<HoldingReadModel[]>([]);
+  const [missingInputs, setMissingInputs] = useState<MissingValuationInputReadModel[]>([]);
   const [allocationStatus, setAllocationStatus] = useState<"loading" | "ready" | "unavailable">("loading");
   const [editing, setEditing] = useState<string>();
   const [label, setLabel] = useState("");
@@ -42,10 +57,16 @@ export function SourceAccountsPanel() {
     fetch("/api/portfolio", { cache: "no-store" })
       .then(async (response) => {
         const payload = (await response.json()) as {
-          portfolio?: { accountAllocation?: SourceAccountAllocationReadModel[] };
+          portfolio?: {
+            accountAllocation?: SourceAccountAllocationReadModel[];
+            holdings?: HoldingReadModel[];
+            missingInputs?: MissingValuationInputReadModel[];
+          };
         };
         if (!response.ok || !payload.portfolio?.accountAllocation) throw new Error("Allocation unavailable");
         setAllocation(payload.portfolio.accountAllocation);
+        setHoldings(payload.portfolio.holdings ?? []);
+        setMissingInputs(payload.portfolio.missingInputs ?? []);
         setAllocationStatus("ready");
       })
       .catch(() => setAllocationStatus("unavailable"));
@@ -55,6 +76,9 @@ export function SourceAccountsPanel() {
     accounts.map((account) => [account.id, account.label]),
   ), [accounts]);
   const allocationTotal = allocation.reduce((total, account) => total + account.valueEur, 0);
+  const marketDataByAccount = useMemo(() => new Map(
+    createSourceAccountMarketDataStatuses(holdings, missingInputs).map((status) => [status.sourceAccountId, status]),
+  ), [holdings, missingInputs]);
   let allocationCursor = 0;
   const allocationGradient = allocation.length > 0
     ? `conic-gradient(${allocation.map((account, index) => {
@@ -97,10 +121,9 @@ export function SourceAccountsPanel() {
       <header className="import-header">
         <div>
           <p className="eyebrow">SOURCE ACCOUNTS</p>
-          <h1>Connections and update status</h1>
-          <p>Names are stored only in your local database. API credentials remain in ignored environment configuration.</p>
+          <h1>Accounts and data status</h1>
+          <p>Holding snapshots and market prices are tracked separately. Names remain in your local database.</p>
         </div>
-        <Link className="secondary-button" href="/">Back to overview</Link>
       </header>
 
       {error && <p className="error-message" role="alert">{error}</p>}
@@ -135,8 +158,9 @@ export function SourceAccountsPanel() {
         ) : null}
       </section>
       <section className="accounts-grid">
-        {accounts.map((account) => (
-          <article className="account-card" key={account.id}>
+        {accounts.map((account) => {
+          const marketData = marketDataByAccount.get(account.id);
+          return <article className="account-card" key={account.id}>
             <div className="account-card-heading">
               <span className={`account-provider ${account.provider}`}>{account.provider === "trading212" ? "T212" : account.provider.slice(0, 1).toUpperCase()}</span>
               <div>
@@ -147,8 +171,13 @@ export function SourceAccountsPanel() {
             </div>
             <dl className="account-metadata">
               <div><dt>Holdings</dt><dd>{account.holdingCount}</dd></div>
-              <div><dt>Last confirmed update</dt><dd>{account.lastUpdatedAt ? new Date(account.lastUpdatedAt).toLocaleString("en-FI") : "Never"}</dd></div>
-              {account.dataAsOf && <div><dt>Data as of</dt><dd>{new Date(account.dataAsOf).toLocaleString("en-FI")}</dd></div>}
+              <div><dt>Holding snapshot</dt><dd>{account.dataAsOf ? new Date(account.dataAsOf).toLocaleDateString("en-FI") : "Not confirmed"}</dd></div>
+              <div><dt>Market data</dt><dd>{marketData
+                ? <><span className={`account-market-status ${marketData.status}`}>{marketStatusLabels[marketData.status]}</span>{marketData.asOf
+                  ? ` · ${marketData.status === "attention" ? "Oldest issue " : ""}${new Date(marketData.asOf).toLocaleDateString("en-FI")}`
+                  : marketData.status === "attention" ? " · Missing price or FX" : ""}</>
+                : "No valued investments"}</dd></div>
+              <div><dt>Confirmed on</dt><dd>{account.lastUpdatedAt ? new Date(account.lastUpdatedAt).toLocaleString("en-FI") : "Never"}</dd></div>
               {account.connector && (
                 <div><dt>Connector</dt><dd>{account.connector.configured ? `${account.connector.environment} · ${account.connector.access}` : "API key not configured"}</dd></div>
               )}
@@ -165,8 +194,8 @@ export function SourceAccountsPanel() {
                 <Link href={`/imports?account=${encodeURIComponent(account.id)}`}>{account.status === "not-connected" ? "Add assets" : "Update"}</Link>
               </div>
             )}
-          </article>
-        ))}
+          </article>;
+        })}
       </section>
     </main>
   );

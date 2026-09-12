@@ -31,46 +31,14 @@ export function PortfolioInsights({
       <header className="portfolio-insights-heading">
         <div>
           <p className="eyebrow">PORTFOLIO INTELLIGENCE</p>
-          <h2 id="portfolio-insights-title">Portfolio insights</h2>
+          <h2 id="portfolio-insights-title">What matters now</h2>
         </div>
-        <span>Calculated locally · facts only</span>
+        <span>Calculated locally</span>
       </header>
 
       <div className="portfolio-insights-grid">
-        <article>
-          <span className="insight-kicker">COMPOSITION</span>
-          <strong>
-            {insights.summary.investmentPositionCount} investments · {" "}
-            {insights.summary.sourceAccountCount} accounts
-          </strong>
-          {insights.summary.topHolding ? (
-            <p>
-              Largest: <b>{insights.summary.topHolding.name}</b> at {" "}
-              {insights.summary.topHolding.sharePercent.toFixed(1)}%.
-              Top three represent {insights.summary.topThreeSharePercent.toFixed(1)}%.
-            </p>
-          ) : (
-            <p>No investment positions are currently valued.</p>
-          )}
-        </article>
-
-        <article>
-          <span className="insight-kicker">HOLDING CURRENCY</span>
-          <div className="exposure-list">
-            {insights.holdingCurrencyAllocation.slice(0, 3).map((exposure) => (
-              <div key={exposure.currency}>
-                <span>{exposure.currency}</span>
-                <strong>{exposure.sharePercent.toFixed(1)}%</strong>
-                <i aria-hidden="true">
-                  <span style={{ width: `${Math.min(exposure.sharePercent, 100)}%` }} />
-                </i>
-              </div>
-            ))}
-          </div>
-        </article>
-
-        <article>
-          <span className="insight-kicker">LATEST AVAILABLE MOVE</span>
+        <article className="portfolio-change-insight">
+          <span className="insight-kicker">WHAT CHANGED</span>
           {today.available ? (
             <>
               <strong className={today.changeEur >= 0 ? "positive" : "negative"}>
@@ -88,24 +56,34 @@ export function PortfolioInsights({
               )}
             </>
           ) : (
-            <p>Another dated valuation is needed before a daily move is available.</p>
+            <><strong>No comparable daily move yet</strong><p>Another dated valuation is needed before a daily change is available.</p></>
           )}
         </article>
 
-        <article>
-          <span className="insight-kicker">DATA COVERAGE</span>
+        <article className="portfolio-attention-insight">
+          <span className="insight-kicker">NEEDS ATTENTION</span>
           <strong className={qualityIssues === 0 ? "positive" : "data-attention"}>
-            {qualityIssues === 0 ? "All valued data current" : `${qualityIssues} items need attention`}
+            {qualityIssues === 0 ? "No current data issues" : `${qualityIssues} items need attention`}
           </strong>
           <p>
-            {insights.dataQuality.staleCount} stale · {" "}
-            {insights.dataQuality.awaitingNavCount} awaiting NAV · {" "}
-            {insights.dataQuality.manualCount} manual
+            {insights.dataQuality.freshCount} current · {insights.dataQuality.staleCount} stale · {" "}
+            {insights.dataQuality.awaitingNavCount} awaiting NAV
           </p>
+          {insights.dataQuality.manualCount > 0 && (
+            <small>{insights.dataQuality.manualCount} holdings use manually entered market values.</small>
+          )}
           {insights.dataQuality.missingInputCount > 0 && (
             <small>{insights.dataQuality.missingInputCount} holdings have missing valuation inputs.</small>
           )}
         </article>
+      </div>
+
+      <div className="portfolio-shape-summary">
+        <span>Portfolio shape</span>
+        <strong>{insights.summary.investmentPositionCount} investments · {insights.summary.sourceAccountCount} accounts</strong>
+        {insights.summary.topHolding && (
+          <small>Largest: {insights.summary.topHolding.name} at {insights.summary.topHolding.sharePercent.toFixed(1)}% · Top three {insights.summary.topThreeSharePercent.toFixed(1)}%</small>
+        )}
       </div>
 
     </section>

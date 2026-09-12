@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import type { PortfolioAnalystConversation } from "@/application/portfolio-analyst-conversation";
@@ -85,7 +84,6 @@ export function PortfolioSettings() {
           <h1>Settings</h1>
           <p>Set defaults for Portfolio Agent and control which portfolio details may be sent to its AI provider.</p>
         </div>
-        <Link className="secondary-button" href="/">Back to overview</Link>
       </header>
 
       {error && <p className="error-message" role="alert">{error}</p>}
