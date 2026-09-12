@@ -167,7 +167,7 @@ function makeEveryPeriodAvailable(
 }
 
 describe("portfolio analyst context", () => {
-  it("builds bounded period evidence and selects only the three largest contributors", () => {
+  it("builds bounded period evidence and selects the largest relevant contributors", () => {
     const context = createPortfolioAnalystContext({
       portfolio: portfolio(),
       request: {
@@ -194,6 +194,7 @@ describe("portfolio analyst context", () => {
         expect.objectContaining({ key: "driver.1", name: "Alpha", contributionEur: 80 }),
         expect.objectContaining({ key: "driver.2", name: "Beta", contributionEur: 35 }),
         expect.objectContaining({ key: "driver.3", name: "Gamma", contributionEur: -20 }),
+        expect.objectContaining({ key: "driver.4", name: "Delta", contributionEur: 5 }),
       ]);
     expect(JSON.stringify(context)).not.toMatch(/SECRET-|private units|private cost|account-private/);
     expect(Buffer.byteLength(JSON.stringify(context), "utf8"))
@@ -212,8 +213,33 @@ describe("portfolio analyst context", () => {
     });
 
     const drivers = context.facts.filter((fact) => fact.kind === "holding-driver");
-    expect(drivers.map((driver) => driver.key)).toEqual(["driver.1", "driver.2", "driver.3"]);
-    expect(JSON.stringify(drivers)).not.toMatch(/Alpha|Beta|Gamma/);
+    expect(drivers.map((driver) => driver.key)).toEqual(["driver.1", "driver.2", "driver.3", "driver.4"]);
+    expect(JSON.stringify(drivers)).not.toMatch(/Alpha|Beta|Gamma|Delta/);
+  });
+
+  it("keeps each tool response bounded when more relevant holdings are available", () => {
+    const value = portfolio();
+    value.holdings.push(
+      holding({ id: "e", name: "Epsilon", value: 40, changes: { week: 4 } }),
+      holding({ id: "f", name: "Zeta", value: 30, changes: { week: 3 } }),
+    );
+
+    const context = createPortfolioAnalystTools(value).readPeriodDrivers({
+      period: "week",
+      language: "en",
+      includeHoldingNames: true,
+    });
+    const drivers = context.facts.filter((fact) => fact.kind === "holding-driver");
+
+    expect(drivers).toHaveLength(5);
+    expect(drivers.map((driver) => driver.name)).toEqual([
+      "Alpha",
+      "Beta",
+      "Gamma",
+      "Delta",
+      "Epsilon",
+    ]);
+    expect(JSON.stringify(context)).not.toContain("Zeta");
   });
 
   it("declines an unavailable period and exposes one safe factual update", () => {
@@ -414,8 +440,12 @@ describe("portfolio analyst context", () => {
     expect(JSON.stringify(context)).not.toContain("FI000000PRIVATE");
   });
 
-  it("includes at most three affected holding names in data-quality evidence", () => {
+  it("keeps named data-quality gaps within that tool's own bound", () => {
     const value = portfolio();
+    value.holdings.push(
+      holding({ id: "e", name: "Epsilon", value: 40 }),
+      holding({ id: "f", name: "Zeta", value: 30 }),
+    );
     makeEveryPeriodAvailable(value);
     for (const item of value.holdings) item.freshness = "stale";
 
@@ -426,9 +456,15 @@ describe("portfolio analyst context", () => {
     const gaps = context.facts.filter((fact) => fact.kind === "data-gap");
     const namedGaps = gaps.filter((gap) => gap.name !== undefined);
 
-    expect(namedGaps).toHaveLength(3);
-    expect(namedGaps.map((gap) => gap.name)).toEqual(["Alpha", "Beta", "Gamma"]);
-    expect(JSON.stringify(context)).not.toContain("Delta");
+    expect(namedGaps).toHaveLength(5);
+    expect(namedGaps.map((gap) => gap.name)).toEqual([
+      "Alpha",
+      "Beta",
+      "Gamma",
+      "Delta",
+      "Epsilon",
+    ]);
+    expect(JSON.stringify(context)).not.toContain("Zeta");
   });
 
   it("never substitutes an internal instrument id for an absent display name", () => {

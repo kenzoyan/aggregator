@@ -14,6 +14,11 @@ import type {
   PortfolioAnalystLanguage,
 } from "@/application/portfolio-analyst-context";
 import {
+  readPortfolioAnalystPreferences,
+  resolvePortfolioAnalystConversationSettings,
+  type PortfolioAnalystProviderAvailability,
+} from "@/application/portfolio-analyst-preferences";
+import {
   portfolioAnalystActionLabel,
   portfolioAnalystEvidenceValue,
   portfolioAnalystLimitationLabel,
@@ -33,9 +38,7 @@ import {
 
 interface AnalystConfiguration {
   defaultProvider: PortfolioAnalystProviderId;
-  providers: Array<{
-    id: PortfolioAnalystProviderId;
-    configured: boolean;
+  providers: Array<PortfolioAnalystProviderAvailability & {
     model: string;
   }>;
   conversation?: PortfolioAnalystConversation;
@@ -55,6 +58,19 @@ const classificationLabels: Record<
   estimate: "Estimate",
   interpretation: "Interpretation",
 };
+
+const starterQuestions = {
+  "zh-CN": [
+    "今天我的投资组合表现怎么样？",
+    "最近 7 天哪些持仓对组合影响最大？",
+    "当前资产数据有哪些需要更新？",
+  ],
+  en: [
+    "How is my portfolio performing today?",
+    "Which holdings affected my portfolio most over the last 7 days?",
+    "Which portfolio data needs updating?",
+  ],
+} as const;
 
 export function PortfolioAnalyst() {
   const activeRequest = useRef<AbortController | undefined>(undefined);
@@ -82,15 +98,23 @@ export function PortfolioAnalyst() {
       .then((value) => {
         if (!active) return;
         setConfiguration(value);
-        const preferred = value.providers.find((item) =>
-          item.id === value.defaultProvider && item.configured
-        ) ?? value.providers.find((item) => item.configured);
         const restored = value.conversation;
+        const preferences = readPortfolioAnalystPreferences(
+          window.localStorage,
+          value.defaultProvider,
+        );
+        const settings = resolvePortfolioAnalystConversationSettings({
+          preferences,
+          providers: value.providers,
+          fallbackProvider: value.defaultProvider,
+          conversation: restored,
+        });
         const latestReport = restored?.turns.at(-1)?.report;
         setConversation(restored);
-        setProvider(restored?.provider ?? preferred?.id ?? value.defaultProvider);
-        setLanguage(restored?.language ?? "zh-CN");
-        setIncludeHoldingNames(restored?.includeHoldingNames ?? true);
+        setProvider(settings.provider);
+        setLanguage(settings.language);
+        setIncludeHoldingNames(settings.includeHoldingNames);
+        if (!restored) setPeriod(preferences.defaultPeriod);
         if (latestReport) {
           if (latestReport.job === "explain-period-drivers" && latestReport.scope.period) {
             setPeriod(latestReport.scope.period);
@@ -119,8 +143,8 @@ export function PortfolioAnalyst() {
     };
   }, []);
 
-  async function runAnalyst() {
-    const normalizedQuestion = question.trim();
+  async function runAnalyst(requestedQuestion?: string) {
+    const normalizedQuestion = (requestedQuestion ?? question).trim();
     if (!selectedProvider?.configured || loading || !normalizedQuestion) return;
     setLoading(true);
     setError(undefined);
@@ -212,14 +236,26 @@ export function PortfolioAnalyst() {
       setConversation(undefined);
       setPendingTurn(undefined);
       setQuestion("");
+      const fallbackProvider = configuration?.defaultProvider ?? "openai";
+      const preferences = readPortfolioAnalystPreferences(
+        window.localStorage,
+        fallbackProvider,
+      );
+      const settings = resolvePortfolioAnalystConversationSettings({
+        preferences,
+        providers: configuration?.providers ?? [],
+        fallbackProvider,
+      });
+      setProvider(settings.provider);
+      setLanguage(settings.language);
+      setIncludeHoldingNames(settings.includeHoldingNames);
+      setPeriod(preferences.defaultPeriod);
     } catch {
       if (conversation) {
         setError("The local conversation could not be deleted.");
       }
     }
   }
-
-  const settingsLocked = Boolean(conversation?.turns.length);
 
   return (
     <div className={`portfolio-agent-shell${open ? " open" : ""}`}>
@@ -251,69 +287,6 @@ export function PortfolioAnalyst() {
         </header>
 
         <div className="portfolio-analyst-workspace">
-        <details className="portfolio-agent-settings">
-          <summary>
-            <span>{language === "zh-CN" ? "对话设置" : "Conversation settings"}</span>
-            <small>
-              {providerNames[provider]} · {period} · {language === "zh-CN" ? "中文" : "English"}
-            </small>
-          </summary>
-        <div className="portfolio-analyst-controls">
-          <label>
-            <span>Default period</span>
-            <select disabled={loading} value={period} onChange={(event) => {
-              setPeriod(event.target.value as Period);
-              setError(undefined);
-            }}>
-              <option value="today">Today</option>
-              <option value="week">Week</option>
-              <option value="month">Month</option>
-            </select>
-          </label>
-          <label>
-            <span>Provider</span>
-            <select disabled={loading || settingsLocked} value={provider} onChange={(event) => {
-              setProvider(event.target.value as PortfolioAnalystProviderId);
-              setError(undefined);
-            }}>
-              {(configuration?.providers ?? [
-                { id: "openai" as const, configured: false, model: "" },
-                { id: "deepseek" as const, configured: false, model: "" },
-              ]).map((item) => (
-                <option key={item.id} value={item.id}>
-                  {providerNames[item.id]}{item.configured ? "" : " · not configured"}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            <span>Language</span>
-            <select disabled={loading || settingsLocked} value={language} onChange={(event) => {
-              setLanguage(event.target.value as PortfolioAnalystLanguage);
-              setError(undefined);
-            }}>
-              <option value="zh-CN">简体中文</option>
-              <option value="en">English</option>
-            </select>
-          </label>
-          <label className="analyst-name-toggle">
-            <input
-              type="checkbox"
-              disabled={loading || settingsLocked}
-              checked={includeHoldingNames}
-              onChange={(event) => {
-                setIncludeHoldingNames(event.target.checked);
-                setError(undefined);
-              }}
-            />
-            <span>Allow up to 3 relevant holding names</span>
-          </label>
-          {settingsLocked && (
-            <span className="analyst-settings-note">Reset the conversation to change provider, language or name privacy.</span>
-          )}
-        </div>
-        </details>
-
         {!configuration && !error && <p className="portfolio-analyst-state">Checking provider configuration…</p>}
         {selectedProvider && !selectedProvider.configured && !error && (
           <p className="portfolio-analyst-state">
@@ -324,10 +297,18 @@ export function PortfolioAnalyst() {
         <div ref={conversationView} className="analyst-conversation" aria-live="polite">
           {!conversation?.turns.length && !pendingTurn && (
             <div className="analyst-conversation-empty">
-              <strong>{language === "zh-CN" ? "从一个有范围的问题开始" : "Start with one bounded question"}</strong>
-              <p>{language === "zh-CN"
-                ? "例如：本周为什么上涨？然后继续问：FX 为什么是正的？"
-                : "For example: Why did the portfolio rise this week? Then ask why the FX effect was positive."}</p>
+              <div className="analyst-starter-grid">
+                {starterQuestions[language].map((prompt) => (
+                  <button
+                    type="button"
+                    key={prompt}
+                    disabled={loading || !selectedProvider?.configured}
+                    onClick={() => void runAnalyst(prompt)}
+                  >
+                    {prompt}
+                  </button>
+                ))}
+              </div>
             </div>
           )}
           {conversation?.turns.map((turn) => (

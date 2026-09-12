@@ -55,6 +55,10 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .nav-item svg { width: 18px; height: 18px; stroke-width: 1.75; }
 .nav-item:hover, .nav-item.active { color: #f3f6f4; background: rgba(255,255,255,0.075); }
 .nav-item.active { box-shadow: inset 2px 0 #8eb5a3; }
+.sidebar-footer { display: grid; gap: 10px; margin-top: auto; }
+.sidebar-toggle { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 39px; padding: 0 11px; border: 1px solid rgba(255,255,255,.08); border-radius: 9px; background: transparent; color: #93a099; cursor: pointer; font-size: 11px; font-weight: 600; }
+.sidebar-toggle:hover { background: rgba(255,255,255,.06); color: #f3f6f4; }
+.sidebar-toggle svg { width: 17px; height: 17px; flex: 0 0 auto; stroke-width: 1.7; }
 .privacy-note { display: flex; align-items: flex-start; gap: 10px; margin-top: auto; padding: 13px 12px; border: 1px solid rgba(255,255,255,.08); border-radius: 11px; background: rgba(255,255,255,.035); }
 .privacy-note svg { width: 16px; height: 16px; flex: 0 0 auto; color: #9fc7b4; }
 .privacy-note span { display: grid; gap: 3px; }
@@ -226,26 +230,14 @@ h2 { margin-bottom: 0; font-family: Georgia, "Times New Roman", serif; font-size
 .portfolio-agent-header p { margin: 0; color: #70847b; font-size: 10px; }
 .portfolio-agent-header > button { width: 32px; height: 32px; border: 1px solid #d3dfda; border-radius: 10px; background: white; color: #52675f; cursor: pointer; font-size: 20px; line-height: 1; }
 .portfolio-analyst-workspace { display: flex; min-width: 0; min-height: 0; flex: 1; flex-direction: column; }
-.portfolio-agent-settings { margin-top: 11px; border: 1px solid #d9e4df; border-radius: 11px; background: rgba(255,255,255,.55); }
-.portfolio-agent-settings > summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 11px; color: #456358; cursor: pointer; list-style: none; }
-.portfolio-agent-settings > summary::-webkit-details-marker { display: none; }
-.portfolio-agent-settings > summary::after { content: "⌄"; flex: 0 0 auto; color: #80948c; font-size: 13px; transition: transform .16s ease; }
-.portfolio-agent-settings[open] > summary::after { transform: rotate(180deg); }
-.portfolio-agent-settings > summary span { font-size: 10px; font-weight: 800; }
-.portfolio-agent-settings > summary small { min-width: 0; margin-left: auto; overflow: hidden; color: #7b8c85; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
-.portfolio-analyst-controls { display: grid; grid-template-columns: 1.35fr .65fr; align-items: end; gap: 9px; padding: 4px 11px 12px; border-top: 1px solid #e3ebe7; }
-.portfolio-analyst-controls > label:not(.analyst-name-toggle) { display: grid; gap: 5px; color: var(--muted); font-size: 9px; font-weight: 800; }
-.portfolio-analyst-controls select { width: 100%; min-height: 38px; padding: 9px 28px 9px 10px; border: 1px solid #d1ded8; border-radius: 10px; background: white; color: var(--ink); font-size: 11px; }
-.portfolio-analyst-controls select:disabled, .analyst-name-toggle input:disabled { cursor: not-allowed; opacity: .6; }
-.analyst-name-toggle { grid-column: 1 / -1; display: flex; align-items: center; gap: 7px; color: #536579; font-size: 10px; font-weight: 700; }
-.analyst-name-toggle input { margin: 0; accent-color: var(--green); }
-.analyst-settings-note { grid-column: 1 / -1; color: #74877f; font-size: 9px; line-height: 1.45; }
 .portfolio-analyst-state, .portfolio-analyst-error { margin: 12px 0 0; }
 .portfolio-analyst-error { color: var(--red); }
 .analyst-conversation { display: grid; min-height: 130px; flex: 1; align-content: start; gap: 19px; margin-top: 14px; padding-right: 5px; overflow-y: auto; scroll-behavior: smooth; }
-.analyst-conversation-empty { padding: 24px; border: 1px dashed #cbdad3; border-radius: 14px; background: rgba(255,255,255,.48); text-align: center; }
-.analyst-conversation-empty strong { color: #315b4c; font-size: 13px; }
-.analyst-conversation-empty p { max-width: 430px; margin: 7px auto 0; color: #73877f; font-size: 11px; line-height: 1.55; }
+.analyst-conversation-empty { text-align: left; }
+.analyst-starter-grid { display: grid; gap: 7px; }
+.analyst-starter-grid button { width: 100%; padding: 10px 12px; border: 1px solid #d8e3de; border-radius: 9px; background: rgba(255,255,255,.8); color: #29483d; cursor: pointer; font-size: 10px; font-weight: 650; line-height: 1.4; text-align: left; transition: border-color .16s ease, background .16s ease, transform .16s ease; }
+.analyst-starter-grid button:hover { border-color: #9fbcaf; background: #f5faf7; transform: translateY(-1px); }
+.analyst-starter-grid button:disabled { cursor: not-allowed; opacity: .5; transform: none; }
 .analyst-turn { display: grid; gap: 10px; }
 .analyst-user-message { justify-self: end; max-width: min(82%, 520px); padding: 10px 13px; border-radius: 13px 13px 3px 13px; background: #dcece6; color: #244d3f; }
 .analyst-user-message span { display: block; margin-bottom: 3px; color: #678176; font-size: 8px; font-weight: 850; letter-spacing: .06em; text-transform: uppercase; }
@@ -496,6 +488,40 @@ h2 { margin-bottom: 0; font-family: Georgia, "Times New Roman", serif; font-size
 .account-actions a { background: var(--ink); color: white; border-color: var(--ink); }
 .rename-form input { min-width: 0; flex: 1; border: 1px solid #cbd6df; border-radius: 9px; padding: 8px 10px; font-size: 11px; }
 
+.settings-page { min-height: 100vh; max-width: 1060px; margin: 0 auto; padding: 48px clamp(18px, 5vw, 64px) 80px; }
+.settings-sections { display: grid; gap: 16px; }
+.settings-loading { color: var(--muted); font-size: 13px; }
+.settings-card { padding: 25px 28px; border: 1px solid var(--line); border-radius: 15px; background: rgba(255,254,250,.9); box-shadow: var(--shadow); }
+.settings-card-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 22px; margin-bottom: 22px; }
+.settings-card-heading h2 { font-size: 23px; }
+.settings-card-heading p:last-child { max-width: 610px; margin: 7px 0 0; color: var(--muted); font-size: 11px; line-height: 1.55; }
+.settings-saved { flex: 0 0 auto; padding: 6px 8px; border-radius: 7px; background: #e7efe9; color: #356457; font-size: 9px; font-weight: 700; }
+.settings-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.settings-fields label { display: grid; grid-template-rows: auto auto 1fr; gap: 5px; padding: 16px; border: 1px solid #e4e1d8; border-radius: 11px; background: #f8f6f0; }
+.settings-fields label > span { font-size: 12px; font-weight: 650; }
+.settings-fields label > small { min-height: 30px; color: var(--muted); font-size: 9px; line-height: 1.45; }
+.settings-fields select { width: 100%; min-height: 42px; margin-top: 5px; padding: 9px 32px 9px 11px; border: 1px solid #d7d4ca; border-radius: 8px; background: var(--surface); color: var(--ink); font-size: 12px; }
+.settings-provider-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.settings-provider-option { display: flex; align-items: center; gap: 12px; min-height: 72px; padding: 15px 16px; border: 1px solid #dfdcd2; border-radius: 11px; background: #faf8f3; cursor: pointer; }
+.settings-provider-option.selected { border-color: #8aa99d; background: #eef3ee; box-shadow: inset 0 0 0 1px rgba(37,79,67,.12); }
+.settings-provider-option:has(input:disabled) { cursor: not-allowed; opacity: .55; }
+.settings-provider-option input { margin: 0; accent-color: var(--accent); }
+.settings-provider-option span { display: grid; gap: 4px; min-width: 0; }
+.settings-provider-option strong { font-size: 12px; }
+.settings-provider-option small { overflow: hidden; color: var(--muted); font-family: var(--font-geist-mono), monospace; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.settings-privacy-toggle { display: flex; align-items: flex-start; gap: 13px; padding: 17px; border: 1px solid #cfdcd3; border-radius: 11px; background: #edf2ed; cursor: pointer; }
+.settings-privacy-toggle input { flex: 0 0 auto; margin: 3px 0 0; accent-color: var(--accent); }
+.settings-privacy-toggle > span { display: grid; gap: 5px; }
+.settings-privacy-toggle strong { font-size: 12px; }
+.settings-privacy-toggle small { color: #5f7169; font-size: 10px; line-height: 1.55; }
+.settings-privacy-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 12px; }
+.settings-privacy-facts > div { display: grid; gap: 4px; padding: 12px 14px; border-left: 2px solid #cad6cd; }
+.settings-privacy-facts strong { font-size: 10px; }
+.settings-privacy-facts span { color: var(--muted); font-size: 9px; line-height: 1.5; }
+.settings-conversation-note { padding: 16px 18px; border: 1px solid #e2d5b8; border-radius: 11px; background: #f8f2e5; color: #65583c; }
+.settings-conversation-note strong { font-size: 11px; }
+.settings-conversation-note p { margin: 5px 0 0; font-size: 10px; line-height: 1.5; }
+
 @media (max-width: 980px) {
   .sidebar { width: 76px; padding-inline: 10px; align-items: center; }
   .brand-mark { margin-inline: 0; }
@@ -536,8 +562,6 @@ h2 { margin-bottom: 0; font-family: Georgia, "Times New Roman", serif; font-size
   .portfolio-insights-heading { align-items: flex-start; flex-direction: column; gap: 9px; }
   .portfolio-insights-grid { grid-template-columns: 1fr; }
   .portfolio-analyst { inset: 0; width: 100%; padding: 15px; }
-  .portfolio-analyst-controls { grid-template-columns: 1fr 1fr; }
-  .analyst-name-toggle { grid-column: 1 / -1; }
   .portfolio-analyst-evidence dl div { grid-template-columns: 1fr; gap: 5px; }
   .analyst-user-message { max-width: 92%; }
   .analyst-composer-actions { align-items: stretch; flex-wrap: wrap; }
@@ -560,7 +584,7 @@ h2 { margin-bottom: 0; font-family: Georgia, "Times New Roman", serif; font-size
   .drawer-section-heading { align-items: stretch; flex-direction: column; }
   .drawer-period-tabs { width: 100%; }
   .detail-sparkline { height: 145px; }
-  .mobile-nav { position: fixed; inset: auto 12px 12px; z-index: 20; display: grid; grid-template-columns: repeat(4, 1fr); padding: 8px; background: rgba(8,27,51,.96); border-radius: 18px; box-shadow: 0 12px 35px rgba(8,27,51,.25); backdrop-filter: blur(14px); }
+  .mobile-nav { position: fixed; inset: auto 12px 12px; z-index: 20; display: grid; grid-template-columns: repeat(5, 1fr); padding: 8px; background: rgba(8,27,51,.96); border-radius: 18px; box-shadow: 0 12px 35px rgba(8,27,51,.25); backdrop-filter: blur(14px); }
   .mobile-nav a { display: grid; justify-items: center; gap: 3px; padding: 7px; color: #8fa4b9; font-size: 10px; font-weight: 700; }
   .mobile-nav a span { font-size: 17px; }.mobile-nav a.active { color: white; }
   .import-page { padding: 24px 15px 50px; }
@@ -572,12 +596,15 @@ h2 { margin-bottom: 0; font-family: Georgia, "Times New Roman", serif; font-size
   .field-grid { grid-template-columns: 1fr; }
   .empty-portfolio-banner { align-items: stretch; flex-direction: column; }
   .empty-portfolio-actions { white-space: normal; }
-  .accounts-page { padding: 24px 15px 50px; }
+  .accounts-page, .settings-page { padding: 24px 15px 50px; }
   .account-allocation-panel { grid-template-columns: 1fr; justify-items: stretch; padding: 22px 20px; }
   .account-donut-wrap { padding: 2px 0; }
   .account-allocation-list { grid-column: auto; grid-template-columns: 1fr; }
   .account-allocation-empty { grid-column: auto; }
   .accounts-grid { grid-template-columns: 1fr; }
+  .settings-card { padding: 20px; }
+  .settings-card-heading { align-items: flex-start; flex-direction: column; gap: 10px; }
+  .settings-fields, .settings-provider-grid, .settings-privacy-facts { grid-template-columns: 1fr; }
 }
 
 @media (min-width: 701px) and (max-width: 900px) {
@@ -662,6 +689,7 @@ h2 { margin-bottom: 0; font-family: Georgia, "Times New Roman", serif; font-size
 .portfolio-analyst { left: 232px; background: #f1f4ef; border-color: #cfd8d0; }
 
 .import-page, .accounts-page { max-width: 1280px; padding-top: 48px; }
+.settings-page { max-width: 1060px; padding-top: 48px; }
 .import-header h1 { font-size: clamp(34px, 4vw, 48px); }
 .secondary-button { border-color: var(--line); border-radius: 9px; background: rgba(255,254,250,.8); font-size: 12px; font-weight: 620; }
 .import-card, .account-allocation-panel, .account-card { border-color: var(--line); border-radius: 15px; background: rgba(255,254,250,.9); box-shadow: var(--shadow); }
@@ -673,7 +701,17 @@ h2 { margin-bottom: 0; font-family: Georgia, "Times New Roman", serif; font-size
 .account-card-heading strong { font-weight: 620; }
 
 @media (min-width: 1181px) {
-  .app-shell:has(.portfolio-agent-shell.open) .main-content { width: calc(100% - 752px); margin-left: 752px; }
+  .app-shell.sidebar-collapsed .sidebar { width: 76px; padding-inline: 12px; align-items: center; }
+  .app-shell.sidebar-collapsed .brand { margin-inline: 0; }
+  .app-shell.sidebar-collapsed .brand-copy { display: none; }
+  .app-shell.sidebar-collapsed .nav-item { justify-content: center; width: 52px; padding: 0; font-size: 0; }
+  .app-shell.sidebar-collapsed .sidebar-footer { width: 52px; }
+  .app-shell.sidebar-collapsed .sidebar-toggle { justify-content: center; padding: 0; font-size: 0; }
+  .app-shell.sidebar-collapsed .privacy-note { display: none; }
+  .app-shell.sidebar-collapsed .main-content { margin-left: 76px; }
+  .app-shell.sidebar-collapsed .portfolio-analyst { left: 76px; }
+  .app-shell.sidebar-expanded:has(.portfolio-agent-shell.open) .main-content { width: calc(100% - 752px); margin-left: 752px; }
+  .app-shell.sidebar-collapsed:has(.portfolio-agent-shell.open) .main-content { width: calc(100% - 596px); margin-left: 596px; }
 }
 
 @media (max-width: 1180px) {
@@ -682,6 +720,8 @@ h2 { margin-bottom: 0; font-family: Georgia, "Times New Roman", serif; font-size
   .brand-copy { display: none; }
   .brand-mark { width: 42px; height: 42px; }
   .nav-item { justify-content: center; width: 52px; padding: 0; font-size: 0; }
+  .sidebar-footer { width: 52px; }
+  .sidebar-toggle { display: none; }
   .privacy-note { display: none; }
   .main-content { margin-left: 76px; }
   .portfolio-analyst { left: 76px; }
@@ -711,7 +751,7 @@ h2 { margin-bottom: 0; font-family: Georgia, "Times New Roman", serif; font-size
   .mobile-nav a svg { width: 18px; height: 18px; stroke-width: 1.8; }
   .mobile-nav a.active { color: #f3f6f4; }
   .portfolio-agent-launcher { right: 14px; bottom: 82px; }
-  .import-page, .accounts-page { padding-top: 28px; }
+  .import-page, .accounts-page, .settings-page { padding-top: 28px; }
   .import-header h1 { font-size: 34px; }
 }
 

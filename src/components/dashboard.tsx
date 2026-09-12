@@ -5,8 +5,11 @@ import {
   ArrowDownToLine,
   ChartNoAxesCombined,
   LayoutDashboard,
+  PanelLeftClose,
+  PanelLeftOpen,
   Plus,
   RefreshCw,
+  Settings,
   ShieldCheck,
   WalletCards,
 } from "lucide-react";
@@ -82,6 +85,7 @@ const freshnessLabels: Record<HoldingReadModel["freshness"], string> = {
 };
 
 const allAccounts = "All accounts";
+const sidebarPreferenceStorageKey = "invest-monitor.sidebar-expanded.v1";
 type ChartMode = "value" | "daily-change";
 
 interface AutomaticRefreshSkip {
@@ -284,6 +288,7 @@ function returnPercent(percent?: number) {
 }
 
 export function Dashboard() {
+  const [sidebarExpanded, setSidebarExpanded] = useState(false);
   const [period, setPeriod] = useState<Period>("today");
   const [chartMode, setChartMode] = useState<ChartMode>("daily-change");
   const [selectedDailyDate, setSelectedDailyDate] = useState<string>();
@@ -308,6 +313,26 @@ export function Dashboard() {
   const holdingDrawerTriggerRef = useRef<HTMLElement | null>(null);
   const priceEditorRef = useRef<HTMLFormElement>(null);
   const priceEditorTriggerRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    try {
+      setSidebarExpanded(window.localStorage.getItem(sidebarPreferenceStorageKey) === "true");
+    } catch {
+      // The compact default still works when browser storage is unavailable.
+    }
+  }, []);
+
+  function toggleSidebar() {
+    setSidebarExpanded((current) => {
+      const next = !current;
+      try {
+        window.localStorage.setItem(sidebarPreferenceStorageKey, String(next));
+      } catch {
+        // The current page can still use the selected layout without persistence.
+      }
+      return next;
+    });
+  }
 
   async function loadLocalPortfolio(signal?: AbortSignal) {
     setPortfolioLoadError(undefined);
@@ -613,7 +638,7 @@ export function Dashboard() {
     : "Use Refresh prices to begin";
 
   return (
-    <div className="app-shell">
+    <div className={cn("app-shell", sidebarExpanded ? "sidebar-expanded" : "sidebar-collapsed")}>
       <aside className="sidebar" aria-hidden={Boolean(selectedHolding || priceEditor)}>
         <Link className="brand" href="/" aria-label="Invest Monitor overview">
           <span className="brand-mark" aria-hidden="true">I</span>
@@ -624,8 +649,21 @@ export function Dashboard() {
           <a className={cn("nav-item", activeSection === "holdings" && "active")} href="#holdings" aria-current={activeSection === "holdings" ? "location" : undefined}><ChartNoAxesCombined aria-hidden="true" />Holdings</a>
           <Link className="nav-item" href="/accounts"><WalletCards aria-hidden="true" />Accounts</Link>
           <Link className="nav-item" href="/imports"><ArrowDownToLine aria-hidden="true" />Import</Link>
+          <Link className="nav-item" href="/settings"><Settings aria-hidden="true" />Settings</Link>
         </nav>
-        <div className="privacy-note"><ShieldCheck aria-hidden="true" /><span><strong>Private by design</strong><small>Confirmed records stay on this device</small></span></div>
+        <div className="sidebar-footer">
+          <button
+            type="button"
+            className="sidebar-toggle"
+            aria-label={sidebarExpanded ? "Collapse navigation" : "Expand navigation"}
+            title={sidebarExpanded ? "Collapse navigation" : "Expand navigation"}
+            onClick={toggleSidebar}
+          >
+            {sidebarExpanded ? <PanelLeftClose aria-hidden="true" /> : <PanelLeftOpen aria-hidden="true" />}
+            <span>{sidebarExpanded ? "Collapse" : "Expand"}</span>
+          </button>
+          <div className="privacy-note"><ShieldCheck aria-hidden="true" /><span><strong>Private by design</strong><small>Confirmed records stay on this device</small></span></div>
+        </div>
       </aside>
 
       <main className="main-content" id="overview" aria-hidden={Boolean(selectedHolding || priceEditor)}>
@@ -1123,6 +1161,7 @@ export function Dashboard() {
         <a className={activeSection === "holdings" ? "active" : undefined} href="#holdings" aria-current={activeSection === "holdings" ? "location" : undefined}><ChartNoAxesCombined aria-hidden="true" />Holdings</a>
         <Link href="/accounts"><WalletCards aria-hidden="true" />Accounts</Link>
         <Link href="/imports"><ArrowDownToLine aria-hidden="true" />Import</Link>
+        <Link href="/settings"><Settings aria-hidden="true" />Settings</Link>
       </nav>
     </div>
   );

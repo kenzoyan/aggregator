@@ -8,7 +8,8 @@ import type {
 import type { MarketRefreshFailureCategory } from "@/domain/market-data";
 
 export const ANALYST_CONTEXT_MAX_BYTES = 32 * 1024;
-const MAX_NAMED_DRIVERS = 3;
+const MAX_PERIOD_DRIVER_HOLDINGS = 5;
+const MAX_NAMED_DATA_QUALITY_GAPS = 5;
 const MAX_REFRESH_RESULTS = 3;
 
 export type AnalystPortfolioReadModel = PortfolioOverviewReadModel & {
@@ -480,7 +481,7 @@ function periodContext(
         Math.abs(left.history![request.period].change);
       return difference || left.name.localeCompare(right.name);
     })
-    .slice(0, MAX_NAMED_DRIVERS);
+    .slice(0, MAX_PERIOD_DRIVER_HOLDINGS);
   facts.push(...drivers.map((holding, index): HoldingDriverFact => {
     const contribution = holding.history![request.period];
     return {
@@ -540,7 +541,7 @@ function qualityContext(
   let includedNameCount = 0;
   const gaps = dataQualityGaps(portfolio, request.includeHoldingNames)
     .map(({ rank: _rank, stableOrder: _stableOrder, ...gap }, index): DataGapFact => {
-      const includeName = gap.name !== undefined && includedNameCount < MAX_NAMED_DRIVERS;
+      const includeName = gap.name !== undefined && includedNameCount < MAX_NAMED_DATA_QUALITY_GAPS;
       if (includeName) includedNameCount += 1;
       const { name: _name, ...unnamedGap } = gap;
       return {
