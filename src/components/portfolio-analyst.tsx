@@ -75,6 +75,8 @@ const starterQuestions = {
 export function PortfolioAnalyst({ blocked = false }: { blocked?: boolean }) {
   const activeRequest = useRef<AbortController | undefined>(undefined);
   const conversationView = useRef<HTMLDivElement | null>(null);
+  const composer = useRef<HTMLTextAreaElement | null>(null);
+  const entryAction = useRef<HTMLButtonElement | null>(null);
   const [open, setOpen] = useState(false);
   const [configuration, setConfiguration] = useState<AnalystConfiguration>();
   const [provider, setProvider] = useState<PortfolioAnalystProviderId>("openai");
@@ -134,7 +136,12 @@ export function PortfolioAnalyst({ blocked = false }: { blocked?: boolean }) {
 
   useEffect(() => {
     function closeOnEscape(event: KeyboardEvent) {
-      if (event.key === "Escape") setOpen(false);
+      if (event.key !== "Escape") return;
+      setOpen((current) => {
+        if (!current) return current;
+        window.requestAnimationFrame(() => entryAction.current?.focus());
+        return false;
+      });
     }
     window.addEventListener("keydown", closeOnEscape);
     return () => {
@@ -142,6 +149,21 @@ export function PortfolioAnalyst({ blocked = false }: { blocked?: boolean }) {
       activeRequest.current?.abort();
     };
   }, []);
+
+  function openAgent() {
+    setOpen(true);
+    window.requestAnimationFrame(() => composer.current?.focus());
+  }
+
+  function closeAgent() {
+    setOpen(false);
+    window.requestAnimationFrame(() => entryAction.current?.focus());
+  }
+
+  function startPrompt(prompt: string) {
+    setOpen(true);
+    void runAnalyst(prompt);
+  }
 
   async function runAnalyst(requestedQuestion?: string) {
     const normalizedQuestion = (requestedQuestion ?? question).trim();
@@ -263,19 +285,44 @@ export function PortfolioAnalyst({ blocked = false }: { blocked?: boolean }) {
       aria-hidden={blocked || undefined}
       inert={blocked || undefined}
     >
-      {!open && (
-        <button
-          type="button"
-          className="portfolio-agent-launcher"
-          aria-label="Open Portfolio Agent"
-          onClick={() => setOpen(true)}
-        >
-          <span aria-hidden="true">✦</span>
-          <strong>Agent</strong>
-          {conversation?.turns.length ? <small>{conversation.turns.length}</small> : null}
-        </button>
-      )}
+      <section className="portfolio-agent-home" id="agent" aria-labelledby="portfolio-agent-home-title">
+        <header>
+          <div className="portfolio-agent-home-title">
+            <span aria-hidden="true">✦</span>
+            <div>
+              <p className="eyebrow">PORTFOLIO AGENT</p>
+              <h2 id="portfolio-agent-home-title">Ask your portfolio</h2>
+              <small>Read-only answers from current portfolio facts.</small>
+            </div>
+          </div>
+          <button
+            ref={entryAction}
+            type="button"
+            className="portfolio-agent-home-action"
+            aria-controls="portfolio-analyst-panel"
+            aria-expanded={open}
+            onClick={openAgent}
+          >
+            {conversation?.turns.length
+              ? `Continue chat · ${conversation.turns.length}`
+              : "Start chat"}
+          </button>
+        </header>
+        <div className="portfolio-agent-home-prompts">
+          {starterQuestions[language].map((prompt) => (
+            <button
+              type="button"
+              key={prompt}
+              disabled={loading || !selectedProvider?.configured}
+              onClick={() => startPrompt(prompt)}
+            >
+              {prompt}
+            </button>
+          ))}
+        </div>
+      </section>
       {open && <aside
+        id="portfolio-analyst-panel"
         className="portfolio-analyst"
         aria-labelledby="portfolio-analyst-title"
       >
@@ -287,7 +334,13 @@ export function PortfolioAnalyst({ blocked = false }: { blocked?: boolean }) {
               <p>Read-only · fresh facts every turn</p>
             </div>
           </div>
-          <button type="button" aria-label="Close Portfolio Agent" onClick={() => setOpen(false)}>×</button>
+        <button
+          type="button"
+          aria-label="Close Portfolio Agent"
+          onClick={closeAgent}
+        >
+          ×
+        </button>
         </header>
 
         <div className="portfolio-analyst-workspace">
@@ -353,6 +406,7 @@ export function PortfolioAnalyst({ blocked = false }: { blocked?: boolean }) {
         </div>
         <div className="analyst-composer">
           <textarea
+            ref={composer}
             rows={3}
             maxLength={600}
             disabled={loading || !selectedProvider?.configured}

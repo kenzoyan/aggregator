@@ -624,6 +624,8 @@ export function Dashboard() {
           </div>
         </header>
 
+        <PortfolioAnalyst blocked={Boolean(selectedHolding || priceEditor)} />
+
         {portfolioLoadError && (
           <section className="portfolio-load-error" role="alert">
             <div>
@@ -947,8 +949,6 @@ export function Dashboard() {
           </div>
         </section>
       </main>
-
-      <PortfolioAnalyst blocked={Boolean(selectedHolding || priceEditor)} />
 
       {selectedHolding?.detail && (
         <div className="holding-drawer-backdrop" role="presentation" onMouseDown={closeHoldingDrawer}>

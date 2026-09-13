@@ -43,7 +43,7 @@ a { color: inherit; text-decoration: none; }
 button, a, input, select { outline-color: var(--accent); }
 button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 
-.app-shell { min-height: 100vh; }
+.app-shell { --agent-workspace-width: clamp(540px, 46vw, 680px); min-height: 100vh; }
 .app-route-content { min-height: 100vh; margin-left: 232px; transition: margin-left .22s ease; }
 .sidebar { position: fixed; inset: 0 auto 0 0; width: 232px; padding: 24px 18px 20px; background: #17211e; color: #dfe7e1; display: flex; flex-direction: column; z-index: 10; border-right: 1px solid rgba(255,255,255,.06); }
 .brand { display: flex; align-items: center; gap: 11px; margin: 0 7px 38px; }
@@ -217,13 +217,20 @@ h2 { margin-bottom: 0; font-family: Georgia, "Times New Roman", serif; font-size
 .exposure-list i { grid-column: 1 / -1; height: 3px; overflow: hidden; border-radius: 999px; background: #e5ebf1; }
 .exposure-list i span { display: block; height: 100%; border-radius: inherit; background: var(--blue); }
 
-.portfolio-agent-shell { position: relative; z-index: 35; }
-.portfolio-agent-launcher { position: fixed; right: 28px; bottom: 28px; z-index: 35; display: flex; align-items: center; gap: 8px; min-height: 48px; padding: 8px 14px 8px 9px; border: 1px solid rgba(255,255,255,.18); border-radius: 999px; background: #0b2545; color: white; box-shadow: 0 14px 34px rgba(11,30,53,.28); cursor: pointer; }
-.portfolio-agent-launcher > span { display: grid; place-items: center; width: 31px; height: 31px; border-radius: 50%; background: linear-gradient(135deg, #3d7ce7, #0fba87); font-size: 15px; }
-.portfolio-agent-launcher strong { font-size: 12px; }
-.portfolio-agent-launcher small { display: grid; place-items: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px; background: #ecf8f3; color: #17634c; font-size: 8px; font-weight: 850; }
-.portfolio-agent-launcher:hover { transform: translateY(-1px); box-shadow: 0 17px 38px rgba(11,30,53,.32); }
-.portfolio-analyst { position: fixed; inset: 0 auto 0 76px; z-index: 34; display: flex; width: 520px; min-width: 0; flex-direction: column; padding: 22px; border-right: 1px solid #cedbd5; background: #f5faf8; box-shadow: 18px 0 42px rgba(11,30,53,.12); overflow: hidden; }
+.portfolio-agent-shell { position: relative; z-index: 35; margin-bottom: 24px; }
+.portfolio-agent-home { display: grid; gap: 18px; padding: 24px 26px; border: 1px solid var(--line); border-radius: 16px; background: #1b2b26; color: #f3f6f4; box-shadow: var(--shadow); }
+.portfolio-agent-home > header { display: flex; align-items: center; justify-content: space-between; gap: 24px; }
+.portfolio-agent-home-title { display: flex; align-items: center; gap: 14px; min-width: 0; }
+.portfolio-agent-home-title > span { display: grid; place-items: center; width: 42px; height: 42px; flex: 0 0 auto; border-radius: 12px; background: #dce9df; color: #245144; font-size: 18px; }
+.portfolio-agent-home-title .eyebrow { margin-bottom: 3px; color: #91a79e; }
+.portfolio-agent-home-title h2 { margin: 0; color: #f7faf8; font-size: 23px; font-weight: 560; }
+.portfolio-agent-home-title small { display: block; margin-top: 4px; color: #aebdb6; font-size: 10px; }
+.portfolio-agent-home-action { min-height: 40px; padding: 10px 17px; border: 1px solid rgba(255,255,255,.18); border-radius: 9px; background: #f3f6f4; color: #244d3f; cursor: pointer; font-size: 10px; font-weight: 750; white-space: nowrap; }
+.portfolio-agent-home-prompts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; }
+.portfolio-agent-home-prompts button { min-height: 54px; padding: 11px 13px; border: 1px solid rgba(255,255,255,.14); border-radius: 9px; background: rgba(255,255,255,.06); color: #dfe8e3; cursor: pointer; font-size: 10px; font-weight: 600; line-height: 1.45; text-align: left; }
+.portfolio-agent-home-prompts button:hover { border-color: rgba(255,255,255,.3); background: rgba(255,255,255,.1); }
+.portfolio-agent-home-prompts button:disabled { cursor: not-allowed; opacity: .45; }
+.portfolio-analyst { position: fixed; inset: 0 auto 0 76px; z-index: 34; display: flex; width: var(--agent-workspace-width); min-width: 0; flex-direction: column; padding: 22px; border-right: 1px solid #cedbd5; background: #f5faf8; box-shadow: 18px 0 42px rgba(11,30,53,.12); overflow: hidden; }
 .portfolio-agent-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding-bottom: 14px; border-bottom: 1px solid #d9e4df; }
 .portfolio-agent-identity { display: flex; align-items: center; gap: 10px; }
 .portfolio-agent-identity > span { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 11px; background: linear-gradient(135deg, #3d7ce7, #0fba87); color: white; font-size: 15px; }
@@ -311,7 +318,7 @@ h2 { margin-bottom: 0; font-family: Georgia, "Times New Roman", serif; font-size
 
 @media (min-width: 1181px) {
   .main-content { transition: margin-left .22s ease; }
-  .app-shell:has(.portfolio-agent-shell.open) .main-content { width: calc(100% - 596px); min-width: 0; margin-left: 596px; max-width: none; }
+  .app-shell:has(.portfolio-agent-shell.open) .main-content { width: auto; min-width: 0; margin-left: var(--agent-workspace-width); max-width: none; }
   .app-shell:has(.portfolio-agent-shell.open) .topbar { align-items: flex-start; flex-wrap: wrap; gap: 16px; }
   .app-shell:has(.portfolio-agent-shell.open) .portfolio-insights-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
@@ -575,11 +582,14 @@ h2 { margin-bottom: 0; font-family: Georgia, "Times New Roman", serif; font-size
   .portfolio-insights-heading { align-items: flex-start; flex-direction: column; gap: 9px; }
   .portfolio-insights-grid { grid-template-columns: 1fr; }
   .portfolio-analyst { inset: 0; width: 100%; padding: 15px; }
+  .portfolio-agent-home { padding: 20px 18px; }
+  .portfolio-agent-home > header { align-items: flex-start; flex-direction: column; gap: 15px; }
+  .portfolio-agent-home-action { width: 100%; }
+  .portfolio-agent-home-prompts { grid-template-columns: 1fr; }
   .portfolio-analyst-evidence dl div { grid-template-columns: 1fr; gap: 5px; }
   .analyst-user-message { max-width: 92%; }
   .analyst-composer-actions { align-items: stretch; flex-wrap: wrap; }
   .analyst-composer-actions small { flex-basis: 100%; }
-  .portfolio-agent-launcher { right: 16px; bottom: 82px; }
   .section-title { align-items: center; }
   .source-filter { font-size: 0; }
   .source-filter select { font-size: 12px; max-width: 130px; }
@@ -701,8 +711,6 @@ h2 { margin-bottom: 0; font-family: Georgia, "Times New Roman", serif; font-size
 .holding-facts, .drawer-performance, .price-history-section { border-color: var(--line); }
 .holding-facts > div, .drawer-performance, .price-history-section { background: var(--surface); }
 
-.portfolio-agent-launcher { right: 28px; bottom: 24px; min-height: 44px; padding: 7px 13px 7px 8px; border: 1px solid rgba(255,255,255,.12); background: #1b2b26; box-shadow: 0 12px 28px rgba(27,43,38,.22); }
-.portfolio-agent-launcher > span { background: #dce9df; color: #245144; }
 .portfolio-analyst { left: 232px; background: #f1f4ef; border-color: #cfd8d0; }
 
 .import-page, .accounts-page { max-width: 1280px; padding-top: 48px; }
@@ -729,7 +737,7 @@ h2 { margin-bottom: 0; font-family: Georgia, "Times New Roman", serif; font-size
   .app-shell.sidebar-collapsed .main-content { margin-left: 0; }
   .app-shell.sidebar-collapsed .portfolio-analyst { left: 76px; }
   .app-shell.sidebar-expanded:has(.portfolio-agent-shell.open) .main-content,
-  .app-shell.sidebar-collapsed:has(.portfolio-agent-shell.open) .main-content { width: auto; margin-left: 520px; }
+  .app-shell.sidebar-collapsed:has(.portfolio-agent-shell.open) .main-content { width: auto; margin-left: var(--agent-workspace-width); }
 }
 
 @media (max-width: 1180px) {
@@ -772,7 +780,6 @@ h2 { margin-bottom: 0; font-family: Georgia, "Times New Roman", serif; font-size
   .mobile-nav a { color: #92a098; font-size: 9px; font-weight: 560; }
   .mobile-nav a svg { width: 18px; height: 18px; stroke-width: 1.8; }
   .mobile-nav a.active { color: #f3f6f4; }
-  .portfolio-agent-launcher { right: 14px; bottom: 82px; }
   .import-page, .accounts-page, .settings-page { padding: 28px 15px calc(108px + env(safe-area-inset-bottom)); }
   .import-header h1 { font-size: 34px; }
 }
