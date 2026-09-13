@@ -46,6 +46,7 @@ import {
 import type { MarketRefreshResult } from "@/application/market-refresh";
 import { PortfolioAnalyst } from "@/components/portfolio-analyst";
 import { PortfolioInsights } from "@/components/portfolio-insights";
+import { MarketIntelligence } from "@/components/market-intelligence";
 import { useAppShellModalState } from "@/components/app-shell";
 import { PortfolioValueChart } from "@/components/ui/portfolio-value-chart";
 
@@ -863,6 +864,8 @@ export function Dashboard() {
         {isLocal && localPortfolio?.insights && (
           <PortfolioInsights insights={localPortfolio.insights} />
         )}
+
+        <MarketIntelligence />
 
         <section className="holdings-section" id="holdings">
           <div className="section-title">

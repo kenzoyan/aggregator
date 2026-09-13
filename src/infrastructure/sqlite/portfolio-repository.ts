@@ -1,6 +1,10 @@
 import { DatabaseSync } from "node:sqlite";
 
 import type { PortfolioNarrativeReport } from "@/application/portfolio-narrative";
+import {
+  marketIntelligenceBriefSchema,
+  type MarketIntelligenceBrief,
+} from "@/application/market-intelligence";
 import type {
   PortfolioAnalystConversation,
   PortfolioAnalystConversationStore,
@@ -75,6 +79,8 @@ export interface PortfolioDatabase extends PortfolioAnalystConversationStore {
   renameSourceAccount(id: string, label: string): void;
   savePortfolioNarrative(report: PortfolioNarrativeReport): void;
   readLatestPortfolioNarrative(): PortfolioNarrativeReport | undefined;
+  saveMarketIntelligenceBrief(brief: MarketIntelligenceBrief): void;
+  readLatestMarketIntelligenceBrief(): MarketIntelligenceBrief | undefined;
   close(): void;
 }
 
@@ -268,6 +274,19 @@ export function createPortfolioDatabase(filename: string): PortfolioDatabase {
   `);
   const deletePortfolioAnalystConversation = database.prepare(
     "DELETE FROM portfolio_analyst_conversations WHERE id = ?",
+  );
+  const insertMarketIntelligenceBrief = database.prepare(`
+    INSERT INTO market_intelligence_briefs (id, generated_at, content_json)
+    VALUES (?, ?, ?)
+  `);
+  const selectLatestMarketIntelligenceBrief = database.prepare(`
+    SELECT content_json
+    FROM market_intelligence_briefs
+    ORDER BY generated_at DESC, rowid DESC
+    LIMIT 1
+  `);
+  const deleteOtherMarketIntelligenceBriefs = database.prepare(
+    "DELETE FROM market_intelligence_briefs WHERE id <> ?",
   );
 
   type PortfolioAnalystConversationRow = {
@@ -633,6 +652,31 @@ export function createPortfolioDatabase(filename: string): PortfolioDatabase {
         disclaimer: row.disclaimer,
         ...content,
       };
+    },
+
+    saveMarketIntelligenceBrief(brief) {
+      database.exec("BEGIN IMMEDIATE");
+      try {
+        insertMarketIntelligenceBrief.run(
+          brief.id,
+          brief.generatedAt,
+          JSON.stringify(brief),
+        );
+        deleteOtherMarketIntelligenceBriefs.run(brief.id);
+        database.exec("COMMIT");
+      } catch (error) {
+        database.exec("ROLLBACK");
+        throw error;
+      }
+    },
+
+    readLatestMarketIntelligenceBrief() {
+      const row = selectLatestMarketIntelligenceBrief.get() as
+        | { content_json: string }
+        | undefined;
+      return row
+        ? marketIntelligenceBriefSchema.parse(JSON.parse(row.content_json))
+        : undefined;
     },
 
     readLatestPortfolioAnalystConversation() {

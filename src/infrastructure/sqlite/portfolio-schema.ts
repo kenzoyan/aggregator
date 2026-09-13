@@ -2,7 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 
 import { legacyPartialSnapshotWarningMarker } from "@/domain/imports";
 
-export const portfolioSchemaVersion = 6;
+export const portfolioSchemaVersion = 7;
 
 export class LegacyPortfolioDatabaseError extends Error {
   constructor() {
@@ -44,6 +44,17 @@ const portfolioAnalystConversationsSchema = `
 
   CREATE INDEX IF NOT EXISTS portfolio_analyst_conversations_latest
     ON portfolio_analyst_conversations(updated_at DESC);
+`;
+
+const marketIntelligenceSchema = `
+  CREATE TABLE IF NOT EXISTS market_intelligence_briefs (
+    id TEXT PRIMARY KEY,
+    generated_at TEXT NOT NULL,
+    content_json TEXT NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS market_intelligence_briefs_latest
+    ON market_intelligence_briefs(generated_at DESC);
 `;
 
 function tableExists(database: DatabaseSync, table: string): boolean {
@@ -165,6 +176,7 @@ export function initializePortfolioSchema(database: DatabaseSync) {
 
         ${portfolioNarrativesSchema}
         ${portfolioAnalystConversationsSchema}
+        ${marketIntelligenceSchema}
       `);
       database.exec("COMMIT");
     } catch (error) {
@@ -268,6 +280,22 @@ export function initializePortfolioSchema(database: DatabaseSync) {
     try {
       database.exec(`
         ${portfolioAnalystConversationsSchema}
+        UPDATE schema_metadata SET version = 6;
+      `);
+      database.exec("COMMIT");
+    } catch (error) {
+      database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+  const marketIntelligenceRow = database.prepare(
+    "SELECT version FROM schema_metadata LIMIT 1",
+  ).get() as { version: number } | undefined;
+  if (marketIntelligenceRow?.version === 6) {
+    database.exec("BEGIN IMMEDIATE");
+    try {
+      database.exec(`
+        ${marketIntelligenceSchema}
         UPDATE schema_metadata SET version = ${portfolioSchemaVersion};
       `);
       database.exec("COMMIT");
