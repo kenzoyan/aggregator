@@ -1,5 +1,5 @@
-import { createPortfolioOverviewReadModel } from "@/application/portfolio-overview";
 import type { PortfolioDatabase } from "@/infrastructure/sqlite/portfolio-repository";
+import { createStoredPortfolioOverviewReadModel } from "@/server/stored-portfolio-overview";
 
 type CurrentPortfolioDatabase = Pick<
   PortfolioDatabase,
@@ -15,12 +15,9 @@ export function readCurrentPortfolioOverview(
     return undefined;
   }
   const marketData = database.readMarketData();
-  return createPortfolioOverviewReadModel({
-    snapshots: facts.openingSnapshots,
-    events: facts.events,
-    marketPrices: marketData.observations,
-    fxObservations: marketData.fxObservations,
-    marketRefreshHistory: marketData.marketRefreshHistory,
+  return createStoredPortfolioOverviewReadModel({
+    facts,
+    marketData,
     accountLabels: database.readSourceAccountLabels(),
     asOf,
   });

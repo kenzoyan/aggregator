@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { createPortfolioOverviewReadModel } from "@/application/portfolio-overview";
 import {
   createSourceAccountMarketDataStatuses,
   createSourceAccountStatusReadModel,
@@ -9,6 +8,7 @@ import {
 } from "@/application/source-account-status";
 import { sourceAccounts } from "@/domain/source-accounts";
 import type { PortfolioDatabase } from "@/infrastructure/sqlite/portfolio-repository";
+import { createStoredPortfolioOverviewReadModel } from "@/server/stored-portfolio-overview";
 
 const renameSchema = z.object({
   id: z.string().min(1),
@@ -35,14 +35,11 @@ export function createAccountsHandlers(input: {
     const facts = input.database.readPortfolioFacts();
     const marketData = input.database.readMarketData();
     const labels = input.database.readSourceAccountLabels();
-    const portfolio = createPortfolioOverviewReadModel({
-      snapshots: facts.openingSnapshots,
-      events: facts.events,
-      asOf: now,
-      marketPrices: marketData.observations,
-      fxObservations: marketData.fxObservations,
-      marketRefreshHistory: marketData.marketRefreshHistory,
+    const portfolio = createStoredPortfolioOverviewReadModel({
+      facts,
+      marketData,
       accountLabels: labels,
+      asOf: now,
     });
     const accounts = createSourceAccountStatusReadModel({
       accounts: sourceAccounts,

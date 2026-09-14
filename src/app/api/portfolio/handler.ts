@@ -3,12 +3,13 @@ import { NextResponse } from "next/server";
 import {
   createFxRateObservations,
 } from "@/application/fx-history";
-import { createPortfolioOverviewReadModel } from "@/application/portfolio-overview";
 import { createSourceAccountStatusReadModel } from "@/application/source-account-status";
+import type { FxRateObservation } from "@/domain/market-data";
 import { sourceAccounts } from "@/domain/source-accounts";
 import { EcbFxClient, type EcbRates } from "@/infrastructure/ecb/ecb-fx-client";
 import type { PortfolioDatabase } from "@/infrastructure/sqlite/portfolio-repository";
 import { getPortfolioDatabase } from "@/server/portfolio-db";
+import { createStoredPortfolioOverviewReadModel } from "@/server/stored-portfolio-overview";
 
 let cachedRates: { expiresAt: number; value: EcbRates } | undefined;
 
@@ -40,25 +41,22 @@ export function createPortfolioHandler(input: {
     const marketData = database.readMarketData();
     const state = facts.state;
     const snapshots = facts.openingSnapshots;
-    const marketPrices = marketData.observations;
     const accountLabels = database.readSourceAccountLabels();
-    let fxObservations = marketData.fxObservations;
+    let additionalFxObservations: FxRateObservation[] = [];
     try {
       const rates = await input.fetchLatestRates();
       const recorded = createFxRateObservations({ rates, recordedAt: now });
       database.recordMarketData({ observations: [], fxObservations: recorded });
-      fxObservations = [...fxObservations, ...recorded];
+      additionalFxObservations = recorded;
     } catch (error) {
       (input.logError ?? console.error)("ECB FX refresh failed", error);
     }
-    const portfolio = createPortfolioOverviewReadModel({
-      snapshots,
-      events: facts.events,
-      asOf: now,
-      marketPrices,
-      fxObservations,
-      marketRefreshHistory: marketData.marketRefreshHistory,
+    const portfolio = createStoredPortfolioOverviewReadModel({
+      facts,
+      marketData,
       accountLabels,
+      asOf: now,
+      additionalFxObservations,
     });
 
     return NextResponse.json({
