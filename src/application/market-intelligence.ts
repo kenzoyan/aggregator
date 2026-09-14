@@ -19,39 +19,6 @@ export const marketIntelligenceCategories = [
   "other",
 ] as const;
 
-export interface MarketIntelligenceSource {
-  title: string;
-  url: string;
-}
-
-export interface MarketIntelligenceEvent {
-  date: string;
-  time: string | null;
-  scheduledAt?: string | null;
-  region: string;
-  category: typeof marketIntelligenceCategories[number];
-  title: string;
-  summary: string;
-  whyItMatters: string;
-  sources: MarketIntelligenceSource[];
-}
-
-export interface MarketIntelligenceContent {
-  windowStart: string;
-  windowEnd: string;
-  events: MarketIntelligenceEvent[];
-}
-
-export interface MarketIntelligenceBrief extends MarketIntelligenceContent {
-  version: "market-intelligence.v1";
-  id: string;
-  provider: "openai";
-  model: string;
-  language: "en" | "zh-CN";
-  generatedAt: string;
-  disclaimer: string;
-}
-
 export interface MarketIntelligenceProvider {
   readonly id: "openai";
   readonly model: string;
@@ -88,22 +55,24 @@ function isOfficialSource(value: string): boolean {
 }
 
 const calendarDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+const marketIntelligenceEventFields = {
+  date: calendarDateSchema,
+  time: z.string().trim().min(1).max(40).nullable(),
+  region: z.string().trim().min(1).max(80),
+  category: z.enum(marketIntelligenceCategories),
+  title: z.string().trim().min(1).max(160),
+  summary: z.string().trim().min(1).max(500),
+  whyItMatters: z.string().trim().min(1).max(500),
+};
+const marketIntelligenceSourceSchema = z.object({
+  title: z.string().trim().min(1).max(200),
+  url: z.string().refine(isOfficialSource),
+}).strict();
 
-export const marketIntelligenceCandidateSchema = z.object({
-  windowStart: calendarDateSchema,
-  windowEnd: calendarDateSchema,
-  events: z.array(z.object({
-    date: calendarDateSchema,
-    time: z.string().trim().min(1).max(40).nullable(),
-    scheduledAt: z.string().datetime({ offset: true }).nullable(),
-    region: z.string().trim().min(1).max(80),
-    category: z.enum(marketIntelligenceCategories),
-    title: z.string().trim().min(1).max(160),
-    summary: z.string().trim().min(1).max(500),
-    whyItMatters: z.string().trim().min(1).max(500),
-    sourceUrls: z.array(z.string().refine(isOfficialSource)).min(1).max(3),
-  }).strict()).max(10),
-}).strict().superRefine((content, context) => {
+function validateEventWindow(
+  content: { windowStart: string; windowEnd: string; events: Array<{ date: string }> },
+  context: z.RefinementCtx,
+) {
   for (const [index, event] of content.events.entries()) {
     if (event.date < content.windowStart || event.date > content.windowEnd) {
       context.addIssue({
@@ -112,6 +81,20 @@ export const marketIntelligenceCandidateSchema = z.object({
         message: "Event date is outside the requested window",
       });
     }
+  }
+}
+
+export const marketIntelligenceCandidateSchema = z.object({
+  windowStart: calendarDateSchema,
+  windowEnd: calendarDateSchema,
+  events: z.array(z.object({
+    ...marketIntelligenceEventFields,
+    scheduledAt: z.string().datetime({ offset: true }).nullable(),
+    sourceUrls: z.array(z.string().refine(isOfficialSource)).min(1).max(3),
+  }).strict()).max(10),
+}).strict().superRefine((content, context) => {
+  validateEventWindow(content, context);
+  for (const [index, event] of content.events.entries()) {
     if (Boolean(event.time) !== Boolean(event.scheduledAt)) {
       context.addIssue({
         code: "custom",
@@ -126,26 +109,11 @@ export const marketIntelligenceContentSchema = z.object({
   windowStart: calendarDateSchema,
   windowEnd: calendarDateSchema,
   events: z.array(z.object({
-    date: calendarDateSchema,
-    time: z.string().trim().min(1).max(40).nullable(),
+    ...marketIntelligenceEventFields,
     scheduledAt: z.string().datetime({ offset: true }).nullable().optional(),
-    region: z.string().trim().min(1).max(80),
-    category: z.enum(marketIntelligenceCategories),
-    title: z.string().trim().min(1).max(160),
-    summary: z.string().trim().min(1).max(500),
-    whyItMatters: z.string().trim().min(1).max(500),
-    sources: z.array(z.object({
-      title: z.string().trim().min(1).max(200),
-      url: z.string().refine(isOfficialSource),
-    }).strict()).min(1).max(3),
+    sources: z.array(marketIntelligenceSourceSchema).min(1).max(3),
   }).strict()).max(10),
-}).strict().superRefine((content, context) => {
-  for (const [index, event] of content.events.entries()) {
-    if (event.date < content.windowStart || event.date > content.windowEnd) {
-      context.addIssue({ code: "custom", path: ["events", index, "date"], message: "Event date is outside the requested window" });
-    }
-  }
-});
+}).strict().superRefine(validateEventWindow);
 
 export const marketIntelligenceBriefSchema = marketIntelligenceContentSchema.extend({
   version: z.literal("market-intelligence.v1"),
@@ -156,6 +124,11 @@ export const marketIntelligenceBriefSchema = marketIntelligenceContentSchema.ext
   generatedAt: z.string().datetime(),
   disclaimer: z.string().min(1),
 });
+
+export type MarketIntelligenceSource = z.infer<typeof marketIntelligenceSourceSchema>;
+export type MarketIntelligenceEvent = z.infer<typeof marketIntelligenceContentSchema>["events"][number];
+export type MarketIntelligenceContent = z.infer<typeof marketIntelligenceContentSchema>;
+export type MarketIntelligenceBrief = z.infer<typeof marketIntelligenceBriefSchema>;
 
 const { $schema: _schemaDialect, ...generatedMarketIntelligenceJsonSchema } =
   z.toJSONSchema(marketIntelligenceCandidateSchema);
