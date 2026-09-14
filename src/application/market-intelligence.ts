@@ -157,35 +157,10 @@ export const marketIntelligenceBriefSchema = marketIntelligenceContentSchema.ext
   disclaimer: z.string().min(1),
 });
 
-export const marketIntelligenceJsonSchema = {
-  type: "object",
-  additionalProperties: false,
-  required: ["windowStart", "windowEnd", "events"],
-  properties: {
-    windowStart: { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" },
-    windowEnd: { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" },
-    events: {
-      type: "array",
-      maxItems: 10,
-      items: {
-        type: "object",
-        additionalProperties: false,
-        required: ["date", "time", "scheduledAt", "region", "category", "title", "summary", "whyItMatters", "sourceUrls"],
-        properties: {
-          date: { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" },
-          time: { type: ["string", "null"] },
-          scheduledAt: { type: ["string", "null"], format: "date-time" },
-          region: { type: "string" },
-          category: { type: "string", enum: marketIntelligenceCategories },
-          title: { type: "string" },
-          summary: { type: "string" },
-          whyItMatters: { type: "string" },
-          sourceUrls: { type: "array", minItems: 1, maxItems: 3, items: { type: "string" } },
-        },
-      },
-    },
-  },
-} as const;
+const { $schema: _schemaDialect, ...generatedMarketIntelligenceJsonSchema } =
+  z.toJSONSchema(marketIntelligenceCandidateSchema);
+
+export const marketIntelligenceJsonSchema = generatedMarketIntelligenceJsonSchema;
 
 export function createMarketIntelligenceWindow(now: string) {
   const start = new Date(now);
