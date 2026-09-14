@@ -30,7 +30,7 @@ export interface PortfolioPeriodHistory {
   valueHistory: PortfolioValueHistoryReadModel;
 }
 
-export function createPortfolioHistoryReadModel(input: {
+interface PortfolioHistoryInput {
   snapshots: readonly OpeningSnapshotInput[];
   events?: readonly PortfolioEventInput[];
   marketPrices?: readonly MarketPriceObservation[];
@@ -38,7 +38,9 @@ export function createPortfolioHistoryReadModel(input: {
   asOf: string;
   eurPerUnit: Readonly<Record<string, string>>;
   fxAsOf: string;
-}): Record<"today" | "week" | "month", PortfolioPeriodHistory> {
+}
+
+function createPortfolioHistoryContext(input: PortfolioHistoryInput) {
   const snapshots = [...input.snapshots].sort((left, right) =>
     left.asOf.localeCompare(right.asOf)
   );
@@ -162,6 +164,18 @@ export function createPortfolioHistoryReadModel(input: {
       complete: readModel.missingInputs.length === 0,
     }];
   });
+
+  return { snapshots, publishedObservationTimeline, points };
+}
+
+export function createPortfolioHistoryReadModel(
+  input: PortfolioHistoryInput,
+): Record<"today" | "week" | "month", PortfolioPeriodHistory> {
+  const {
+    snapshots,
+    publishedObservationTimeline,
+    points,
+  } = createPortfolioHistoryContext(input);
 
   return Object.fromEntries(
     (["today", "week", "month"] as const).map((period) => {
