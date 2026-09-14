@@ -5,6 +5,8 @@ import { openingPositionUnitPrice } from "@/application/position-price";
 import type {
   HoldingPriceHistoryReadModel,
   HoldingReadModel,
+  MarketDataStatusReadModel,
+  MissingValuationInputReadModel,
 } from "@/application/portfolio-read-model";
 import type {
   MarketPriceObservation,
@@ -109,6 +111,22 @@ interface ResolvedPositionPrice {
   marketPrice?: MarketPriceObservation;
 }
 
+interface CurrentPortfolioValuationInput {
+  state: PortfolioState;
+  snapshots?: readonly OpeningSnapshotInput[];
+  asOf: string;
+  snapshotTimes: Readonly<Record<string, string>>;
+  marketPrices?: readonly MarketPriceObservation[];
+  marketRefreshHistory?: readonly MarketRefreshRecord[];
+  eurPerUnit: Readonly<Record<string, string>>;
+  fxAsOf: string;
+  accountLabels?: Readonly<Record<string, string>>;
+}
+
+function positionHoldingId(position: Pick<Position, "sourceAccountId" | "instrumentId">) {
+  return `${position.sourceAccountId}:${position.instrumentId}`;
+}
+
 function resolvePositionPrice(input: {
   position: Position;
   marketPrices: readonly MarketPriceObservation[];
@@ -143,22 +161,11 @@ function resolvePositionPrice(input: {
   };
 }
 
-export function createCurrentPortfolioValuationReadModel(input: {
-  state: PortfolioState;
-  snapshots?: readonly OpeningSnapshotInput[];
-  asOf: string;
-  snapshotTimes: Readonly<Record<string, string>>;
-  marketPrices?: readonly MarketPriceObservation[];
-  marketRefreshHistory?: readonly MarketRefreshRecord[];
-  eurPerUnit: Readonly<Record<string, string>>;
-  fxAsOf: string;
-  accountLabels?: Readonly<Record<string, string>>;
-}) {
-  const marketPrices = input.marketPrices ?? [];
-  const snapshots = input.snapshots ?? [];
-  const marketRefreshHistory = input.marketRefreshHistory ?? [];
-  const latestMarketRefresh = marketRefreshHistory[0];
-  const resolvedPriceByHolding = new Map(
+function resolvePositionPrices(
+  input: CurrentPortfolioValuationInput,
+  marketPrices: readonly MarketPriceObservation[],
+) {
+  return new Map(
     input.state.positions.flatMap((position) => {
       const resolved = resolvePositionPrice({
         position,
@@ -167,13 +174,56 @@ export function createCurrentPortfolioValuationReadModel(input: {
         snapshotTimes: input.snapshotTimes,
       });
       return resolved
-        ? [[`${position.sourceAccountId}:${position.instrumentId}`, resolved] as const]
+        ? [[positionHoldingId(position), resolved] as const]
         : [];
     }),
   );
+}
+
+function createMarketDataStatus(
+  marketPrices: readonly MarketPriceObservation[],
+  marketRefreshHistory: readonly MarketRefreshRecord[],
+  asOf: string,
+): MarketDataStatusReadModel {
+  const latestMarketRefresh = marketRefreshHistory[0];
+  return {
+    lastRefreshedAt: latestMarketRefresh?.completedAt ?? marketPrices
+      .filter((observation) => observation.recordedAt <= asOf)
+      .map((observation) => observation.recordedAt)
+      .sort()
+      .at(-1),
+    ...(latestMarketRefresh
+      ? {
+          latestResult: {
+            updated: latestMarketRefresh.updated,
+            unchanged: latestMarketRefresh.unchanged,
+            failed: latestMarketRefresh.failed,
+            failures: latestMarketRefresh.failures,
+          },
+        }
+      : {}),
+    refreshHistory: marketRefreshHistory.map((refresh) => ({
+      mode: refresh.mode,
+      provider: refresh.provider,
+      completedAt: refresh.completedAt,
+      updated: refresh.updated,
+      unchanged: refresh.unchanged,
+      failed: refresh.failed,
+      failures: refresh.failures,
+    })),
+  };
+}
+
+export function createCurrentPortfolioValuationReadModel(
+  input: CurrentPortfolioValuationInput,
+) {
+  const marketPrices = input.marketPrices ?? [];
+  const snapshots = input.snapshots ?? [];
+  const marketRefreshHistory = input.marketRefreshHistory ?? [];
+  const resolvedPriceByHolding = resolvePositionPrices(input, marketPrices);
   const prices = input.state.positions.flatMap((position) => {
     const resolved = resolvedPriceByHolding.get(
-      `${position.sourceAccountId}:${position.instrumentId}`,
+      positionHoldingId(position),
     );
     return resolved
       ? [{
@@ -215,7 +265,7 @@ export function createCurrentPortfolioValuationReadModel(input: {
         ? assetTypeLabels[sourcePosition.assetType]
         : "Unclassified";
       const resolvedPrice = resolvedPriceByHolding.get(
-        `${position.sourceAccountId}:${position.instrumentId}`,
+        positionHoldingId(position),
       );
       const currentValue = new Decimal(position.originalValue);
       const costBasis = sourcePosition
@@ -237,7 +287,7 @@ export function createCurrentPortfolioValuationReadModel(input: {
         : undefined;
 
       return {
-        id: `${position.sourceAccountId}:${position.instrumentId}`,
+        id: positionHoldingId(position),
         sourceAccountId: position.sourceAccountId,
         holdingKey: {
           sourceAccountId: position.sourceAccountId,
@@ -312,7 +362,7 @@ export function createCurrentPortfolioValuationReadModel(input: {
   return {
     holdings,
     totalValueEur: Number(valuation.totalValueEur),
-    missingInputs: valuation.missingInputs.map((missing) => {
+    missingInputs: valuation.missingInputs.map((missing): MissingValuationInputReadModel => {
       const sourcePosition = missing.instrumentId
         ? input.state.positions.find((position) =>
             position.sourceAccountId === missing.sourceAccountId &&
@@ -327,31 +377,10 @@ export function createCurrentPortfolioValuationReadModel(input: {
       };
     }),
     fxAsOf: input.fxAsOf,
-    marketData: {
-      lastRefreshedAt: latestMarketRefresh?.completedAt ?? marketPrices
-        .filter((observation) => observation.recordedAt <= input.asOf)
-        .map((observation) => observation.recordedAt)
-        .sort()
-        .at(-1),
-      ...(latestMarketRefresh
-        ? {
-            latestResult: {
-              updated: latestMarketRefresh.updated,
-              unchanged: latestMarketRefresh.unchanged,
-              failed: latestMarketRefresh.failed,
-              failures: latestMarketRefresh.failures,
-            },
-          }
-        : {}),
-      refreshHistory: marketRefreshHistory.map((refresh) => ({
-        mode: refresh.mode,
-        provider: refresh.provider,
-        completedAt: refresh.completedAt,
-        updated: refresh.updated,
-        unchanged: refresh.unchanged,
-        failed: refresh.failed,
-        failures: refresh.failures,
-      })),
-    },
+    marketData: createMarketDataStatus(
+      marketPrices,
+      marketRefreshHistory,
+      input.asOf,
+    ),
   };
 }
