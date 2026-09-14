@@ -4,6 +4,10 @@ import { eurPerUnitAt } from "@/application/fx-history";
 import { selectRangeBaseline } from "@/application/period-baseline";
 import { marketDataTimelineTime } from "@/application/portfolio-calendar";
 import { createCurrentPortfolioValuationReadModel } from "@/application/portfolio-current-valuation";
+import {
+  cashHoldingId,
+  investmentHoldingId,
+} from "@/application/portfolio-holding-id";
 import type {
   PortfolioDailyChangeReadModel,
   PortfolioValueHistoryReadModel,
@@ -74,13 +78,13 @@ function createPortfolioHistoryContext(input: PortfolioHistoryInput) {
   });
   const currentQuantities = new Map(
     currentState.positions.map((position) => [
-      `${position.sourceAccountId}:${position.instrumentId}`,
+      investmentHoldingId(position),
       new Decimal(position.quantity),
     ]),
   );
   const currentCashAmounts = new Map(
     currentState.cashBalances.map((cash) => [
-      `${cash.sourceAccountId}:cash:${cash.currency}`,
+      cashHoldingId(cash),
       new Decimal(cash.amount),
     ]),
   );
@@ -109,7 +113,7 @@ function createPortfolioHistoryContext(input: PortfolioHistoryInput) {
       readModel.holdings.map((holding) => {
         if (holding.category === "Portfolio cash") {
           const historicalCash = state.cashBalances.find((cash) =>
-            `${cash.sourceAccountId}:cash:${cash.currency}` === holding.id
+            cashHoldingId(cash) === holding.id
           );
           const currentAmount = currentCashAmounts.get(holding.id);
           if (!historicalCash || !currentAmount) {
@@ -124,7 +128,7 @@ function createPortfolioHistoryContext(input: PortfolioHistoryInput) {
           return [holding.id, normalizedValue.toNumber()];
         }
         const historicalPosition = state.positions.find((position) =>
-          `${position.sourceAccountId}:${position.instrumentId}` === holding.id
+          investmentHoldingId(position) === holding.id
         );
         const currentQuantity = currentQuantities.get(holding.id);
         if (!historicalPosition || !currentQuantity) {
@@ -143,7 +147,7 @@ function createPortfolioHistoryContext(input: PortfolioHistoryInput) {
       .reduce((sum, value) => sum + value, 0);
     const investmentQuantities = Object.fromEntries(
       state.positions.map((position) => [
-        `${position.sourceAccountId}:${position.instrumentId}`,
+        investmentHoldingId(position),
         position.quantity,
       ]),
     );

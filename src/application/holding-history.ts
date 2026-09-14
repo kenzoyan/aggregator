@@ -1,6 +1,10 @@
 import Decimal from "decimal.js";
 
 import { eurPerUnitAt } from "@/application/fx-history";
+import {
+  cashHoldingId,
+  investmentHoldingId,
+} from "@/application/portfolio-holding-id";
 import { selectRangeBaseline } from "@/application/period-baseline";
 import { marketDataTimelineTime } from "@/application/portfolio-calendar";
 import { openingPositionUnitPrice } from "@/application/position-price";
@@ -263,7 +267,7 @@ export function createHoldingHistoryReadModel(input: {
   return Object.fromEntries(
     [
       ...input.state.positions.map((position) => ({
-        id: `${position.sourceAccountId}:${position.instrumentId}`,
+        id: investmentHoldingId(position),
         points: holdingPoints({ ...input, position }),
         monitoringStartedAt: input.snapshots
           .filter((snapshot) =>
@@ -277,7 +281,7 @@ export function createHoldingHistoryReadModel(input: {
           .at(0),
       })),
       ...input.state.cashBalances.map((cash) => ({
-        id: `${cash.sourceAccountId}:cash:${cash.currency}`,
+        id: cashHoldingId(cash),
         points: cashPoints({ ...input, cash, events }),
         monitoringStartedAt: input.snapshots
           .filter((snapshot) =>

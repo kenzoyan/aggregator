@@ -2,6 +2,10 @@ import Decimal from "decimal.js";
 
 import { formatOriginalMoney } from "@/application/money-format";
 import { openingPositionUnitPrice } from "@/application/position-price";
+import {
+  cashHoldingId,
+  investmentHoldingId,
+} from "@/application/portfolio-holding-id";
 import type {
   HoldingPriceHistoryReadModel,
   HoldingReadModel,
@@ -123,10 +127,6 @@ interface CurrentPortfolioValuationInput {
   accountLabels?: Readonly<Record<string, string>>;
 }
 
-function positionHoldingId(position: Pick<Position, "sourceAccountId" | "instrumentId">) {
-  return `${position.sourceAccountId}:${position.instrumentId}`;
-}
-
 function resolvePositionPrice(input: {
   position: Position;
   marketPrices: readonly MarketPriceObservation[];
@@ -174,7 +174,7 @@ function resolvePositionPrices(
         snapshotTimes: input.snapshotTimes,
       });
       return resolved
-        ? [[positionHoldingId(position), resolved] as const]
+        ? [[investmentHoldingId(position), resolved] as const]
         : [];
     }),
   );
@@ -223,7 +223,7 @@ export function createCurrentPortfolioValuationReadModel(
   const resolvedPriceByHolding = resolvePositionPrices(input, marketPrices);
   const prices = input.state.positions.flatMap((position) => {
     const resolved = resolvedPriceByHolding.get(
-      positionHoldingId(position),
+      investmentHoldingId(position),
     );
     return resolved
       ? [{
@@ -265,7 +265,7 @@ export function createCurrentPortfolioValuationReadModel(
         ? assetTypeLabels[sourcePosition.assetType]
         : "Unclassified";
       const resolvedPrice = resolvedPriceByHolding.get(
-        positionHoldingId(position),
+        investmentHoldingId(position),
       );
       const currentValue = new Decimal(position.originalValue);
       const costBasis = sourcePosition
@@ -287,7 +287,7 @@ export function createCurrentPortfolioValuationReadModel(
         : undefined;
 
       return {
-        id: positionHoldingId(position),
+        id: investmentHoldingId(position),
         sourceAccountId: position.sourceAccountId,
         holdingKey: {
           sourceAccountId: position.sourceAccountId,
@@ -338,7 +338,7 @@ export function createCurrentPortfolioValuationReadModel(
     ...valuation.cash
       .filter((cash) => !new Decimal(cash.originalValue).isZero())
       .map((cash) => ({
-        id: `${cash.sourceAccountId}:cash:${cash.currency}`,
+        id: cashHoldingId(cash),
         sourceAccountId: cash.sourceAccountId,
         name: "Portfolio Cash",
         symbol: "CASH",
