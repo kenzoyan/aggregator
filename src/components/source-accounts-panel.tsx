@@ -4,12 +4,10 @@ import Link from "next/link";
 import { useEffect, useMemo, useState, type CSSProperties, type FormEvent } from "react";
 
 import {
-  createSourceAccountMarketDataStatuses,
+  type SourceAccountMarketDataStatus,
   type SourceAccountView,
 } from "@/application/source-account-status";
 import type {
-  HoldingReadModel,
-  MissingValuationInputReadModel,
   SourceAccountAllocationReadModel,
 } from "@/application/portfolio-read-model";
 
@@ -38,8 +36,7 @@ const marketStatusLabels = {
 export function SourceAccountsPanel() {
   const [accounts, setAccounts] = useState<AccountView[]>([]);
   const [allocation, setAllocation] = useState<SourceAccountAllocationReadModel[]>([]);
-  const [holdings, setHoldings] = useState<HoldingReadModel[]>([]);
-  const [missingInputs, setMissingInputs] = useState<MissingValuationInputReadModel[]>([]);
+  const [marketDataStatuses, setMarketDataStatuses] = useState<SourceAccountMarketDataStatus[]>([]);
   const [allocationStatus, setAllocationStatus] = useState<"loading" | "ready" | "unavailable">("loading");
   const [editing, setEditing] = useState<string>();
   const [label, setLabel] = useState("");
@@ -49,27 +46,29 @@ export function SourceAccountsPanel() {
   useEffect(() => {
     fetch("/api/accounts", { cache: "no-store" })
       .then(async (response) => {
-        const payload = (await response.json()) as { accounts?: AccountView[]; error?: string };
-        if (!response.ok || !payload.accounts) throw new Error(payload.error ?? "Accounts could not be loaded.");
-        setAccounts(payload.accounts);
-      })
-      .catch((reason) => setError(reason instanceof Error ? reason.message : "Accounts could not be loaded."));
-    fetch("/api/portfolio", { cache: "no-store" })
-      .then(async (response) => {
         const payload = (await response.json()) as {
-          portfolio?: {
-            accountAllocation?: SourceAccountAllocationReadModel[];
-            holdings?: HoldingReadModel[];
-            missingInputs?: MissingValuationInputReadModel[];
-          };
+          accounts?: AccountView[];
+          accountAllocation?: SourceAccountAllocationReadModel[];
+          marketDataStatuses?: SourceAccountMarketDataStatus[];
+          error?: string;
         };
-        if (!response.ok || !payload.portfolio?.accountAllocation) throw new Error("Allocation unavailable");
-        setAllocation(payload.portfolio.accountAllocation);
-        setHoldings(payload.portfolio.holdings ?? []);
-        setMissingInputs(payload.portfolio.missingInputs ?? []);
+        if (
+          !response.ok ||
+          !payload.accounts ||
+          !payload.accountAllocation ||
+          !payload.marketDataStatuses
+        ) {
+          throw new Error(payload.error ?? "Accounts could not be loaded.");
+        }
+        setAccounts(payload.accounts);
+        setAllocation(payload.accountAllocation);
+        setMarketDataStatuses(payload.marketDataStatuses);
         setAllocationStatus("ready");
       })
-      .catch(() => setAllocationStatus("unavailable"));
+      .catch((reason) => {
+        setError(reason instanceof Error ? reason.message : "Accounts could not be loaded.");
+        setAllocationStatus("unavailable");
+      });
   }, []);
 
   const accountLabels = useMemo(() => new Map(
@@ -77,8 +76,8 @@ export function SourceAccountsPanel() {
   ), [accounts]);
   const allocationTotal = allocation.reduce((total, account) => total + account.valueEur, 0);
   const marketDataByAccount = useMemo(() => new Map(
-    createSourceAccountMarketDataStatuses(holdings, missingInputs).map((status) => [status.sourceAccountId, status]),
-  ), [holdings, missingInputs]);
+    marketDataStatuses.map((status) => [status.sourceAccountId, status]),
+  ), [marketDataStatuses]);
   let allocationCursor = 0;
   const allocationGradient = allocation.length > 0
     ? `conic-gradient(${allocation.map((account, index) => {
