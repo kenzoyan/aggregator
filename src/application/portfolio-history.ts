@@ -3,7 +3,7 @@ import Decimal from "decimal.js";
 import { eurPerUnitAt } from "@/application/fx-history";
 import { selectRangeBaseline } from "@/application/period-baseline";
 import { marketDataTimelineTime } from "@/application/portfolio-calendar";
-import { createDashboardReadModel } from "@/application/portfolio-dashboard";
+import { createCurrentPortfolioValuationReadModel } from "@/application/portfolio-current-valuation";
 import type {
   PortfolioDailyChangeReadModel,
   PortfolioValueHistoryReadModel,
@@ -92,7 +92,7 @@ export function createPortfolioHistoryReadModel(input: {
       openingSnapshots: knownSnapshots,
       events: events.filter((event) => event.asOf <= asOf),
     });
-    const readModel = createDashboardReadModel({
+    const readModel = createCurrentPortfolioValuationReadModel({
       state,
       snapshots: knownSnapshots,
       asOf,

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { createCsvImportDraft } from "@/application/imports/csv-import";
-import { createDashboardReadModel } from "@/application/portfolio-dashboard";
+import { createCurrentPortfolioValuationReadModel } from "@/application/portfolio-current-valuation";
 import { createPortfolioDatabase } from "@/infrastructure/sqlite/portfolio-repository";
 
 describe("CSV import confirmation workflow", () => {
@@ -31,7 +31,7 @@ alipay-main,Synthetic Index Fund,001234,fund,CNY,10,12.5,2026-07-16,10,125,25,10
       },
     });
     const state = database.readPortfolioFacts().state;
-    const dashboard = createDashboardReadModel({
+    const dashboard = createCurrentPortfolioValuationReadModel({
       state,
       asOf: "2026-07-19T10:02:00.000Z",
       snapshotTimes: { "alipay-main": "2026-07-16T00:00:00.000Z" },

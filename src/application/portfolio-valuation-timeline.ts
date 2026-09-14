@@ -1,6 +1,6 @@
 import { createEurCnyOverview, eurPerUnitAt } from "@/application/fx-history";
 import { createHoldingHistoryReadModel } from "@/application/holding-history";
-import { createDashboardReadModel } from "@/application/portfolio-dashboard";
+import { createCurrentPortfolioValuationReadModel } from "@/application/portfolio-current-valuation";
 import { createPortfolioHistoryReadModel } from "@/application/portfolio-history";
 import { combinePortfolioPeriodHistory } from "@/application/portfolio-periods";
 import type {
@@ -76,7 +76,7 @@ export function createPortfolioValuationTimeline(
   const snapshotTimes = Object.fromEntries(
     input.snapshots.map((snapshot) => [snapshot.sourceAccountId, snapshot.asOf]),
   );
-  const current = createDashboardReadModel({
+  const current = createCurrentPortfolioValuationReadModel({
     state,
     snapshots: input.snapshots,
     asOf: input.asOf,

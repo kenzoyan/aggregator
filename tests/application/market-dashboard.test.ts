@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  createDashboardReadModel,
-} from "@/application/portfolio-dashboard";
+  createCurrentPortfolioValuationReadModel,
+} from "@/application/portfolio-current-valuation";
 import { createPortfolioHistoryReadModel } from "@/application/portfolio-history";
 import { buildPortfolioState } from "@/domain/portfolio/ledger";
 
@@ -67,7 +67,7 @@ describe("market-priced dashboard", () => {
       }],
     };
 
-    const readModel = createDashboardReadModel({
+    const readModel = createCurrentPortfolioValuationReadModel({
       state: buildPortfolioState({ openingSnapshots: [etfSnapshot], events: [] }),
       asOf: "2026-07-21T19:28:00.000Z",
       snapshotTimes: { "trading212-main": etfSnapshot.asOf },
@@ -79,7 +79,7 @@ describe("market-priced dashboard", () => {
   });
 
   it("does not render a zero cash balance as an extra holding", () => {
-    const readModel = createDashboardReadModel({
+    const readModel = createCurrentPortfolioValuationReadModel({
       state: {
         positions: [],
         cashBalances: [{
@@ -115,7 +115,7 @@ describe("market-priced dashboard", () => {
       events: [],
     });
 
-    const readModel = createDashboardReadModel({
+    const readModel = createCurrentPortfolioValuationReadModel({
       state,
       asOf: "2026-07-21T19:28:00.000Z",
       snapshotTimes: { "alipay-main": "2026-07-21T19:28:00.000Z" },
@@ -133,7 +133,7 @@ describe("market-priced dashboard", () => {
   });
 
   it("uses the latest saved NAV instead of the imported market value", () => {
-    const readModel = createDashboardReadModel({
+    const readModel = createCurrentPortfolioValuationReadModel({
       state: buildPortfolioState({ openingSnapshots: [openingSnapshot], events: [] }),
       asOf: "2026-07-19T23:59:59.999Z",
       snapshotTimes: { "alipay-main": openingSnapshot.asOf },
@@ -199,7 +199,7 @@ describe("market-priced dashboard", () => {
   });
 
   it("labels a user-entered market price as manual", () => {
-    const readModel = createDashboardReadModel({
+    const readModel = createCurrentPortfolioValuationReadModel({
       state: buildPortfolioState({ openingSnapshots: [openingSnapshot], events: [] }),
       asOf: "2026-07-19T23:59:59.999Z",
       snapshotTimes: { "alipay-main": openingSnapshot.asOf },
@@ -212,7 +212,7 @@ describe("market-priced dashboard", () => {
   });
 
   it("uses a same-day market observation whose as-of value includes a time", () => {
-    const readModel = createDashboardReadModel({
+    const readModel = createCurrentPortfolioValuationReadModel({
       state: buildPortfolioState({ openingSnapshots: [openingSnapshot], events: [] }),
       asOf: "2026-07-19T23:59:59.999Z",
       snapshotTimes: { "alipay-main": openingSnapshot.asOf },

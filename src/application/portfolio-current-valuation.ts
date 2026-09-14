@@ -143,7 +143,7 @@ function resolvePositionPrice(input: {
   };
 }
 
-export function createDashboardReadModel(input: {
+export function createCurrentPortfolioValuationReadModel(input: {
   state: PortfolioState;
   snapshots?: readonly OpeningSnapshotInput[];
   asOf: string;
