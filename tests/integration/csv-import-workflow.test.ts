@@ -31,7 +31,7 @@ alipay-main,Synthetic Index Fund,001234,fund,CNY,10,12.5,2026-07-16,10,125,25,10
       },
     });
     const state = database.readPortfolioFacts().state;
-    const dashboard = createCurrentPortfolioValuationReadModel({
+    const valuation = createCurrentPortfolioValuationReadModel({
       state,
       asOf: "2026-07-19T10:02:00.000Z",
       snapshotTimes: { "alipay-main": "2026-07-16T00:00:00.000Z" },
@@ -47,7 +47,7 @@ alipay-main,Synthetic Index Fund,001234,fund,CNY,10,12.5,2026-07-16,10,125,25,10
       observedPrice: "12.5",
       reportedMarketValue: "125",
     });
-    expect(dashboard.holdings[0]).toMatchObject({
+    expect(valuation.holdings[0]).toMatchObject({
       name: "Synthetic Index Fund",
       symbol: "001234",
       category: "Fund",

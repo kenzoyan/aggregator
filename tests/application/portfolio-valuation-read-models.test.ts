@@ -49,7 +49,7 @@ const marketPrices = [
   },
 ];
 
-describe("market-priced dashboard", () => {
+describe("portfolio valuation read models", () => {
   it("renders a confirmed ETF as ETF instead of collapsing it into another asset type", () => {
     const etfSnapshot = {
       id: "opening-trading212-etf",

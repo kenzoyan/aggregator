@@ -18,7 +18,7 @@ import type {
   PortfolioEventInput,
 } from "@/domain/portfolio/types";
 
-export interface DashboardPeriodHistory {
+export interface PortfolioPeriodHistory {
   available: boolean;
   coverage?: "partial";
   change: number;
@@ -38,7 +38,7 @@ export function createPortfolioHistoryReadModel(input: {
   asOf: string;
   eurPerUnit: Readonly<Record<string, string>>;
   fxAsOf: string;
-}): Record<"today" | "week" | "month", DashboardPeriodHistory> {
+}): Record<"today" | "week" | "month", PortfolioPeriodHistory> {
   const snapshots = [...input.snapshots].sort((left, right) =>
     left.asOf.localeCompare(right.asOf)
   );
@@ -391,5 +391,5 @@ export function createPortfolioHistoryReadModel(input: {
           : {}),
       }];
     }),
-  ) as Record<"today" | "week" | "month", DashboardPeriodHistory>;
+  ) as Record<"today" | "week" | "month", PortfolioPeriodHistory>;
 }
