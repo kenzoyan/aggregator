@@ -45,12 +45,14 @@ describe("market intelligence", () => {
     expect(marketIntelligenceJsonSchema).toMatchObject({
       properties: {
         events: {
+          maxItems: 10,
           items: {
             properties: {
               region: { minLength: 1, maxLength: 80 },
               title: { minLength: 1, maxLength: 160 },
               summary: { minLength: 1, maxLength: 500 },
               whyItMatters: { minLength: 1, maxLength: 500 },
+              sourceUrls: { minItems: 1, maxItems: 3 },
             },
           },
         },

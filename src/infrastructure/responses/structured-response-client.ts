@@ -3,32 +3,12 @@ import { z } from "zod";
 const responsesEnvelopeSchema = z.object({
   status: z.string().optional(),
   output: z.array(z.object({
-    action: z.object({
-      sources: z.array(z.object({
-        url: z.string(),
-        title: z.string().optional(),
-      }).passthrough()).optional(),
-    }).passthrough().optional(),
     content: z.array(z.object({
       type: z.string(),
       text: z.string().optional(),
-      annotations: z.array(z.object({
-        type: z.string(),
-        url: z.string().optional(),
-        title: z.string().optional(),
-      }).passthrough()).optional(),
     }).passthrough()).optional(),
   }).passthrough()),
 }).passthrough();
-
-export interface StructuredResponseSource {
-  url: string;
-  title?: string;
-}
-
-export interface StructuredResponseMetadata {
-  sources: StructuredResponseSource[];
-}
 
 export type StructuredResponseErrorCode =
   | "authentication-failed"
@@ -54,7 +34,7 @@ function errorForStatus(status: number): StructuredResponseError {
 
 function parseResponsePayload(payload: unknown): {
   outputText: unknown;
-  metadata: StructuredResponseMetadata;
+  responseEnvelope: unknown;
 } {
   const response = responsesEnvelopeSchema.parse(payload);
   if (response.status && response.status !== "completed") {
@@ -64,19 +44,9 @@ function parseResponsePayload(payload: unknown): {
     .flatMap((item) => item.content ?? [])
     .find((item) => item.type === "output_text")?.text;
   if (!text) throw new StructuredResponseError("invalid-response");
-  const sources = response.output.flatMap((item) => [
-    ...(item.action?.sources ?? []),
-    ...(item.content ?? [])
-      .flatMap((content) => content.annotations ?? [])
-      .filter((annotation) => annotation.type === "url_citation" && annotation.url)
-      .map((annotation) => ({
-        url: annotation.url as string,
-        ...(annotation.title ? { title: annotation.title } : {}),
-      })),
-  ]);
   return {
     outputText: JSON.parse(text),
-    metadata: { sources },
+    responseEnvelope: payload,
   };
 }
 
@@ -134,8 +104,8 @@ export async function requestStructuredResponse<T>(input: {
   prompt: unknown;
   schemaName: string;
   jsonSchema: object;
-  reasoningEffort: "none" | "medium";
-  maxOutputTokens: number;
+  reasoningEffort?: "none" | "medium";
+  maxOutputTokens?: number;
   timeoutMs: number;
   store?: false;
   tools?: ReadonlyArray<Record<string, unknown>>;
@@ -147,7 +117,7 @@ export async function requestStructuredResponse<T>(input: {
     project: (partialOutputText: string) => string | undefined;
     onDelta: (delta: string) => void;
   };
-  parse: (payload: unknown, metadata: StructuredResponseMetadata) => T;
+  parse: (payload: unknown, responseEnvelope: unknown) => T;
   fetch?: typeof globalThis.fetch;
 }): Promise<T> {
   try {
@@ -160,8 +130,8 @@ export async function requestStructuredResponse<T>(input: {
       body: JSON.stringify({
         model: input.model,
         ...(input.store === false ? { store: false } : {}),
-        reasoning: { effort: input.reasoningEffort },
-        max_output_tokens: input.maxOutputTokens,
+        ...(input.reasoningEffort ? { reasoning: { effort: input.reasoningEffort } } : {}),
+        ...(input.maxOutputTokens === undefined ? {} : { max_output_tokens: input.maxOutputTokens }),
         instructions: input.instructions,
         input: input.prompt,
         ...(input.tools ? { tools: input.tools } : {}),
@@ -186,12 +156,12 @@ export async function requestStructuredResponse<T>(input: {
     if (input.streamProjection) {
       return await parseStreamingOutput(
         response,
-        (payload) => input.parse(payload, { sources: [] }),
+        (payload) => input.parse(payload, undefined),
         input.streamProjection,
       );
     }
     const parsedResponse = parseResponsePayload(await response.json());
-    return input.parse(parsedResponse.outputText, parsedResponse.metadata);
+    return input.parse(parsedResponse.outputText, parsedResponse.responseEnvelope);
   } catch (error) {
     if (error instanceof StructuredResponseError) throw error;
     if (

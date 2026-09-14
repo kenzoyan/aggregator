@@ -93,4 +93,15 @@ describe("OpenAI market intelligence provider", () => {
     await expect(provider.generate({ language: "en", now: "2026-09-13T12:00:00.000Z" }))
       .rejects.toEqual(new MarketIntelligenceProviderError("invalid-response"));
   });
+
+  it("classifies a malformed returned source URL as an invalid response", async () => {
+    const provider = new OpenAIMarketIntelligenceProvider({
+      apiKey: "synthetic-key",
+      model: "gpt-synthetic",
+      fetch: async () => response("not-a-url"),
+    });
+
+    await expect(provider.generate({ language: "en", now: "2026-09-13T12:00:00.000Z" }))
+      .rejects.toEqual(new MarketIntelligenceProviderError("invalid-response"));
+  });
 });

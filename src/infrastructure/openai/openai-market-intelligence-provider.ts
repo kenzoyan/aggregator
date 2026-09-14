@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 import {
   createMarketIntelligenceInstructions,
   createMarketIntelligenceWindow,
@@ -11,26 +13,61 @@ import {
 import {
   requestStructuredResponse,
   StructuredResponseError,
-  type StructuredResponseMetadata,
 } from "@/infrastructure/responses/structured-response-client";
 
+const sourceEnvelopeSchema = z.object({
+  output: z.array(z.object({
+    action: z.object({
+      sources: z.array(z.object({
+        url: z.string(),
+        title: z.string().optional(),
+      }).passthrough()).optional(),
+    }).passthrough().optional(),
+    content: z.array(z.object({
+      annotations: z.array(z.object({
+        type: z.string(),
+        url: z.string().optional(),
+        title: z.string().optional(),
+      }).passthrough()).optional(),
+    }).passthrough()).optional(),
+  }).passthrough()),
+}).passthrough();
+
 function normalizeUrl(value: string): string {
-  const url = new URL(value);
-  url.hash = "";
-  return url.toString();
+  try {
+    const url = new URL(value);
+    url.hash = "";
+    return url.toString();
+  } catch {
+    throw new StructuredResponseError("invalid-response");
+  }
 }
 
 function parseResponse(
   payload: unknown,
-  metadata: StructuredResponseMetadata,
+  responseEnvelope: unknown,
   expectedWindow: { startDate: string; endDate: string },
 ) {
+  const envelope = sourceEnvelopeSchema.parse(responseEnvelope);
   const sources = new Map<string, MarketIntelligenceSource>();
-  for (const source of metadata.sources) {
-    sources.set(normalizeUrl(source.url), {
-      title: source.title?.trim() || new URL(source.url).hostname,
-      url: source.url,
-    });
+  for (const item of envelope.output) {
+    const returnedSources = [
+      ...(item.action?.sources ?? []),
+      ...(item.content ?? [])
+        .flatMap((content) => content.annotations ?? [])
+        .filter((annotation) => annotation.type === "url_citation" && annotation.url)
+        .map((annotation) => ({
+          url: annotation.url as string,
+          title: annotation.title,
+        })),
+    ];
+    for (const source of returnedSources) {
+      const normalizedUrl = normalizeUrl(source.url);
+      sources.set(normalizedUrl, {
+        title: source.title?.trim() || new URL(normalizedUrl).hostname,
+        url: source.url,
+      });
+    }
   }
   const candidate = marketIntelligenceCandidateSchema.parse(payload);
   if (candidate.windowStart !== expectedWindow.startDate || candidate.windowEnd !== expectedWindow.endDate) {
@@ -77,8 +114,6 @@ export class OpenAIMarketIntelligenceProvider implements MarketIntelligenceProvi
         apiKey: this.apiKey,
         model: this.model,
         store: false,
-        reasoningEffort: "none",
-        maxOutputTokens: 4_000,
         timeoutMs: 45_000,
         instructions: createMarketIntelligenceInstructions(input.language),
         prompt: `Current instant: ${input.now}. Find scheduled events from ${window.startDate} through ${window.endDate}, inclusive.`,
@@ -93,7 +128,7 @@ export class OpenAIMarketIntelligenceProvider implements MarketIntelligenceProvi
         schemaName: "market_intelligence",
         jsonSchema: marketIntelligenceJsonSchema,
         signal: input.signal,
-        parse: (payload, metadata) => parseResponse(payload, metadata, window),
+        parse: (payload, responseEnvelope) => parseResponse(payload, responseEnvelope, window),
         fetch: this.fetch,
       });
     } catch (error) {
