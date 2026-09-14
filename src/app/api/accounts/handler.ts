@@ -5,6 +5,7 @@ import { createPortfolioOverviewReadModel } from "@/application/portfolio-overvi
 import {
   createSourceAccountMarketDataStatuses,
   createSourceAccountStatusReadModel,
+  type SourceAccountsPageReadModel,
 } from "@/application/source-account-status";
 import { sourceAccounts } from "@/domain/source-accounts";
 import type { PortfolioDatabase } from "@/infrastructure/sqlite/portfolio-repository";
@@ -25,11 +26,11 @@ type AccountsDatabase = Pick<
 export function createAccountsHandlers(input: {
   database: AccountsDatabase;
   now?: () => string;
-  trading212Configuration: (sourceAccountId: string) => unknown;
+  isTrading212Configured: (sourceAccountId: string) => boolean;
   trading212Environment: () => "demo" | "live";
   logError?: (message: string, error: unknown) => void;
 }) {
-  function readAccountsPage() {
+  function readAccountsPage(): SourceAccountsPageReadModel {
     const now = input.now?.() ?? new Date().toISOString();
     const facts = input.database.readPortfolioFacts();
     const marketData = input.database.readMarketData();
@@ -55,7 +56,7 @@ export function createAccountsHandlers(input: {
       ...(account.provider === "trading212"
         ? {
             connector: {
-              configured: Boolean(input.trading212Configuration(account.id)),
+              configured: input.isTrading212Configured(account.id),
               environment: input.trading212Environment(),
               access: "read-only" as const,
             },
@@ -78,21 +79,37 @@ export function createAccountsHandlers(input: {
       return NextResponse.json(readAccountsPage());
     },
     async PATCH(request: Request) {
+      let rename: z.infer<typeof renameSchema>;
       try {
-        const rename = renameSchema.parse(await request.json());
-        input.database.renameSourceAccount(rename.id, rename.label);
-        return NextResponse.json(readAccountsPage());
+        rename = renameSchema.parse(await request.json());
       } catch (error) {
-        if (error instanceof z.ZodError) {
+        if (error instanceof z.ZodError || error instanceof SyntaxError) {
           return NextResponse.json(
             { error: "Choose an account and enter a name of 80 characters or fewer." },
             { status: 400 },
           );
         }
+        return NextResponse.json(
+          { error: "Account name could not be saved." },
+          { status: 400 },
+        );
+      }
+      try {
+        input.database.renameSourceAccount(rename.id, rename.label);
+      } catch (error) {
         (input.logError ?? console.error)("Source Account rename failed", error);
         return NextResponse.json(
           { error: "Account name could not be saved." },
           { status: 400 },
+        );
+      }
+      try {
+        return NextResponse.json(readAccountsPage());
+      } catch (error) {
+        (input.logError ?? console.error)("Source Account reload failed", error);
+        return NextResponse.json(
+          { error: "Account name was saved, but account data could not be reloaded." },
+          { status: 500 },
         );
       }
     },

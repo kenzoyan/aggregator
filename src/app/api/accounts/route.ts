@@ -11,7 +11,9 @@ export const dynamic = "force-dynamic";
 function getProductionHandlers() {
   return createAccountsHandlers({
     database: getPortfolioDatabase(),
-    trading212Configuration: getTrading212ConnectionConfig,
+    isTrading212Configured: (sourceAccountId) => Boolean(
+      getTrading212ConnectionConfig(sourceAccountId),
+    ),
     trading212Environment,
   });
 }

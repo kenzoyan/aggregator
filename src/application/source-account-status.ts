@@ -7,6 +7,7 @@ import type { SourceAccountDefinition } from "@/domain/source-accounts";
 import type {
   HoldingReadModel,
   MissingValuationInputReadModel,
+  SourceAccountAllocationReadModel,
 } from "@/application/portfolio-read-model";
 
 export type SourceAccountConnectionStatus = "current" | "stale" | "not-connected";
@@ -37,6 +38,12 @@ export interface SourceAccountMarketDataStatus {
   status: "current" | "attention" | "manual";
   asOf?: string;
   holdingCount: number;
+}
+
+export interface SourceAccountsPageReadModel {
+  accounts: SourceAccountView[];
+  accountAllocation: SourceAccountAllocationReadModel[];
+  marketDataStatuses: SourceAccountMarketDataStatus[];
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;

@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState, type CSSProperties, type FormEvent } from
 
 import {
   type SourceAccountMarketDataStatus,
+  type SourceAccountsPageReadModel,
   type SourceAccountView,
 } from "@/application/source-account-status";
 import type {
@@ -46,10 +47,7 @@ export function SourceAccountsPanel() {
   useEffect(() => {
     fetch("/api/accounts", { cache: "no-store" })
       .then(async (response) => {
-        const payload = (await response.json()) as {
-          accounts?: AccountView[];
-          accountAllocation?: SourceAccountAllocationReadModel[];
-          marketDataStatuses?: SourceAccountMarketDataStatus[];
+        const payload = (await response.json()) as Partial<SourceAccountsPageReadModel> & {
           error?: string;
         };
         if (

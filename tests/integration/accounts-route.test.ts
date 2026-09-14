@@ -50,7 +50,7 @@ describe("GET /api/accounts", () => {
         renameSourceAccount,
       },
       now: () => "2026-09-14T12:00:00.000Z",
-      trading212Configuration: () => undefined,
+      isTrading212Configured: () => false,
       trading212Environment: () => "demo",
     });
 
@@ -76,5 +76,45 @@ describe("GET /api/accounts", () => {
       holdingCount: 1,
     }]);
     expect(renameSourceAccount).not.toHaveBeenCalled();
+  });
+
+  it("renames an account and returns the refreshed accounts page", async () => {
+    const labels: Record<string, string> = {};
+    const handlers = createAccountsHandlers({
+      database: {
+        readPortfolioFacts: () => ({
+          openingSnapshots: [],
+          events: [],
+          confirmedImports: [],
+          confirmedSnapshots: [],
+          state: buildPortfolioState({ openingSnapshots: [], events: [] }),
+        }),
+        readMarketData: () => ({
+          observations: [],
+          fxObservations: [],
+          marketRefreshHistory: [],
+          latestMarketRefresh: undefined,
+        }),
+        readSourceAccountLabels: () => labels,
+        renameSourceAccount: (id, label) => {
+          labels[id] = label;
+        },
+      },
+      now: () => "2026-09-14T12:00:00.000Z",
+      isTrading212Configured: () => false,
+      trading212Environment: () => "demo",
+    });
+
+    const response = await handlers.PATCH(new Request("http://localhost/api/accounts", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id: "alipay-main", label: "Long-term savings" }),
+    }));
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.accounts).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "alipay-main", label: "Long-term savings" }),
+    ]));
   });
 });
