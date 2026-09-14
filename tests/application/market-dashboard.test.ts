@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   createDashboardReadModel,
-  createPortfolioHistoryReadModel,
 } from "@/application/portfolio-dashboard";
+import { createPortfolioHistoryReadModel } from "@/application/portfolio-history";
 import { buildPortfolioState } from "@/domain/portfolio/ledger";
 
 const openingSnapshot = {

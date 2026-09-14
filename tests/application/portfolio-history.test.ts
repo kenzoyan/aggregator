@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { createPortfolioHistoryReadModel } from "@/application/portfolio-dashboard";
+import { createPortfolioHistoryReadModel } from "@/application/portfolio-history";
 
 describe("portfolio dashboard history", () => {
   it("calculates recent change only when a confirmed baseline exists", () => {

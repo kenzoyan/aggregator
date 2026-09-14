@@ -1,9 +1,7 @@
 import { createEurCnyOverview, eurPerUnitAt } from "@/application/fx-history";
 import { createHoldingHistoryReadModel } from "@/application/holding-history";
-import {
-  createDashboardReadModel,
-  createPortfolioHistoryReadModel,
-} from "@/application/portfolio-dashboard";
+import { createDashboardReadModel } from "@/application/portfolio-dashboard";
+import { createPortfolioHistoryReadModel } from "@/application/portfolio-history";
 import { combinePortfolioPeriodHistory } from "@/application/portfolio-periods";
 import type {
   HoldingReadModel,
