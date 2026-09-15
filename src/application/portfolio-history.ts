@@ -44,6 +44,33 @@ interface PortfolioHistoryInput {
   fxAsOf: string;
 }
 
+interface PortfolioHistoryPoint {
+  asOf: string;
+  total: number;
+  actualTotal: number;
+  holdingTotals: Record<string, number>;
+  investmentQuantities: Record<string, string>;
+  investmentNames: Record<string, string>;
+  complete: boolean;
+}
+
+function normalizeHistoricalHoldingValue(input: {
+  historicalQuantity?: string;
+  currentQuantity?: Decimal;
+  historicalValueEur: number;
+}) {
+  if (!input.historicalQuantity || !input.currentQuantity) {
+    return input.historicalValueEur;
+  }
+  const historicalQuantity = new Decimal(input.historicalQuantity);
+  return historicalQuantity.isZero()
+    ? 0
+    : new Decimal(input.historicalValueEur)
+        .div(historicalQuantity)
+        .mul(input.currentQuantity)
+        .toNumber();
+}
+
 function createPortfolioHistoryContext(input: PortfolioHistoryInput) {
   const snapshots = [...input.snapshots].sort((left, right) =>
     left.asOf.localeCompare(right.asOf)
@@ -88,7 +115,7 @@ function createPortfolioHistoryContext(input: PortfolioHistoryInput) {
       new Decimal(cash.amount),
     ]),
   );
-  const points = timeline.flatMap((asOf) => {
+  const points: PortfolioHistoryPoint[] = timeline.flatMap((asOf) => {
     const knownSnapshots = snapshots.filter((snapshot) => snapshot.asOf <= asOf);
     if (knownSnapshots.length === 0) return [];
     const snapshotTimes = Object.fromEntries(
@@ -116,33 +143,23 @@ function createPortfolioHistoryContext(input: PortfolioHistoryInput) {
             cashHoldingId(cash) === holding.id
           );
           const currentAmount = currentCashAmounts.get(holding.id);
-          if (!historicalCash || !currentAmount) {
-            return [holding.id, holding.eurValue];
-          }
-          const historicalAmount = new Decimal(historicalCash.amount);
-          const normalizedValue = historicalAmount.isZero()
-            ? new Decimal(0)
-            : new Decimal(holding.eurValue)
-                .div(historicalAmount)
-                .mul(currentAmount);
-          return [holding.id, normalizedValue.toNumber()];
+          return [holding.id, normalizeHistoricalHoldingValue({
+            historicalQuantity: historicalCash?.amount,
+            currentQuantity: currentAmount,
+            historicalValueEur: holding.eurValue,
+          })];
         }
         const historicalPosition = state.positions.find((position) =>
           investmentHoldingId(position) === holding.id
         );
         const currentQuantity = currentQuantities.get(holding.id);
-        if (!historicalPosition || !currentQuantity) {
-          return [holding.id, holding.eurValue];
-        }
-        const historicalQuantity = new Decimal(historicalPosition.quantity);
-        const normalizedValue = historicalQuantity.isZero()
-          ? new Decimal(0)
-          : new Decimal(holding.eurValue)
-              .div(historicalQuantity)
-              .mul(currentQuantity);
-        return [holding.id, normalizedValue.toNumber()];
+        return [holding.id, normalizeHistoricalHoldingValue({
+          historicalQuantity: historicalPosition?.quantity,
+          currentQuantity,
+          historicalValueEur: holding.eurValue,
+        })];
       }),
-    );
+    ) as Record<string, number>;
     const total = Object.values(holdingTotals)
       .reduce((sum, value) => sum + value, 0);
     const investmentQuantities = Object.fromEntries(
@@ -150,14 +167,14 @@ function createPortfolioHistoryContext(input: PortfolioHistoryInput) {
         investmentHoldingId(position),
         position.quantity,
       ]),
-    );
+    ) as Record<string, string>;
     const investmentNames = Object.fromEntries(
       readModel.holdings.flatMap((holding) =>
         holding.category === "Portfolio cash"
           ? []
           : [[holding.id, holding.name]]
       ),
-    );
+    ) as Record<string, string>;
     return [{
       asOf,
       total,
