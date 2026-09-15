@@ -1,10 +1,7 @@
-import Decimal from "decimal.js";
-
 import {
   draftValue,
   type CashReconciliation,
   type DraftHolding,
-  type HoldingFieldChange,
   type HoldingReconciliation,
   type HoldingReconciliationKind,
   type HoldingStateComparison,
@@ -12,6 +9,10 @@ import {
   type ImportReconciliation,
   type ImportUpdateMode,
 } from "@/domain/import-draft";
+import {
+  holdingStateFieldChanges,
+  sameDecimalValue,
+} from "@/domain/holding-state-comparison";
 import { importLifecyclePolicyFor } from "@/domain/import-lifecycle-policy";
 import {
   identitiesOverlap,
@@ -41,14 +42,6 @@ function sameHoldingAndPosition(
     holdingIdentityKeys(holding),
     normalizedIdentityKeys([position.instrumentId, position.instrumentCode]),
   );
-}
-
-function sameDecimal(left: string, right: string): boolean {
-  try {
-    return new Decimal(left).equals(new Decimal(right));
-  } catch {
-    return left.trim() === right.trim();
-  }
 }
 
 function holdingStateFromDraft(
@@ -86,23 +79,6 @@ function holdingStateFromPosition(
   };
 }
 
-function holdingFieldChanges(
-  before: HoldingStateComparison,
-  after: HoldingStateComparison,
-): HoldingFieldChange[] {
-  const changes: HoldingFieldChange[] = [];
-  if (!sameDecimal(before.quantity, after.quantity)) {
-    changes.push({ field: "quantity", before: before.quantity, after: after.quantity });
-  }
-  if (!sameDecimal(before.costBasis, after.costBasis)) {
-    changes.push({ field: "costBasis", before: before.costBasis, after: after.costBasis });
-  }
-  if (before.currency.toUpperCase() !== after.currency.toUpperCase()) {
-    changes.push({ field: "currency", before: before.currency, after: after.currency });
-  }
-  return changes;
-}
-
 function hasMarketDataDifference(
   holding: DraftHolding,
   position: PortfolioState["positions"][number],
@@ -113,10 +89,10 @@ function hasMarketDataDifference(
   return (
     (proposedPrice !== undefined &&
       (position.observedPrice === undefined ||
-        !sameDecimal(proposedPrice, position.observedPrice))) ||
+        !sameDecimalValue(proposedPrice, position.observedPrice))) ||
     (proposedValue !== undefined &&
       (position.reportedMarketValue === undefined ||
-        !sameDecimal(proposedValue, position.reportedMarketValue))) ||
+        !sameDecimalValue(proposedValue, position.reportedMarketValue))) ||
     (proposedAsOf !== undefined && proposedAsOf !== position.priceAsOf)
   );
 }
@@ -143,7 +119,7 @@ function cashReconciliation(
   if (
     before &&
     proposed &&
-    sameDecimal(before.amount, proposed.amount) &&
+    sameDecimalValue(before.amount, proposed.amount) &&
     before.currency.toUpperCase() === proposed.currency.toUpperCase()
   ) {
     return { kind: "unchanged", before, after: proposed };
@@ -177,7 +153,7 @@ export function reconcileImportDraft(
     }
     matchedCurrent.add(currentIndex);
     const before = holdingStateFromPosition(currentPositions[currentIndex]!);
-    const changes = holdingFieldChanges(before, after);
+    const changes = holdingStateFieldChanges(before, after);
     const hasMarketObservation = !holding.lineId.startsWith("carried:") &&
       hasMarketDataDifference(holding, currentPositions[currentIndex]!);
     return {

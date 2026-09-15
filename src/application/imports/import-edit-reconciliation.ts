@@ -1,12 +1,13 @@
-import Decimal from "decimal.js";
-
 import type { EditableDraftHolding } from "@/application/imports/import-draft-read-model";
 import type {
-  HoldingFieldChange,
   HoldingReconciliation,
   HoldingStateComparison,
   ImportReconciliation,
 } from "@/domain/imports";
+import {
+  holdingStateFieldChanges,
+  sameDecimalValue,
+} from "@/domain/holding-state-comparison";
 
 type ImportReconciliationEdit =
   | { type: "add-holding"; holding: EditableDraftHolding }
@@ -16,14 +17,6 @@ type ImportReconciliationEdit =
       type: "update-cash";
       portfolioCash: { amount: string; currency: string };
     };
-
-function sameDecimal(left: string, right: string): boolean {
-  try {
-    return new Decimal(left).equals(new Decimal(right));
-  } catch {
-    return left.trim() === right.trim();
-  }
-}
 
 function comparison(holding: EditableDraftHolding): HoldingStateComparison {
   return {
@@ -36,23 +29,6 @@ function comparison(holding: EditableDraftHolding): HoldingStateComparison {
   };
 }
 
-function fieldChanges(
-  before: HoldingStateComparison,
-  after: HoldingStateComparison,
-): HoldingFieldChange[] {
-  const changes: HoldingFieldChange[] = [];
-  if (!sameDecimal(before.quantity, after.quantity)) {
-    changes.push({ field: "quantity", before: before.quantity, after: after.quantity });
-  }
-  if (!sameDecimal(before.costBasis, after.costBasis)) {
-    changes.push({ field: "costBasis", before: before.costBasis, after: after.costBasis });
-  }
-  if (before.currency.toUpperCase() !== after.currency.toUpperCase()) {
-    changes.push({ field: "currency", before: before.currency, after: after.currency });
-  }
-  return changes;
-}
-
 function reconcileHolding(
   existing: HoldingReconciliation,
   holding: EditableDraftHolding,
@@ -61,7 +37,7 @@ function reconcileHolding(
   if (!existing.before) {
     return { ...existing, proposedLineId: holding.lineId, kind: "new", after, changes: [] };
   }
-  const changes = fieldChanges(existing.before, after);
+  const changes = holdingStateFieldChanges(existing.before, after);
   return {
     ...existing,
     proposedLineId: holding.lineId,
@@ -135,7 +111,7 @@ export function applyImportReconciliationEdit(
             before: reconciliation.cash.before,
             after: edit.portfolioCash,
             kind:
-              sameDecimal(reconciliation.cash.before.amount, edit.portfolioCash.amount) &&
+              sameDecimalValue(reconciliation.cash.before.amount, edit.portfolioCash.amount) &&
                 reconciliation.cash.before.currency.toUpperCase() ===
                   edit.portfolioCash.currency.toUpperCase()
                 ? "unchanged"
