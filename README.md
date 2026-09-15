@@ -7,7 +7,7 @@ tables and performance calculations, see [ARCHITECTURE.md](./ARCHITECTURE.md).
 
 ## Initial product scope
 
-- Desktop-first web app, with mobile layout polish planned after the core workflow
+- Responsive, desktop-first web app with shared desktop/mobile navigation
 - Funds, stocks, bonds, and investment-account cash
 - Trading 212 read-only synchronization
 - Screenshot-assisted imports with review and confirmation
@@ -17,11 +17,11 @@ tables and performance calculations, see [ARCHITECTURE.md](./ARCHITECTURE.md).
 - Clear source timestamps and stale/manual data states
 - Four independently named Source Accounts: Alipay, WeChat, Danske and Trading 212
 
-The first milestone is developed and tested locally. Tested source-code milestones are committed to this repository afterward.
+The application is developed and tested locally. Tested source-code milestones are committed to this repository afterward.
 
 ## Run locally
 
-Requirements: Node.js 23+ and npm.
+Requirements: Node.js 22.12+ (22.x) or Node.js 24+ and npm.
 
 ```bash
 npm install
@@ -33,14 +33,14 @@ Open [http://localhost:3000](http://localhost:3000). A new local database starts
 
 ### Rebuild the local test database
 
-Schema v5 separates editable Import Drafts, Confirmed Imports and portfolio facts, saves narrative reports locally, records an explicit snapshot payload scope for legacy recovery, and distinguishes manual from automatic market refresh runs. Existing v2–v4 databases upgrade to v5 in place without rebuilding portfolio data. The pre-v2 local database contained test data only and is intentionally not migrated. If startup reports a disposable pre-v2 schema, stop the app and move the old file out of the active path:
+Schema v7 separates editable Import Drafts, Confirmed Imports and portfolio facts, records snapshot payload scope and refresh trigger metadata, and stores optional narrative reports, Portfolio Agent conversations and external market briefs locally. Existing v2–v6 databases upgrade to v7 in place without rebuilding portfolio data. The pre-v2 local database contained test data only and is intentionally not migrated. If startup reports a disposable pre-v2 schema, stop the app and move the old file out of the active path:
 
 ```bash
 mkdir -p data/pre-v2
 mv data/invest-assets-monitor.sqlite* data/pre-v2/
 ```
 
-If `.env.local` sets `PORTFOLIO_DB_FILENAME`, replace `invest-assets-monitor.sqlite` in the command with that configured basename. Start the app again to create a clean v5 database, then import your local CSV and sync Trading 212 again. The moved database remains local and ignored by Git, so the reset is recoverable.
+If `.env.local` sets `PORTFOLIO_DB_FILENAME`, replace `invest-assets-monitor.sqlite` in the command with that configured basename. Start the app again to create a clean v7 database, then import your local CSV and sync Trading 212 again. The moved database remains local and ignored by Git, so the reset is recoverable.
 
 Real integrations are enabled only through `.env.local`:
 
@@ -96,7 +96,7 @@ The milestone letters are retained for continuity, but their execution order is 
 - **Milestone N — Stabilization and operational visibility (complete, v1.0):** auditable manual/automatic refresh history, provider results, updated/unchanged/failed counts and privacy-safe configuration diagnostics. Market refresh remains read-only with respect to Holding State.
 - **Milestone P — Bounded Analyst foundation (complete, v1.1):** deterministic `readPeriodDrivers` and `readDataQuality` tools, a versioned privacy-preserving context, strict Evidence and answer validation, OpenAI/DeepSeek adapters and the explicit on-demand Analyst panel. This foundation was later extended by the conversational milestones below.
 - **Milestone Q — Conversation architecture and Pi Harness spike (accepted):** the owner accepted the conversational interaction after hands-on review. A disposable synthetic prototype validated per-turn immutable facts snapshots, stale-Evidence omission, privacy-triggered reset, cancellation and application-owned budgets. Its decision was absorbed into the production `PortfolioAnalystSession` seam; the prototype itself was removed.
-- **Milestone R — Evidence-backed multi-round Analyst (complete locally):** Pi-backed conversation lifecycle, bounded history, fresh facts on every turn, local persistence, reload recovery, cancellation, reset/delete controls, genuine provider streaming and per-call disclosure. A pending question is visible immediately; partial answer text is never persisted and is replaced only by a complete schema- and Evidence-validated report. Provider/language/name privacy settings are immutable inside one conversation. The app still chooses the approved job, and every material claim must pass the existing current-turn Evidence validator.
+- **Milestone R — Evidence-backed multi-round Analyst (complete locally):** Pi-backed conversation lifecycle, bounded history, fresh facts on every turn, local persistence, reload recovery, cancellation, reset/delete controls, genuine provider streaming and per-call disclosure. A pending question is visible immediately; partial answer text is never persisted and is replaced only by a complete schema- and Evidence-validated report. Provider/language/name privacy settings are immutable inside one conversation. The compatibility path still maps legacy explicit jobs; the production agent path added by Milestone S lets the model choose only approved read tools. Every material claim must pass the current-turn Evidence validator in both paths.
 - **Milestone U — External market information (accepted):** an on-demand official-source web search creates a cited thirty-day macro calendar on the homepage. Results are validated against the returned search sources and stored locally, while failures keep the previous brief. Automatic refresh and portfolio-specific impact analysis remain outside this slice.
 
 ### Planned execution order
