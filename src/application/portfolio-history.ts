@@ -234,6 +234,78 @@ function selectPeriodHistoryBaseline(input: {
   return { baseline, coverage };
 }
 
+function createInvestmentPerformance(input: {
+  current?: PortfolioHistoryPoint;
+  baseline?: PortfolioHistoryPoint;
+  periodPoints: readonly PortfolioHistoryPoint[];
+  completePeriod: boolean;
+}) {
+  const currentHoldingIds = input.current
+    ? Object.keys(input.current.holdingTotals)
+    : [];
+  const available = Boolean(
+    input.current &&
+    input.baseline &&
+    input.current.asOf !== input.baseline.asOf &&
+    input.current.total !== 0 &&
+    input.current.complete &&
+    input.baseline.complete,
+  );
+  const holdingBaselines = Object.fromEntries(
+    currentHoldingIds.flatMap((holdingId) => {
+      const holdingBaseline = input.periodPoints.find((point) =>
+        point.holdingTotals[holdingId] !== undefined
+      )?.holdingTotals[holdingId];
+      return holdingBaseline === undefined
+        ? []
+        : [[holdingId, holdingBaseline]];
+    }),
+  ) as Record<string, number>;
+  const capitalBase = Object.values(holdingBaselines)
+    .reduce((total, value) => total + value, 0);
+  const change = available && input.completePeriod
+    ? currentHoldingIds.reduce((total, holdingId) => {
+        const holdingBaseline = holdingBaselines[holdingId];
+        if (holdingBaseline === undefined) return total;
+        return total + input.current!.holdingTotals[holdingId] - holdingBaseline;
+      }, 0)
+    : 0;
+  const finalAvailable = available && input.completePeriod;
+  const percent = finalAvailable && capitalBase !== 0
+    ? change / capitalBase * 100
+    : 0;
+  const timeline = finalAvailable
+    ? [...input.periodPoints.reduce((dailyPoints, point) => {
+        const value = input.baseline!.total +
+          currentHoldingIds.reduce((total, holdingId) => {
+            const holdingBaseline = holdingBaselines[holdingId];
+            const holdingValue = point.holdingTotals[holdingId];
+            if (holdingBaseline === undefined || holdingValue === undefined) {
+              return total;
+            }
+            return total + holdingValue - holdingBaseline;
+          }, 0);
+        dailyPoints.set(point.asOf.slice(0, 10), {
+          asOf: point.asOf.slice(0, 10),
+          value,
+        });
+        return dailyPoints;
+      }, new Map<string, { asOf: string; value: number }>()).values()]
+    : input.current
+      ? [{
+          asOf: input.current.asOf.slice(0, 10),
+          value: input.current.total,
+        }]
+      : [];
+  const dailyChanges = finalAvailable
+    ? timeline.slice(1).map((point, index) => ({
+        asOf: point.asOf,
+        change: point.value - timeline[index]!.value,
+      }))
+    : [];
+  return { finalAvailable, change, percent, timeline, dailyChanges };
+}
+
 function createPeriodHistory(
   input: PortfolioHistoryInput,
   context: PortfolioHistoryContext,
@@ -252,17 +324,6 @@ function createPeriodHistory(
     monitoringStartedAt: snapshots[0]?.asOf,
     asOf: input.asOf,
   });
-  const available = Boolean(
-    current &&
-    baseline &&
-    current.asOf !== baseline.asOf &&
-    current.total !== 0 &&
-    current.complete &&
-    baseline.complete,
-  );
-  const currentHoldingIds = current
-    ? Object.keys(current.holdingTotals)
-    : [];
   const periodPoints = baseline
     ? points.filter((point) => point.asOf >= baseline.asOf)
     : [];
@@ -298,56 +359,20 @@ function createPeriodHistory(
   const valuePercent = valueHistoryAvailable && valueBaseline!.actualTotal !== 0
     ? valueChange / valueBaseline!.actualTotal * 100
     : 0;
-  const holdingBaselines = Object.fromEntries(
-    currentHoldingIds.flatMap((holdingId) => {
-      const holdingBaseline = periodPoints.find((point) =>
-        point.holdingTotals[holdingId] !== undefined
-      )?.holdingTotals[holdingId];
-      return holdingBaseline === undefined
-        ? []
-        : [[holdingId, holdingBaseline]];
-    }),
-  );
-  const capitalBase = Object.values(holdingBaselines)
-    .reduce((total, value) => total + value, 0);
-  const change = available && completePeriod
-    ? currentHoldingIds.reduce((total, holdingId) => {
-        const holdingBaseline = holdingBaselines[holdingId];
-        if (holdingBaseline === undefined) return total;
-        return total + current!.holdingTotals[holdingId] - holdingBaseline;
-      }, 0)
-    : 0;
-  const finalAvailable = available && completePeriod;
-  const percent = finalAvailable && capitalBase !== 0
-    ? (change / capitalBase) * 100
-    : 0;
-  const performanceTimeline = finalAvailable
-    ? [...periodPoints.reduce((dailyPoints, point) => {
-        const value = baseline!.total +
-          currentHoldingIds.reduce((total, holdingId) => {
-          const holdingBaseline = holdingBaselines[holdingId];
-          const holdingValue = point.holdingTotals[holdingId];
-          if (holdingBaseline === undefined || holdingValue === undefined) {
-            return total;
-          }
-          return total + holdingValue - holdingBaseline;
-          }, 0);
-        dailyPoints.set(point.asOf.slice(0, 10), {
-          asOf: point.asOf.slice(0, 10),
-          value,
-        });
-        return dailyPoints;
-      }, new Map<string, { asOf: string; value: number }>()).values()]
-    : current
-      ? [{ asOf: current.asOf.slice(0, 10), value: current.total }]
-      : [];
+  const investmentPerformance = createInvestmentPerformance({
+    current,
+    baseline,
+    periodPoints,
+    completePeriod,
+  });
+  const {
+    finalAvailable,
+    change,
+    percent,
+    timeline: performanceTimeline,
+    dailyChanges,
+  } = investmentPerformance;
   const chartPoints = performanceTimeline.map((point) => point.value);
-  const dailyChanges = finalAvailable
-    ? performanceTimeline.slice(1).map((point, index) => ({
-        asOf: point.asOf,
-        change: point.value - performanceTimeline[index]!.value,
-      }))
-    : [];
   const performanceByDate = new Map(
     performanceTimeline.map((point) => [point.asOf, point.value]),
   );
