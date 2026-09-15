@@ -84,7 +84,7 @@ Infrastructure adapters
 
 ### 3.1 Import Draft：尚未确认的输入
 
-相关类型位于 `src/domain/imports.ts`。
+相关类型位于 `src/domain/import-draft.ts`；`src/domain/imports.ts` 保留为兼容导入入口。
 
 Import Draft 保存 Vision、CSV、API 或手工输入的解释结果。每个字段都是 `DraftValue<T>`：
 
@@ -505,7 +505,10 @@ npm run build
 ## 14. 修改功能时从哪里开始
 
 - 改持仓/成本规则：`src/domain/portfolio/`
-- 改 import/reconciliation：`src/domain/imports.ts`
+- 改 Import Draft 契约与值语义：`src/domain/import-draft.ts`
+- 改 draft review 合并规则：`src/domain/import-draft-review.ts`
+- 改 import/reconciliation：`src/domain/import-reconciliation.ts`
+- 改确认后 snapshot 与历史兼容：`src/domain/confirmed-import-snapshot.ts`
 - 改 review 编辑行为：`src/application/imports/import-review-editor.ts`
 - 改 Vision 字段协议：`src/application/imports/vision-extractor.ts`
 - 改 OpenAI 图片调用：`src/infrastructure/openai/openai-vision-extractor.ts`
