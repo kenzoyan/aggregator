@@ -16,7 +16,7 @@ import {
   type AnalystPortfolioReadModel,
   type PortfolioAnalystContextV1,
 } from "@/application/portfolio-analyst-contract";
-import { createPortfolioAnalystTools } from "@/application/portfolio-analyst-context";
+import { createPortfolioAnalystTools } from "@/application/portfolio-analyst-tools";
 import {
   portfolioAnalystProviderIds,
   PortfolioAnalystProviderError,

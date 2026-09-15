@@ -6,8 +6,8 @@ import {
 } from "@/application/portfolio-analyst-contract";
 import {
   createPortfolioAnalystContext,
-  createPortfolioAnalystTools,
 } from "@/application/portfolio-analyst-context";
+import { createPortfolioAnalystTools } from "@/application/portfolio-analyst-tools";
 import type {
   HoldingReadModel,
   Period,

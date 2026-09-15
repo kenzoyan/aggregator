@@ -10,7 +10,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   namespacePortfolioAnalystContext,
-} from "@/application/portfolio-analyst-context";
+} from "@/application/portfolio-analyst-tools";
 import type {
   PortfolioAnalystContextV1,
   PortfolioAnalystTools,

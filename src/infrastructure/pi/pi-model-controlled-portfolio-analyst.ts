@@ -22,7 +22,7 @@ import type {
 import {
   combinePortfolioAnalystContexts,
   namespacePortfolioAnalystContext,
-} from "@/application/portfolio-analyst-context";
+} from "@/application/portfolio-analyst-tools";
 import type { PortfolioAnalystContextV1 } from "@/application/portfolio-analyst-contract";
 import type { PortfolioAnalystHistoryMessage } from "@/application/portfolio-analyst-conversation";
 import { PortfolioAnalystProviderError } from "@/application/portfolio-analyst-provider";
