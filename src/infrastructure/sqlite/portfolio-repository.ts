@@ -1,6 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
 
-import type { PortfolioNarrativeReport } from "@/application/portfolio-narrative";
 import {
   materializeConfirmedImportSnapshot,
   prepareImportDraftForReview,
@@ -22,6 +21,7 @@ import type {
 import { findSourceAccount } from "@/domain/source-accounts";
 import { createMarketIntelligenceBriefRepository } from "@/infrastructure/sqlite/market-intelligence-brief-repository";
 import { createPortfolioAnalystConversationRepository } from "@/infrastructure/sqlite/portfolio-analyst-conversation-repository";
+import { createPortfolioNarrativeRepository } from "@/infrastructure/sqlite/portfolio-narrative-repository";
 import type { PortfolioDatabase } from "@/infrastructure/sqlite/portfolio-repository-contract";
 import { initializePortfolioSchema } from "@/infrastructure/sqlite/portfolio-schema";
 
@@ -77,6 +77,7 @@ export function createPortfolioDatabase(filename: string): PortfolioDatabase {
     createPortfolioAnalystConversationRepository(database);
   const marketIntelligenceBriefs =
     createMarketIntelligenceBriefRepository(database);
+  const portfolioNarratives = createPortfolioNarrativeRepository(database);
 
   const insertDraft = database.prepare(`
     INSERT INTO import_drafts (
@@ -184,19 +185,6 @@ export function createPortfolioDatabase(filename: string): PortfolioDatabase {
     VALUES (?, ?)
     ON CONFLICT(source_account_id) DO UPDATE SET
       custom_label = excluded.custom_label
-  `);
-  const insertPortfolioNarrative = database.prepare(`
-    INSERT INTO portfolio_narratives (
-      id, provider, model, language, generated_at, portfolio_as_of,
-      facts_fingerprint, content_json, provenance_json, disclaimer
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `);
-  const selectLatestPortfolioNarrative = database.prepare(`
-    SELECT id, provider, model, language, generated_at, portfolio_as_of,
-      facts_fingerprint, content_json, provenance_json, disclaimer
-    FROM portfolio_narratives
-    ORDER BY generated_at DESC, rowid DESC
-    LIMIT 1
   `);
   function getImportDraft(id: string): StoredImportDraft | undefined {
     const row = selectDraft.get(id) as ImportDraftRow | undefined;
@@ -485,58 +473,7 @@ export function createPortfolioDatabase(filename: string): PortfolioDatabase {
       upsertAccountLabel.run(id, normalized);
     },
 
-    savePortfolioNarrative(report) {
-      insertPortfolioNarrative.run(
-        report.id,
-        report.provider,
-        report.model,
-        report.language,
-        report.generatedAt,
-        report.portfolioAsOf,
-        report.factsFingerprint,
-        JSON.stringify({
-          headline: report.headline,
-          overview: report.overview,
-          observations: report.observations,
-          dataQuality: report.dataQuality,
-        }),
-        JSON.stringify(report.provenance),
-        report.disclaimer,
-      );
-    },
-
-    readLatestPortfolioNarrative() {
-      const row = selectLatestPortfolioNarrative.get() as {
-        id: string;
-        provider: PortfolioNarrativeReport["provider"];
-        model: string;
-        language: PortfolioNarrativeReport["language"];
-        generated_at: string;
-        portfolio_as_of: string;
-        facts_fingerprint: string;
-        content_json: string;
-        provenance_json: string;
-        disclaimer: string;
-      } | undefined;
-      if (!row) return undefined;
-      const content = JSON.parse(row.content_json) as Pick<
-        PortfolioNarrativeReport,
-        "headline" | "overview" | "observations" | "dataQuality"
-      >;
-      return {
-        id: row.id,
-        provider: row.provider,
-        model: row.model,
-        language: row.language,
-        generatedAt: row.generated_at,
-        portfolioAsOf: row.portfolio_as_of,
-        factsFingerprint: row.facts_fingerprint,
-        provenance: JSON.parse(row.provenance_json) as PortfolioNarrativeReport["provenance"],
-        disclaimer: row.disclaimer,
-        ...content,
-      };
-    },
-
+    ...portfolioNarratives,
     ...marketIntelligenceBriefs,
     ...portfolioAnalystConversations,
 
