@@ -199,7 +199,7 @@ Market Data 独立存储：
 
 ### 5.2 CSV 与手工输入
 
-CSV parser 会验证：
+`csv-holdings-parser.ts` 负责 CSV quoting、header 与逐行 schema；`csv-import.ts` 再验证账户/会计规则并映射成带 provenance 的 DraftValue。整体会验证：
 
 - 必需列
 - Source Account 是否匹配
@@ -515,6 +515,8 @@ npm run build
 - 改 review holding 字段规范化与 identity 规则：`src/application/imports/import-review-holding-editor.ts`
 - 改 review 后的 Holding State 比较与 reconciliation 计数：`src/application/imports/import-edit-reconciliation.ts`
 - 改 confirmation body、会计一致性与 Trading 212 例外校验：`src/application/imports/import-confirmation-review.ts`
+- 改 CSV quoting、header 与逐行字段校验：`src/application/imports/csv-holdings-parser.ts`
+- 改 CSV 账户/会计规则与 Import Draft 映射：`src/application/imports/csv-import.ts`
 - 改 Vision schema/instructions/adapter contract：`src/application/imports/vision-extraction-contract.ts`
 - 改多截图持仓去重与冲突选择：`src/application/imports/vision-position-merge.ts`
 - 改截图到 Import Draft 的会计推导：`src/application/imports/screenshot-import-preparation.ts`
