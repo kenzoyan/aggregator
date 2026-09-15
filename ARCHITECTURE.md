@@ -407,7 +407,7 @@ Account allocation 不在 overview 占据主卡，而是在 `src/components/sour
 | `portfolio_narratives` | 已生成报告、模型元数据、facts fingerprint 与引用的聚合事实摘要 |
 | `portfolio_analyst_conversations` | 最多十二轮的本地 Analyst conversation 与已验证报告 |
 
-Repository interface 位于 `src/infrastructure/sqlite/portfolio-repository.ts`。它把 SQL、JSON encode/decode、transaction 和 legacy partial snapshot 恢复隐藏在一个模块内。
+Repository interface 位于 `src/infrastructure/sqlite/portfolio-repository-contract.ts`，`portfolio-repository.ts` 负责初始化 schema 并组合各 persistence adapter。Import/Portfolio、Market Data、Source Account label、Narrative、Market Intelligence 和 Analyst conversation 各自隐藏对应的 SQL、JSON encode/decode 与 transaction；legacy partial snapshot 恢复仍属于 Import/Portfolio adapter。
 
 当前 schema version 是 v6。v2 数据库会先增加 narrative table，v2/v3 都会为 `opening_snapshots` 增加 `payload_scope`；v2–v4 随后为 `market_refresh_runs` 增加 trigger mode，v5 增加本地 Analyst conversation table，并在 transaction 中逐级更新 schema version。旧 refresh run 无法可靠推断原始 trigger，因此迁移后明确标成 `unknown`，UI 显示为 Earlier run；旧版本保存的任意错误详情同时被替换成固定的隐私安全摘要，避免迁移后进入浏览器。`payload_scope` 只有 `complete` 与 `legacy-partial`：新 confirmation 永远写 `complete`；`legacy-partial` 仅用于恢复旧版本曾经保存过的不完整 snapshot。
 
