@@ -20,59 +20,21 @@ import {
   type HoldingStateComparison,
   type ImportDraftInput,
   type ImportReconciliation,
-  type ImportSourceKind,
   type ImportUpdateMode,
 } from "@/domain/import-draft";
+import {
+  completedPartialImportReviewWarning,
+  importLifecyclePolicyFor,
+  partialImportPreservationWarning,
+} from "@/domain/import-lifecycle-policy";
 import {
   draftPortfolioFromOpeningSnapshot,
   materializeOpeningSnapshot,
 } from "@/domain/import-snapshot";
 
 export * from "@/domain/import-draft";
+export * from "@/domain/import-lifecycle-policy";
 export * from "@/domain/import-snapshot";
-
-interface ImportLifecyclePolicy {
-  updateMode: ImportUpdateMode;
-  reviewScope: "complete-account" | "detected-holdings";
-  preserveOmittedOnConfirmation: boolean;
-}
-
-const importLifecyclePolicies: Record<ImportSourceKind, ImportLifecyclePolicy> = {
-  "trading-212": {
-    updateMode: "complete",
-    reviewScope: "complete-account",
-    preserveOmittedOnConfirmation: false,
-  },
-  csv: {
-    updateMode: "partial",
-    reviewScope: "complete-account",
-    preserveOmittedOnConfirmation: false,
-  },
-  manual: {
-    updateMode: "partial",
-    reviewScope: "complete-account",
-    preserveOmittedOnConfirmation: false,
-  },
-  screenshot: {
-    updateMode: "partial",
-    reviewScope: "detected-holdings",
-    preserveOmittedOnConfirmation: true,
-  },
-  demo: {
-    updateMode: "partial",
-    reviewScope: "detected-holdings",
-    preserveOmittedOnConfirmation: false,
-  },
-};
-
-export const legacyPartialSnapshotWarningMarker =
-  "Previously confirmed holdings were included in this review. Removing one records that it is no longer held.";
-
-export const completedPartialImportReviewWarning =
-  legacyPartialSnapshotWarningMarker;
-
-export const partialImportPreservationWarning =
-  "This partial update shows only detected holdings. Other confirmed holdings stay unchanged.";
 
 function holdingIdentityKeys(holding: DraftHolding): string[] {
   return normalizedIdentityKeys([
@@ -207,7 +169,7 @@ export function reconcileImportDraft(
   draft: ImportDraftInput,
   currentState: PortfolioState,
 ): ImportReconciliation {
-  const mode = importLifecyclePolicies[draft.sourceKind].updateMode;
+  const mode = importLifecyclePolicyFor(draft.sourceKind).updateMode;
   const currentPositions = currentState.positions.filter(
     (position) => position.sourceAccountId === draft.sourceAccountId,
   );
@@ -420,7 +382,7 @@ export function prepareImportDraftForReview(
       ? `${carriedHoldings.length} previously confirmed holding${carriedHoldings.length === 1 ? " was" : "s were"} carried forward. Remove only holdings that are no longer held.`
       : undefined;
     const reviewOnlyDetectedHoldings =
-      importLifecyclePolicies[draft.sourceKind].reviewScope === "detected-holdings";
+      importLifecyclePolicyFor(draft.sourceKind).reviewScope === "detected-holdings";
 
     preparedDraft = {
       ...draft,
@@ -512,7 +474,7 @@ export function materializeConfirmedImportSnapshot(input: {
     input.draft.portfolio,
     input.snapshotKind,
   );
-  if (!importLifecyclePolicies[input.draft.sourceKind].preserveOmittedOnConfirmation) {
+  if (!importLifecyclePolicyFor(input.draft.sourceKind).preserveOmittedOnConfirmation) {
     return snapshot;
   }
 
