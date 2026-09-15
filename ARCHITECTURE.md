@@ -238,6 +238,8 @@ API response 被转换成一个完整 account snapshot，然后与最新 Holding
 
 `reconcileImportDraft` 只把 quantity、Cost Basis 和 currency 的改变算作 Holding State change；NAV、market value 或 price date 的变化属于 `market-data-updated`。
 
+初次 reconciliation 与用户编辑后的重新分类共用 `src/domain/holding-state-comparison.ts`，因此 Decimal 等价、currency 大小写归一化和 Holding State 字段集合不会在两条路径中漂移。
+
 确认时：
 
 1. HTTP route 把不可信 body 交给 `import-confirmation-review.ts`；该模块用 Zod 校验 shape、逐行 accounting 一致性和已跟踪 Trading 212 holding 的例外。
@@ -263,6 +265,8 @@ latest confirmed Portfolio State
 ```
 
 Route 不再先计算一个 `state` 再连同 snapshots 一起传入。`createPortfolioValuationTimeline` 只接受原始 facts，并在内部唯一地调用 `buildPortfolioState`；这消除了“caller 传入的 current state 与历史 snapshots 不一致”的无效状态。它随后统一组装 current dashboard、portfolio history、holding history、period combination、account allocation 和 FX overview。较小的 history 模块仍然保留为内部可测试 seam，但 route 只需要知道这一个高层入口。
+
+旧的 `src/application/portfolio-dashboard.ts` import path 保留为兼容 facade，只 re-export `createDashboardReadModel`、`createPortfolioHistoryReadModel` 和 `DashboardPeriodHistory` 的新实现；新代码应直接使用 current valuation 或 portfolio history 模块。
 
 `valuePortfolio` 位于 `src/domain/portfolio/valuation.ts`：
 
@@ -511,6 +515,7 @@ npm run build
 - 改 Import Draft 契约与值语义：`src/domain/import-draft.ts`
 - 改 draft review 合并规则：`src/domain/import-draft-review.ts`
 - 改 import/reconciliation：`src/domain/import-reconciliation.ts`
+- 改 Holding State Decimal/字段差异规则：`src/domain/holding-state-comparison.ts`
 - 改确认后 snapshot 与历史兼容：`src/domain/confirmed-import-snapshot.ts`
 - 改 review edit intent 与不可变 draft 更新：`src/application/imports/import-review-editor.ts`
 - 改 review holding 字段规范化与 identity 规则：`src/application/imports/import-review-holding-editor.ts`
