@@ -13,7 +13,10 @@ import {
   reconcileImportDraft,
   sameDraftHolding,
 } from "@/domain/import-reconciliation";
-import { draftPortfolioFromOpeningSnapshot } from "@/domain/import-snapshot";
+import {
+  draftPortfolioFromOpeningSnapshot,
+  openingPositionFromPortfolioState,
+} from "@/domain/import-snapshot";
 import type { PortfolioState } from "@/domain/portfolio/types";
 
 function preferUpdatedValue<T>(
@@ -101,23 +104,7 @@ export function prepareImportDraftForReview(
     ...(currentCash
       ? { portfolioCash: { amount: currentCash.amount, currency: currentCash.currency } }
       : {}),
-    positions: currentPositions.map((position) => ({
-      instrumentId: position.instrumentId,
-      ...(position.displayName ? { displayName: position.displayName } : {}),
-      ...(position.instrumentCode ? { instrumentCode: position.instrumentCode } : {}),
-      ...(position.assetType ? { assetType: position.assetType } : {}),
-      quantity: position.quantity,
-      currency: position.currency,
-      costBasis: position.costBasis,
-      reportedPriorReturn: position.reportedPriorReturn,
-      ...(position.averageCost ? { averageCost: position.averageCost } : {}),
-      ...(position.observedPrice ? { observedPrice: position.observedPrice } : {}),
-      ...(position.priceAsOf ? { priceAsOf: position.priceAsOf } : {}),
-      ...(position.priceSource ? { priceSource: position.priceSource } : {}),
-      ...(position.reportedMarketValue
-        ? { reportedMarketValue: position.reportedMarketValue }
-        : {}),
-    })),
+    positions: currentPositions.map(openingPositionFromPortfolioState),
   }, "manual");
 
   let preparedDraft = draft;

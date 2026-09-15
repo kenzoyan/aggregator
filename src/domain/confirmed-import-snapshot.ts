@@ -3,7 +3,10 @@ import type {
   ImportReconciliation,
 } from "@/domain/import-draft";
 import { importLifecyclePolicyFor } from "@/domain/import-lifecycle-policy";
-import { materializeOpeningSnapshot } from "@/domain/import-snapshot";
+import {
+  materializeOpeningSnapshot,
+  openingPositionFromPortfolioState,
+} from "@/domain/import-snapshot";
 import {
   identitiesOverlap,
   normalizedIdentityKeys,
@@ -32,28 +35,6 @@ function samePosition(
   return identitiesOverlap(positionIdentityKeys(left), positionIdentityKeys(right));
 }
 
-function openingPositionFromState(
-  position: PortfolioState["positions"][number],
-): OpeningPositionInput {
-  return {
-    instrumentId: position.instrumentId,
-    ...(position.displayName ? { displayName: position.displayName } : {}),
-    ...(position.instrumentCode ? { instrumentCode: position.instrumentCode } : {}),
-    ...(position.assetType ? { assetType: position.assetType } : {}),
-    quantity: position.quantity,
-    currency: position.currency,
-    costBasis: position.costBasis,
-    reportedPriorReturn: position.reportedPriorReturn,
-    ...(position.averageCost ? { averageCost: position.averageCost } : {}),
-    ...(position.observedPrice ? { observedPrice: position.observedPrice } : {}),
-    ...(position.priceAsOf ? { priceAsOf: position.priceAsOf } : {}),
-    ...(position.priceSource ? { priceSource: position.priceSource } : {}),
-    ...(position.reportedMarketValue
-      ? { reportedMarketValue: position.reportedMarketValue }
-      : {}),
-  };
-}
-
 export function materializeConfirmedImportSnapshot(input: {
   draft: ImportDraftInput;
   currentState: PortfolioState;
@@ -72,7 +53,7 @@ export function materializeConfirmedImportSnapshot(input: {
     .filter((position) =>
       position.sourceAccountId === input.draft.sourceAccountId
     )
-    .map(openingPositionFromState);
+    .map(openingPositionFromPortfolioState);
   const omittedPositions = currentPositions.filter((position) =>
     !snapshot.positions.some((updated) => samePosition(position, updated))
   );

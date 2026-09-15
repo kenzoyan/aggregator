@@ -11,6 +11,7 @@ import {
 import type {
   OpeningPositionInput,
   OpeningSnapshotInput,
+  PortfolioState,
 } from "@/domain/portfolio/types";
 
 function requiredDraftValue<T>(
@@ -119,5 +120,27 @@ export function draftPortfolioFromOpeningSnapshot(
         ? knownDraftValue(position.reportedMarketValue, source)
         : unknownDraftValue(),
     })),
+  };
+}
+
+export function openingPositionFromPortfolioState(
+  position: PortfolioState["positions"][number],
+): OpeningPositionInput {
+  return {
+    instrumentId: position.instrumentId,
+    ...(position.displayName ? { displayName: position.displayName } : {}),
+    ...(position.instrumentCode ? { instrumentCode: position.instrumentCode } : {}),
+    ...(position.assetType ? { assetType: position.assetType } : {}),
+    quantity: position.quantity,
+    currency: position.currency,
+    costBasis: position.costBasis,
+    reportedPriorReturn: position.reportedPriorReturn,
+    ...(position.averageCost ? { averageCost: position.averageCost } : {}),
+    ...(position.observedPrice ? { observedPrice: position.observedPrice } : {}),
+    ...(position.priceAsOf ? { priceAsOf: position.priceAsOf } : {}),
+    ...(position.priceSource ? { priceSource: position.priceSource } : {}),
+    ...(position.reportedMarketValue
+      ? { reportedMarketValue: position.reportedMarketValue }
+      : {}),
   };
 }
