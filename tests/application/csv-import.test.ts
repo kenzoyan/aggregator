@@ -70,4 +70,46 @@ describe("CSV import seam", () => {
       csv,
     })).toThrow("belongs to alipay-main, not wechat-main");
   });
+
+  it("reports malformed quoting and missing required columns precisely", () => {
+    expect(() => createCsvImportDraft({
+      draftId: "draft-csv",
+      snapshotId: "snapshot-csv",
+      sourceAccountId: "alipay-main",
+      createdAt: "2026-07-19T10:00:00.000Z",
+      csv: `${csv}\n"unclosed`,
+    })).toThrow("CSV contains an unclosed quoted field.");
+
+    expect(() => createCsvImportDraft({
+      draftId: "draft-csv",
+      snapshotId: "snapshot-csv",
+      sourceAccountId: "alipay-main",
+      createdAt: "2026-07-19T10:00:00.000Z",
+      csv: "source_account_id,instrument_name\nalipay-main,Synthetic Fund",
+    })).toThrow(
+      "CSV is missing required columns: instrument_code, asset_type, currency, quantity, nav, nav_date, average_cost, current_value, reported_profit, historical_cost_basis.",
+    );
+  });
+
+  it("rejects duplicate instrument codes", () => {
+    const duplicate = `${csv.trim()}\nalipay-main,Duplicate Fund,001234,fund,CNY,10,12.5,2026-07-16,10,125,25,25,-1.5,100\n`;
+
+    expect(() => createCsvImportDraft({
+      draftId: "draft-csv",
+      snapshotId: "snapshot-csv",
+      sourceAccountId: "alipay-main",
+      createdAt: "2026-07-19T10:00:00.000Z",
+      csv: duplicate,
+    })).toThrow("CSV contains duplicate instrument code 001234.");
+  });
+
+  it("rejects cost basis and prior return that do not reconcile", () => {
+    expect(() => createCsvImportDraft({
+      draftId: "draft-csv",
+      snapshotId: "snapshot-csv",
+      sourceAccountId: "alipay-main",
+      createdAt: "2026-07-19T10:00:00.000Z",
+      csv: csv.replace("125,25,25", "125,20,25"),
+    })).toThrow("CSV row 2 cost basis + prior return does not match current value.");
+  });
 });
