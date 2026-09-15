@@ -5,17 +5,13 @@ import {
   marketIntelligenceBriefSchema,
   type MarketIntelligenceBrief,
 } from "@/application/market-intelligence";
-import type {
-  PortfolioAnalystConversation,
-  PortfolioAnalystConversationStore,
-} from "@/application/portfolio-analyst-conversation";
+import type { PortfolioAnalystConversation } from "@/application/portfolio-analyst-conversation";
 import {
   materializeConfirmedImportSnapshot,
   prepareImportDraftForReview,
   normalizeSnapshotHistory,
   type ConfirmedImportRecord,
   type ImportDraftInput,
-  type ImportDraftReview,
   type StoredImportDraft,
 } from "@/domain/imports";
 import { buildPortfolioState } from "@/domain/portfolio/ledger";
@@ -27,62 +23,16 @@ import type {
 import type {
   OpeningSnapshotInput,
   PortfolioEventInput,
-  PortfolioState,
 } from "@/domain/portfolio/types";
 import { findSourceAccount } from "@/domain/source-accounts";
+import type { PortfolioDatabase } from "@/infrastructure/sqlite/portfolio-repository-contract";
 import { initializePortfolioSchema } from "@/infrastructure/sqlite/portfolio-schema";
 
+export * from "@/infrastructure/sqlite/portfolio-repository-contract";
 export {
   LegacyPortfolioDatabaseError,
   portfolioSchemaVersion,
 } from "@/infrastructure/sqlite/portfolio-schema";
-
-export interface ConfirmedSnapshotRecord {
-  snapshot: OpeningSnapshotInput;
-  confirmedAt: string;
-}
-
-export interface PortfolioFacts {
-  openingSnapshots: OpeningSnapshotInput[];
-  events: PortfolioEventInput[];
-  confirmedImports: ConfirmedImportRecord[];
-  confirmedSnapshots: ConfirmedSnapshotRecord[];
-  state: PortfolioState;
-}
-
-export interface MarketDataHistory {
-  observations: MarketPriceObservation[];
-  fxObservations: FxRateObservation[];
-  latestMarketRefresh?: MarketRefreshRecord;
-  marketRefreshHistory?: MarketRefreshRecord[];
-}
-
-export interface ConfirmImportCommand {
-  draftId: string;
-  confirmedImportId: string;
-  confirmedAt: string;
-  review: ImportDraftReview;
-}
-
-export interface PortfolioDatabase extends PortfolioAnalystConversationStore {
-  saveImportDraft(draft: ImportDraftInput): void;
-  getImportDraft(id: string): StoredImportDraft | undefined;
-  confirmImport(command: ConfirmImportCommand): StoredImportDraft;
-  readPortfolioFacts(): PortfolioFacts;
-  readMarketData(): MarketDataHistory;
-  readSourceAccountLabels(): Record<string, string>;
-  recordMarketData(input: {
-    observations: readonly MarketPriceObservation[];
-    fxObservations?: readonly FxRateObservation[];
-    refresh?: MarketRefreshRecord;
-  }): void;
-  renameSourceAccount(id: string, label: string): void;
-  savePortfolioNarrative(report: PortfolioNarrativeReport): void;
-  readLatestPortfolioNarrative(): PortfolioNarrativeReport | undefined;
-  saveMarketIntelligenceBrief(brief: MarketIntelligenceBrief): void;
-  readLatestMarketIntelligenceBrief(): MarketIntelligenceBrief | undefined;
-  close(): void;
-}
 
 interface ImportDraftRow {
   id: string;
