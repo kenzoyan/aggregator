@@ -176,7 +176,9 @@ Market Data 独立存储：
 关键文件：
 
 - `src/infrastructure/openai/openai-vision-extractor.ts`
-- `src/application/imports/vision-extractor.ts`
+- `src/application/imports/vision-extraction-contract.ts`
+- `src/application/imports/vision-position-merge.ts`
+- `src/application/imports/screenshot-import-preparation.ts`
 - `src/app/api/imports/analyze/route.ts`
 
 隐私边界：
@@ -510,7 +512,9 @@ npm run build
 - 改 import/reconciliation：`src/domain/import-reconciliation.ts`
 - 改确认后 snapshot 与历史兼容：`src/domain/confirmed-import-snapshot.ts`
 - 改 review 编辑行为：`src/application/imports/import-review-editor.ts`
-- 改 Vision 字段协议：`src/application/imports/vision-extractor.ts`
+- 改 Vision schema/instructions/adapter contract：`src/application/imports/vision-extraction-contract.ts`
+- 改多截图持仓去重与冲突选择：`src/application/imports/vision-position-merge.ts`
+- 改截图到 Import Draft 的会计推导：`src/application/imports/screenshot-import-preparation.ts`
 - 改 OpenAI 图片调用：`src/infrastructure/openai/openai-vision-extractor.ts`
 - 改 Today/holding history：`src/application/holding-history.ts`
 - 改 portfolio period 聚合：`src/application/portfolio-periods.ts`
