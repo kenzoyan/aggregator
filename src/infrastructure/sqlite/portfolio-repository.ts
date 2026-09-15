@@ -2,10 +2,6 @@ import { DatabaseSync } from "node:sqlite";
 
 import type { PortfolioNarrativeReport } from "@/application/portfolio-narrative";
 import {
-  marketIntelligenceBriefSchema,
-  type MarketIntelligenceBrief,
-} from "@/application/market-intelligence";
-import {
   materializeConfirmedImportSnapshot,
   prepareImportDraftForReview,
   normalizeSnapshotHistory,
@@ -24,6 +20,7 @@ import type {
   PortfolioEventInput,
 } from "@/domain/portfolio/types";
 import { findSourceAccount } from "@/domain/source-accounts";
+import { createMarketIntelligenceBriefRepository } from "@/infrastructure/sqlite/market-intelligence-brief-repository";
 import { createPortfolioAnalystConversationRepository } from "@/infrastructure/sqlite/portfolio-analyst-conversation-repository";
 import type { PortfolioDatabase } from "@/infrastructure/sqlite/portfolio-repository-contract";
 import { initializePortfolioSchema } from "@/infrastructure/sqlite/portfolio-schema";
@@ -78,6 +75,8 @@ export function createPortfolioDatabase(filename: string): PortfolioDatabase {
   }
   const portfolioAnalystConversations =
     createPortfolioAnalystConversationRepository(database);
+  const marketIntelligenceBriefs =
+    createMarketIntelligenceBriefRepository(database);
 
   const insertDraft = database.prepare(`
     INSERT INTO import_drafts (
@@ -199,20 +198,6 @@ export function createPortfolioDatabase(filename: string): PortfolioDatabase {
     ORDER BY generated_at DESC, rowid DESC
     LIMIT 1
   `);
-  const insertMarketIntelligenceBrief = database.prepare(`
-    INSERT INTO market_intelligence_briefs (id, generated_at, content_json)
-    VALUES (?, ?, ?)
-  `);
-  const selectLatestMarketIntelligenceBrief = database.prepare(`
-    SELECT content_json
-    FROM market_intelligence_briefs
-    ORDER BY generated_at DESC, rowid DESC
-    LIMIT 1
-  `);
-  const deleteOtherMarketIntelligenceBriefs = database.prepare(
-    "DELETE FROM market_intelligence_briefs WHERE id <> ?",
-  );
-
   function getImportDraft(id: string): StoredImportDraft | undefined {
     const row = selectDraft.get(id) as ImportDraftRow | undefined;
     return row ? decodeDraft(row) : undefined;
@@ -552,31 +537,7 @@ export function createPortfolioDatabase(filename: string): PortfolioDatabase {
       };
     },
 
-    saveMarketIntelligenceBrief(brief) {
-      database.exec("BEGIN IMMEDIATE");
-      try {
-        insertMarketIntelligenceBrief.run(
-          brief.id,
-          brief.generatedAt,
-          JSON.stringify(brief),
-        );
-        deleteOtherMarketIntelligenceBriefs.run(brief.id);
-        database.exec("COMMIT");
-      } catch (error) {
-        database.exec("ROLLBACK");
-        throw error;
-      }
-    },
-
-    readLatestMarketIntelligenceBrief() {
-      const row = selectLatestMarketIntelligenceBrief.get() as
-        | { content_json: string }
-        | undefined;
-      return row
-        ? marketIntelligenceBriefSchema.parse(JSON.parse(row.content_json))
-        : undefined;
-    },
-
+    ...marketIntelligenceBriefs,
     ...portfolioAnalystConversations,
 
     close() {
