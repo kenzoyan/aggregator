@@ -4,8 +4,6 @@ import type {
   Period,
 } from "@/application/portfolio-read-model";
 import {
-  ANALYST_CONTEXT_MAX_BYTES,
-  PortfolioAnalystContextError,
   type AnalystEvidenceBundleV1,
   type AnalystEvidenceFact,
   type AnalystLimitation,
@@ -25,6 +23,7 @@ import {
   type RefreshFailureCategory,
   type RefreshResultFact,
 } from "@/application/portfolio-analyst-contract";
+import { assertPortfolioAnalystContextSize } from "@/application/portfolio-analyst-context-size";
 import type { MarketRefreshFailureCategory } from "@/domain/market-data";
 
 const MAX_PERIOD_DRIVER_HOLDINGS = 5;
@@ -486,12 +485,6 @@ function overviewContext(
   };
 }
 
-function assertContextSize(context: PortfolioAnalystContextV1): void {
-  if (new TextEncoder().encode(JSON.stringify(context)).byteLength > ANALYST_CONTEXT_MAX_BYTES) {
-    throw new PortfolioAnalystContextError("context-too-large");
-  }
-}
-
 function namespaceEvidenceKey(namespace: string, key: string): string {
   return `${namespace}.${key}`;
 }
@@ -515,7 +508,7 @@ export function namespacePortfolioAnalystContext(
       reasonEvidenceKey: namespaceEvidenceKey(namespace, action.reasonEvidenceKey),
     })),
   };
-  assertContextSize(namespaced);
+  assertPortfolioAnalystContextSize(namespaced);
   return namespaced;
 }
 
@@ -534,7 +527,7 @@ export function combinePortfolioAnalystContexts(
     limitations: contexts.flatMap((context) => context.limitations),
     allowedActions: contexts.flatMap((context) => context.allowedActions),
   };
-  assertContextSize(combined);
+  assertPortfolioAnalystContextSize(combined);
   return combined;
 }
 
@@ -547,7 +540,7 @@ export function createPortfolioAnalystContext(input: {
     : input.request.job === "diagnose-data-quality"
       ? qualityContext(input.portfolio, input.request)
       : overviewContext(input.portfolio, input.request);
-  assertContextSize(context);
+  assertPortfolioAnalystContextSize(context);
   return context;
 }
 
