@@ -240,7 +240,7 @@ API response 被转换成一个完整 account snapshot，然后与最新 Holding
 
 确认时：
 
-1. HTTP route 用 Zod 校验可编辑值。
+1. HTTP route 把不可信 body 交给 `import-confirmation-review.ts`；该模块用 Zod 校验 shape、逐行 accounting 一致性和已跟踪 Trading 212 holding 的例外。
 2. `applyImportDraftReview` 保留未被用户修改字段的原始来源信息。
 3. repository 再次读取最新 facts，避免使用过时 current state。
 4. screenshot draft 通过 `materializeConfirmedImportSnapshot` 自动补齐未被截图覆盖的既有持仓。
@@ -514,6 +514,7 @@ npm run build
 - 改 review edit intent 与不可变 draft 更新：`src/application/imports/import-review-editor.ts`
 - 改 review holding 字段规范化与 identity 规则：`src/application/imports/import-review-holding-editor.ts`
 - 改 review 后的 Holding State 比较与 reconciliation 计数：`src/application/imports/import-edit-reconciliation.ts`
+- 改 confirmation body、会计一致性与 Trading 212 例外校验：`src/application/imports/import-confirmation-review.ts`
 - 改 Vision schema/instructions/adapter contract：`src/application/imports/vision-extraction-contract.ts`
 - 改多截图持仓去重与冲突选择：`src/application/imports/vision-position-merge.ts`
 - 改截图到 Import Draft 的会计推导：`src/application/imports/screenshot-import-preparation.ts`
