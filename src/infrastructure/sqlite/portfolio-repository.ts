@@ -18,12 +18,12 @@ import type {
   OpeningSnapshotInput,
   PortfolioEventInput,
 } from "@/domain/portfolio/types";
-import { findSourceAccount } from "@/domain/source-accounts";
 import { createMarketIntelligenceBriefRepository } from "@/infrastructure/sqlite/market-intelligence-brief-repository";
 import { createPortfolioAnalystConversationRepository } from "@/infrastructure/sqlite/portfolio-analyst-conversation-repository";
 import { createPortfolioNarrativeRepository } from "@/infrastructure/sqlite/portfolio-narrative-repository";
 import type { PortfolioDatabase } from "@/infrastructure/sqlite/portfolio-repository-contract";
 import { initializePortfolioSchema } from "@/infrastructure/sqlite/portfolio-schema";
+import { createSourceAccountLabelRepository } from "@/infrastructure/sqlite/source-account-label-repository";
 
 export * from "@/infrastructure/sqlite/portfolio-repository-contract";
 export {
@@ -78,6 +78,7 @@ export function createPortfolioDatabase(filename: string): PortfolioDatabase {
   const marketIntelligenceBriefs =
     createMarketIntelligenceBriefRepository(database);
   const portfolioNarratives = createPortfolioNarrativeRepository(database);
+  const sourceAccountLabels = createSourceAccountLabelRepository(database);
 
   const insertDraft = database.prepare(`
     INSERT INTO import_drafts (
@@ -174,17 +175,6 @@ export function createPortfolioDatabase(filename: string): PortfolioDatabase {
     FROM market_refresh_runs
     ORDER BY completed_at DESC, id DESC
     LIMIT 10
-  `);
-  const selectAccountLabels = database.prepare(`
-    SELECT source_account_id, custom_label
-    FROM source_account_labels
-    ORDER BY source_account_id
-  `);
-  const upsertAccountLabel = database.prepare(`
-    INSERT INTO source_account_labels (source_account_id, custom_label)
-    VALUES (?, ?)
-    ON CONFLICT(source_account_id) DO UPDATE SET
-      custom_label = excluded.custom_label
   `);
   function getImportDraft(id: string): StoredImportDraft | undefined {
     const row = selectDraft.get(id) as ImportDraftRow | undefined;
@@ -410,16 +400,6 @@ export function createPortfolioDatabase(filename: string): PortfolioDatabase {
       };
     },
 
-    readSourceAccountLabels() {
-      const labelRows = selectAccountLabels.all() as unknown as Array<{
-        source_account_id: string;
-        custom_label: string;
-      }>;
-      return Object.fromEntries(
-        labelRows.map((row) => [row.source_account_id, row.custom_label]),
-      );
-    },
-
     recordMarketData(input) {
       database.exec("BEGIN IMMEDIATE");
       try {
@@ -462,17 +442,7 @@ export function createPortfolioDatabase(filename: string): PortfolioDatabase {
       }
     },
 
-    renameSourceAccount(id, label) {
-      if (!findSourceAccount(id)) {
-        throw new Error(`Unknown Source Account ${id}`);
-      }
-      const normalized = label.trim();
-      if (!normalized) {
-        throw new Error("Source Account label cannot be empty");
-      }
-      upsertAccountLabel.run(id, normalized);
-    },
-
+    ...sourceAccountLabels,
     ...portfolioNarratives,
     ...marketIntelligenceBriefs,
     ...portfolioAnalystConversations,
