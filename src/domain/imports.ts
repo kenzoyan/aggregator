@@ -1,6 +1,18 @@
-export * from "@/domain/confirmed-import-snapshot";
+export {
+  materializeConfirmedImportSnapshot,
+  normalizeSnapshotHistory,
+  type SnapshotHistoryRecord,
+  type SnapshotPayloadScope,
+} from "@/domain/confirmed-import-snapshot";
 export * from "@/domain/import-draft";
-export * from "@/domain/import-draft-review";
-export * from "@/domain/import-lifecycle-policy";
-export * from "@/domain/import-reconciliation";
-export * from "@/domain/import-snapshot";
+export { prepareImportDraftForReview } from "@/domain/import-draft-review";
+export {
+  completedPartialImportReviewWarning,
+  legacyPartialSnapshotWarningMarker,
+  partialImportPreservationWarning,
+} from "@/domain/import-lifecycle-policy";
+export { reconcileImportDraft } from "@/domain/import-reconciliation";
+export {
+  draftPortfolioFromOpeningSnapshot,
+  materializeOpeningSnapshot,
+} from "@/domain/import-snapshot";
