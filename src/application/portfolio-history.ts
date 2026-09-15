@@ -306,6 +306,114 @@ function createInvestmentPerformance(input: {
   return { finalAvailable, change, percent, timeline, dailyChanges };
 }
 
+function createPortfolioValueHistory(input: {
+  dailyValuePoints: readonly PortfolioHistoryPoint[];
+  performanceTimeline: readonly { asOf: string; value: number }[];
+  completePeriod: boolean;
+  investmentPerformanceAvailable: boolean;
+  hasFullyExitedInvestment: boolean;
+}): PortfolioValueHistoryReadModel {
+  const valueBaseline = input.dailyValuePoints.at(0);
+  const valueCurrent = input.dailyValuePoints.at(-1);
+  const available = Boolean(
+    valueBaseline &&
+    valueCurrent &&
+    valueBaseline.asOf !== valueCurrent.asOf &&
+    input.completePeriod,
+  );
+  const change = available
+    ? valueCurrent!.actualTotal - valueBaseline!.actualTotal
+    : 0;
+  const percent = available && valueBaseline!.actualTotal !== 0
+    ? change / valueBaseline!.actualTotal * 100
+    : 0;
+  const performanceByDate = new Map(
+    input.performanceTimeline.map((point) => [point.asOf, point.value]),
+  );
+  const timeline = input.dailyValuePoints.map((point, index) => {
+    const asOf = point.asOf.slice(0, 10);
+    const previous = input.dailyValuePoints[index - 1];
+    const previousAsOf = previous?.asOf.slice(0, 10);
+    const currentPerformance = performanceByDate.get(asOf);
+    const previousPerformance = previousAsOf
+      ? performanceByDate.get(previousAsOf)
+      : undefined;
+    const investmentChangeEur = previousAsOf &&
+        currentPerformance !== undefined &&
+        previousPerformance !== undefined
+      ? currentPerformance - previousPerformance
+      : 0;
+    const actualChange = previous
+      ? point.actualTotal - previous.actualTotal
+      : 0;
+    const holdingIds = new Set([
+      ...Object.keys(previous?.investmentQuantities ?? {}),
+      ...Object.keys(point.investmentQuantities),
+    ]);
+    const holdingActivities = previous
+      ? [...holdingIds].flatMap((holdingId) => {
+          const before = new Decimal(
+            previous.investmentQuantities[holdingId] ?? 0,
+          );
+          const after = new Decimal(point.investmentQuantities[holdingId] ?? 0);
+          const delta = after.minus(before);
+          if (delta.isZero()) return [];
+          const kind = before.isZero()
+            ? "added" as const
+            : after.isZero()
+              ? "exited" as const
+              : delta.isPositive()
+                ? "increased" as const
+                : "reduced" as const;
+          return [{
+            holdingId,
+            name: point.investmentNames[holdingId] ??
+              previous.investmentNames[holdingId] ?? holdingId,
+            kind,
+            quantityDelta: delta.toString(),
+          }];
+        })
+      : [];
+    return {
+      asOf,
+      valueEur: point.actualTotal,
+      investmentChangeEur,
+      portfolioActivityEur: input.investmentPerformanceAvailable &&
+          !input.hasFullyExitedInvestment
+        ? actualChange - investmentChangeEur
+        : 0,
+      holdingActivities,
+    };
+  });
+  const activityAvailable = available &&
+    input.investmentPerformanceAvailable &&
+    !input.hasFullyExitedInvestment;
+  const portfolioActivity = activityAvailable
+    ? timeline.reduce(
+        (total, point) => total + point.portfolioActivityEur,
+        0,
+      )
+    : 0;
+  const investmentChange = activityAvailable
+    ? change - portfolioActivity
+    : 0;
+  return {
+    available,
+    change,
+    percent,
+    investmentChange,
+    portfolioActivity,
+    activityAvailable,
+    timeline,
+    ...(available
+      ? {
+          baselineAsOf: valueBaseline!.asOf,
+          currentAsOf: valueCurrent!.asOf,
+        }
+      : {}),
+  };
+}
+
 function createPeriodHistory(
   input: PortfolioHistoryInput,
   context: PortfolioHistoryContext,
@@ -345,20 +453,6 @@ function createPeriodHistory(
       !currentInvestmentIdSet.has(holdingId)
     )
   );
-  const valueBaseline = dailyValuePoints.at(0);
-  const valueCurrent = dailyValuePoints.at(-1);
-  const valueHistoryAvailable = Boolean(
-    valueBaseline &&
-    valueCurrent &&
-    valueBaseline.asOf !== valueCurrent.asOf &&
-    completePeriod,
-  );
-  const valueChange = valueHistoryAvailable
-    ? valueCurrent!.actualTotal - valueBaseline!.actualTotal
-    : 0;
-  const valuePercent = valueHistoryAvailable && valueBaseline!.actualTotal !== 0
-    ? valueChange / valueBaseline!.actualTotal * 100
-    : 0;
   const investmentPerformance = createInvestmentPerformance({
     current,
     baseline,
@@ -373,77 +467,13 @@ function createPeriodHistory(
     dailyChanges,
   } = investmentPerformance;
   const chartPoints = performanceTimeline.map((point) => point.value);
-  const performanceByDate = new Map(
-    performanceTimeline.map((point) => [point.asOf, point.value]),
-  );
-  const valueTimeline = dailyValuePoints.map((point, index) => {
-    const asOf = point.asOf.slice(0, 10);
-    const previous = dailyValuePoints[index - 1];
-    const previousAsOf = previous?.asOf.slice(0, 10);
-    const currentPerformance = performanceByDate.get(asOf);
-    const previousPerformance = previousAsOf
-      ? performanceByDate.get(previousAsOf)
-      : undefined;
-    const investmentChangeEur = previousAsOf &&
-        currentPerformance !== undefined &&
-        previousPerformance !== undefined
-      ? currentPerformance - previousPerformance
-      : 0;
-    const actualChange = previous
-      ? point.actualTotal - previous.actualTotal
-      : 0;
-    const holdingIds = new Set([
-      ...Object.keys(previous?.investmentQuantities ?? {}),
-      ...Object.keys(point.investmentQuantities),
-    ]);
-    const holdingActivities = previous
-      ? [...holdingIds].flatMap((holdingId) => {
-          const before = new Decimal(
-            previous.investmentQuantities[holdingId] ?? 0,
-          );
-          const after = new Decimal(
-            point.investmentQuantities[holdingId] ?? 0,
-          );
-          const delta = after.minus(before);
-          if (delta.isZero()) return [];
-          const kind = before.isZero()
-            ? "added" as const
-            : after.isZero()
-              ? "exited" as const
-              : delta.isPositive()
-                ? "increased" as const
-                : "reduced" as const;
-          return [{
-            holdingId,
-            name: point.investmentNames[holdingId] ??
-              previous.investmentNames[holdingId] ?? holdingId,
-            kind,
-            quantityDelta: delta.toString(),
-          }];
-        })
-      : [];
-    return {
-      asOf,
-      valueEur: point.actualTotal,
-      investmentChangeEur,
-      portfolioActivityEur: finalAvailable && !hasFullyExitedInvestment
-        ? actualChange - investmentChangeEur
-        : 0,
-      holdingActivities,
-    };
+  const valueHistory = createPortfolioValueHistory({
+    dailyValuePoints,
+    performanceTimeline,
+    completePeriod,
+    investmentPerformanceAvailable: finalAvailable,
+    hasFullyExitedInvestment,
   });
-  const activityAvailable = valueHistoryAvailable &&
-    finalAvailable &&
-    !hasFullyExitedInvestment;
-  const portfolioActivity = activityAvailable
-    ? valueTimeline.reduce(
-        (total, point) => total + point.portfolioActivityEur,
-        0,
-      )
-    : 0;
-  const investmentChange = activityAvailable
-    ? valueChange - portfolioActivity
-    : 0;
   return {
     available: finalAvailable,
     ...(finalAvailable && coverage ? { coverage } : {}),
@@ -451,21 +481,7 @@ function createPeriodHistory(
     percent,
     points: chartPoints,
     dailyChanges,
-    valueHistory: {
-      available: valueHistoryAvailable,
-      change: valueChange,
-      percent: valuePercent,
-      investmentChange,
-      portfolioActivity,
-      activityAvailable,
-      timeline: valueTimeline,
-      ...(valueHistoryAvailable
-        ? {
-            baselineAsOf: valueBaseline!.asOf,
-            currentAsOf: valueCurrent!.asOf,
-          }
-        : {}),
-    },
+    valueHistory,
     ...(finalAvailable && baseline && current
       ? {
           baselineAsOf: baseline.asOf,
