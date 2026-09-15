@@ -76,7 +76,7 @@ Infrastructure adapters
 | --- | --- | --- | --- |
 | `createPortfolioValuationTimeline` | snapshots、events、prices、FX、labels、asOf | 完整 overview read model | state 重建、当前估值、历史估值、period、allocation、FX overview |
 | `createMarketDataRefresh` | repository 能力、NAV provider、可选 T212 snapshot | refresh outcome | 每日 gate、provider 聚合、Market Data-only 过滤、持久化、并发串行化 |
-| `applyImportDraftEdit` | draft + 一个编辑意图 | 新 draft | Decimal 比较、cash/holding 编辑、reconciliation 重算 |
+| `applyImportDraftEdit` | draft + 一个编辑意图 | 新 draft | 不可变 portfolio 更新、holding 字段规范化、reconciliation 重算 |
 | `createPortfolioAnalystContext` | overview read model + 一个批准的 analyst job | versioned evidence bundle | job-specific 事实选择、排序、脱敏、Evidence Key、限制与 32 KiB guard |
 | `validatePortfolioAnalystAnswer` | Analyst Context + 不可信 candidate output | validated answer | strict shape、Evidence Key membership、Facts As Of、limitations 与 allowed action 校验 |
 
@@ -386,7 +386,7 @@ Account allocation 不在 overview 占据主卡，而是在 `src/components/sour
 - reconciliation 状态
 - confirmation
 
-它不再自行实现 holding/cash reconciliation reducer。所有 add/remove/update/cash edit 都转换成一个明确的 edit intent，交给 `src/application/imports/import-review-editor.ts` 的纯函数处理。这样 React 只管理交互，Holding State 字段如何比较由一个可独立测试的模块决定；display name 或 market-price 字段变化不会被误报成 quantity/Cost Basis 变化。
+它不再自行实现 holding/cash reconciliation reducer。所有 add/remove/update/cash edit 都转换成一个明确的 edit intent，交给 `src/application/imports/import-review-editor.ts` 的纯函数处理。该 reducer 把字段规范化委托给 `import-review-holding-editor.ts`，把 Decimal 比较、Holding State 分类和计数委托给 `import-edit-reconciliation.ts`。这样 React 只管理交互；display name 或 market-price 字段变化不会被误报成 quantity/Cost Basis 变化。
 
 前端没有权限绕过 confirmation；真正写入 snapshot 的 gate 在服务端 repository。
 
@@ -511,7 +511,9 @@ npm run build
 - 改 draft review 合并规则：`src/domain/import-draft-review.ts`
 - 改 import/reconciliation：`src/domain/import-reconciliation.ts`
 - 改确认后 snapshot 与历史兼容：`src/domain/confirmed-import-snapshot.ts`
-- 改 review 编辑行为：`src/application/imports/import-review-editor.ts`
+- 改 review edit intent 与不可变 draft 更新：`src/application/imports/import-review-editor.ts`
+- 改 review holding 字段规范化与 identity 规则：`src/application/imports/import-review-holding-editor.ts`
+- 改 review 后的 Holding State 比较与 reconciliation 计数：`src/application/imports/import-edit-reconciliation.ts`
 - 改 Vision schema/instructions/adapter contract：`src/application/imports/vision-extraction-contract.ts`
 - 改多截图持仓去重与冲突选择：`src/application/imports/vision-position-merge.ts`
 - 改截图到 Import Draft 的会计推导：`src/application/imports/screenshot-import-preparation.ts`
