@@ -5,7 +5,6 @@ import {
   marketIntelligenceBriefSchema,
   type MarketIntelligenceBrief,
 } from "@/application/market-intelligence";
-import type { PortfolioAnalystConversation } from "@/application/portfolio-analyst-conversation";
 import {
   materializeConfirmedImportSnapshot,
   prepareImportDraftForReview,
@@ -25,6 +24,7 @@ import type {
   PortfolioEventInput,
 } from "@/domain/portfolio/types";
 import { findSourceAccount } from "@/domain/source-accounts";
+import { createPortfolioAnalystConversationRepository } from "@/infrastructure/sqlite/portfolio-analyst-conversation-repository";
 import type { PortfolioDatabase } from "@/infrastructure/sqlite/portfolio-repository-contract";
 import { initializePortfolioSchema } from "@/infrastructure/sqlite/portfolio-schema";
 
@@ -76,6 +76,8 @@ export function createPortfolioDatabase(filename: string): PortfolioDatabase {
     database.close();
     throw error;
   }
+  const portfolioAnalystConversations =
+    createPortfolioAnalystConversationRepository(database);
 
   const insertDraft = database.prepare(`
     INSERT INTO import_drafts (
@@ -197,34 +199,6 @@ export function createPortfolioDatabase(filename: string): PortfolioDatabase {
     ORDER BY generated_at DESC, rowid DESC
     LIMIT 1
   `);
-  const upsertPortfolioAnalystConversation = database.prepare(`
-    INSERT INTO portfolio_analyst_conversations (
-      id, provider, language, include_holding_names, created_at, updated_at,
-      turns_json
-    ) VALUES (?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(id) DO UPDATE SET
-      provider = excluded.provider,
-      language = excluded.language,
-      include_holding_names = excluded.include_holding_names,
-      updated_at = excluded.updated_at,
-      turns_json = excluded.turns_json
-  `);
-  const selectPortfolioAnalystConversation = database.prepare(`
-    SELECT id, provider, language, include_holding_names, created_at,
-      updated_at, turns_json
-    FROM portfolio_analyst_conversations
-    WHERE id = ?
-  `);
-  const selectLatestPortfolioAnalystConversation = database.prepare(`
-    SELECT id, provider, language, include_holding_names, created_at,
-      updated_at, turns_json
-    FROM portfolio_analyst_conversations
-    ORDER BY updated_at DESC, rowid DESC
-    LIMIT 1
-  `);
-  const deletePortfolioAnalystConversation = database.prepare(
-    "DELETE FROM portfolio_analyst_conversations WHERE id = ?",
-  );
   const insertMarketIntelligenceBrief = database.prepare(`
     INSERT INTO market_intelligence_briefs (id, generated_at, content_json)
     VALUES (?, ?, ?)
@@ -238,32 +212,6 @@ export function createPortfolioDatabase(filename: string): PortfolioDatabase {
   const deleteOtherMarketIntelligenceBriefs = database.prepare(
     "DELETE FROM market_intelligence_briefs WHERE id <> ?",
   );
-
-  type PortfolioAnalystConversationRow = {
-    id: string;
-    provider: PortfolioAnalystConversation["provider"];
-    language: PortfolioAnalystConversation["language"];
-    include_holding_names: number;
-    created_at: string;
-    updated_at: string;
-    turns_json: string;
-  };
-
-  function decodePortfolioAnalystConversation(
-    row: PortfolioAnalystConversationRow | undefined,
-  ): PortfolioAnalystConversation | undefined {
-    if (!row) return undefined;
-    return {
-      version: "portfolio-analyst-conversation.v1",
-      id: row.id,
-      provider: row.provider,
-      language: row.language,
-      includeHoldingNames: row.include_holding_names === 1,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
-      turns: JSON.parse(row.turns_json) as PortfolioAnalystConversation["turns"],
-    };
-  }
 
   function getImportDraft(id: string): StoredImportDraft | undefined {
     const row = selectDraft.get(id) as ImportDraftRow | undefined;
@@ -629,37 +577,7 @@ export function createPortfolioDatabase(filename: string): PortfolioDatabase {
         : undefined;
     },
 
-    readLatestPortfolioAnalystConversation() {
-      return decodePortfolioAnalystConversation(
-        selectLatestPortfolioAnalystConversation.get() as
-          | PortfolioAnalystConversationRow
-          | undefined,
-      );
-    },
-
-    readPortfolioAnalystConversation(id) {
-      return decodePortfolioAnalystConversation(
-        selectPortfolioAnalystConversation.get(id) as
-          | PortfolioAnalystConversationRow
-          | undefined,
-      );
-    },
-
-    savePortfolioAnalystConversation(conversation) {
-      upsertPortfolioAnalystConversation.run(
-        conversation.id,
-        conversation.provider,
-        conversation.language,
-        conversation.includeHoldingNames ? 1 : 0,
-        conversation.createdAt,
-        conversation.updatedAt,
-        JSON.stringify(conversation.turns),
-      );
-    },
-
-    deletePortfolioAnalystConversation(id) {
-      deletePortfolioAnalystConversation.run(id);
-    },
+    ...portfolioAnalystConversations,
 
     close() {
       database.close();
