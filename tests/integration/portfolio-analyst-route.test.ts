@@ -5,7 +5,7 @@ import type {
   PortfolioAnalystConversation,
   PortfolioAnalystConversationStore,
 } from "@/application/portfolio-analyst-conversation";
-import type { PortfolioAnalystContextV1 } from "@/application/portfolio-analyst-context";
+import type { PortfolioAnalystContextV1 } from "@/application/portfolio-analyst-contract";
 import type { PortfolioAnalystProvider } from "@/application/portfolio-analyst-provider";
 import { PortfolioAnalystProviderError } from "@/application/portfolio-analyst-provider";
 import type {

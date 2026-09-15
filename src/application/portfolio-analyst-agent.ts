@@ -3,7 +3,7 @@ import type {
   PortfolioAnalystContextV1,
   PortfolioAnalystLanguage,
   PortfolioAnalystTools,
-} from "@/application/portfolio-analyst-context";
+} from "@/application/portfolio-analyst-contract";
 import type { PortfolioAnalystHistoryMessage } from "@/application/portfolio-analyst-conversation";
 import type { Period } from "@/application/portfolio-read-model";
 

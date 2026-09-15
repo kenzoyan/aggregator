@@ -22,8 +22,8 @@ import type {
 import {
   combinePortfolioAnalystContexts,
   namespacePortfolioAnalystContext,
-  type PortfolioAnalystContextV1,
 } from "@/application/portfolio-analyst-context";
+import type { PortfolioAnalystContextV1 } from "@/application/portfolio-analyst-contract";
 import type { PortfolioAnalystHistoryMessage } from "@/application/portfolio-analyst-conversation";
 import { PortfolioAnalystProviderError } from "@/application/portfolio-analyst-provider";
 

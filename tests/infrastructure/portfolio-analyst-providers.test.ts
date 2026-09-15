@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { PortfolioAnalystContextV1 } from "@/application/portfolio-analyst-context";
+import type { PortfolioAnalystContextV1 } from "@/application/portfolio-analyst-contract";
 import { DeepSeekAnalystProvider } from "@/infrastructure/deepseek/deepseek-analyst-provider";
 import { OpenAIAnalystProvider } from "@/infrastructure/openai/openai-analyst-provider";
 

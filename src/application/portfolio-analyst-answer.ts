@@ -3,10 +3,10 @@ import { z } from "zod";
 import type {
   FactualUpdate,
   PortfolioAnalystContextV1,
-} from "@/application/portfolio-analyst-context";
+} from "@/application/portfolio-analyst-contract";
 import {
   analystLimitationCodes,
-} from "@/application/portfolio-analyst-context";
+} from "@/application/portfolio-analyst-contract";
 import type { PortfolioAnalystGenerationTurn } from "@/application/portfolio-analyst-provider";
 
 export const analystClaimClassifications = [

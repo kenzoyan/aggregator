@@ -6,7 +6,7 @@ import {
   projectPartialPortfolioAnalystAnswer,
   validatePortfolioAnalystAnswer,
 } from "@/application/portfolio-analyst-answer";
-import type { PortfolioAnalystContextV1 } from "@/application/portfolio-analyst-context";
+import type { PortfolioAnalystContextV1 } from "@/application/portfolio-analyst-contract";
 import { PortfolioAnalystProviderError } from "@/application/portfolio-analyst-provider";
 import type { PortfolioAnalystGenerationTurn } from "@/application/portfolio-analyst-provider";
 import {

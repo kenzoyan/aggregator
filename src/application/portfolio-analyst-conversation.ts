@@ -2,7 +2,7 @@ import type {
   PortfolioAnalystProviderId,
   PortfolioAnalystReport,
 } from "@/application/portfolio-analyst-provider";
-import type { PortfolioAnalystLanguage } from "@/application/portfolio-analyst-context";
+import type { PortfolioAnalystLanguage } from "@/application/portfolio-analyst-contract";
 import {
   portfolioAnalystActionLabel,
   portfolioAnalystLimitationLabel,

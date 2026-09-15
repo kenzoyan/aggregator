@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { PortfolioAnalystContextV1, PortfolioAnalystTools } from "@/application/portfolio-analyst-context";
+import type { PortfolioAnalystContextV1, PortfolioAnalystTools } from "@/application/portfolio-analyst-contract";
 import { createPiNativePortfolioAnalystRuntime } from "@/infrastructure/pi/pi-native-portfolio-analyst-runtime";
 
 const runCloudEvaluation = process.env.RUN_PORTFOLIO_AGENT_EVAL === "1";

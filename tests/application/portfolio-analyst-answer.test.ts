@@ -7,8 +7,8 @@ import {
   portfolioAnalystAnswerJsonSchema,
   validatePortfolioAnalystAnswer,
 } from "@/application/portfolio-analyst-answer";
-import type { PortfolioAnalystContextV1 } from "@/application/portfolio-analyst-context";
-import type { FactualUpdate } from "@/application/portfolio-analyst-context";
+import type { PortfolioAnalystContextV1 } from "@/application/portfolio-analyst-contract";
+import type { FactualUpdate } from "@/application/portfolio-analyst-contract";
 
 const context: PortfolioAnalystContextV1 = {
   version: "portfolio-analyst-context.v1",

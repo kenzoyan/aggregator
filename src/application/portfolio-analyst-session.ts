@@ -1,5 +1,5 @@
 import type { PortfolioAnalystAnswer } from "@/application/portfolio-analyst-answer";
-import type { PortfolioAnalystContextV1 } from "@/application/portfolio-analyst-context";
+import type { PortfolioAnalystContextV1 } from "@/application/portfolio-analyst-contract";
 import type { PortfolioAnalystHistoryMessage } from "@/application/portfolio-analyst-conversation";
 import type { PortfolioAnalystProvider } from "@/application/portfolio-analyst-provider";
 

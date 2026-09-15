@@ -2,7 +2,7 @@ import type { PortfolioAnalystAnswer } from "@/application/portfolio-analyst-ans
 import type {
   AnalystEvidenceFact,
   PortfolioAnalystContextV1,
-} from "@/application/portfolio-analyst-context";
+} from "@/application/portfolio-analyst-contract";
 import type { PortfolioAnalystHistoryMessage } from "@/application/portfolio-analyst-conversation";
 import type { PortfolioAnalystAgentAudit } from "@/application/portfolio-analyst-agent";
 

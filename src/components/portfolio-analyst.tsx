@@ -12,7 +12,7 @@ import type { PortfolioAnalystConversation } from "@/application/portfolio-analy
 import type {
   AnalystEvidenceFact,
   PortfolioAnalystLanguage,
-} from "@/application/portfolio-analyst-context";
+} from "@/application/portfolio-analyst-contract";
 import {
   readPortfolioAnalystPreferences,
   resolvePortfolioAnalystConversationSettings,

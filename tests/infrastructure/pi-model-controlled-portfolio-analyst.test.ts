@@ -10,9 +10,11 @@ import { describe, expect, it } from "vitest";
 
 import {
   namespacePortfolioAnalystContext,
-  type PortfolioAnalystContextV1,
-  type PortfolioAnalystTools,
 } from "@/application/portfolio-analyst-context";
+import type {
+  PortfolioAnalystContextV1,
+  PortfolioAnalystTools,
+} from "@/application/portfolio-analyst-contract";
 import { createPiModelControlledPortfolioAnalyst } from "@/infrastructure/pi/pi-model-controlled-portfolio-analyst";
 
 const usage: Usage = {

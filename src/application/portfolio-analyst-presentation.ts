@@ -2,7 +2,7 @@ import type {
   AnalystEvidenceFact,
   FactualUpdate,
   PortfolioAnalystLanguage,
-} from "@/application/portfolio-analyst-context";
+} from "@/application/portfolio-analyst-contract";
 
 const eur = new Intl.NumberFormat("en-FI", {
   style: "currency",

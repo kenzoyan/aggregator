@@ -11,12 +11,12 @@ import {
   type PortfolioAnalystConversationStore,
 } from "@/application/portfolio-analyst-conversation";
 import {
-  createPortfolioAnalystTools,
   PortfolioAnalystContextError,
   type AnalystEvidenceFact,
   type AnalystPortfolioReadModel,
   type PortfolioAnalystContextV1,
-} from "@/application/portfolio-analyst-context";
+} from "@/application/portfolio-analyst-contract";
+import { createPortfolioAnalystTools } from "@/application/portfolio-analyst-context";
 import {
   portfolioAnalystProviderIds,
   PortfolioAnalystProviderError,

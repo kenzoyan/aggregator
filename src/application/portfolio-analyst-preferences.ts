@@ -1,4 +1,4 @@
-import type { PortfolioAnalystLanguage } from "@/application/portfolio-analyst-context";
+import type { PortfolioAnalystLanguage } from "@/application/portfolio-analyst-contract";
 import type { PortfolioAnalystProviderId } from "@/application/portfolio-analyst-provider";
 import type { Period } from "@/application/portfolio-read-model";
 

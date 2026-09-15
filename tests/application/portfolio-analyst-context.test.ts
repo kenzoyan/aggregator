@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   ANALYST_CONTEXT_MAX_BYTES,
   PortfolioAnalystContextError,
+} from "@/application/portfolio-analyst-contract";
+import {
   createPortfolioAnalystContext,
   createPortfolioAnalystTools,
 } from "@/application/portfolio-analyst-context";

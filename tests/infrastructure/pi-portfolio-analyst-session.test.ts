@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { PortfolioAnalystContextV1 } from "@/application/portfolio-analyst-context";
+import type { PortfolioAnalystContextV1 } from "@/application/portfolio-analyst-contract";
 import type { PortfolioAnalystProvider } from "@/application/portfolio-analyst-provider";
 import { piPortfolioAnalystSessionFactory } from "@/infrastructure/pi/pi-portfolio-analyst-session";
 
