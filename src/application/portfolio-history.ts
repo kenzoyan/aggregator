@@ -192,6 +192,48 @@ function createPortfolioHistoryContext(input: PortfolioHistoryInput) {
 type PortfolioHistoryContext = ReturnType<typeof createPortfolioHistoryContext>;
 type PortfolioHistoryPeriod = "today" | "week" | "month";
 
+function selectPeriodHistoryBaseline(input: {
+  period: PortfolioHistoryPeriod;
+  points: readonly PortfolioHistoryPoint[];
+  publishedObservationTimeline: readonly string[];
+  monitoringStartedAt?: string;
+  asOf: string;
+}) {
+  const current = input.points.at(-1);
+  const previousPublishedObservationTime =
+    input.publishedObservationTimeline.at(-2);
+  let baseline = input.period === "today"
+    ? previousPublishedObservationTime
+      ? input.points.find((point) =>
+          point.asOf === previousPublishedObservationTime
+        )
+      : input.publishedObservationTimeline.length > 0
+        ? input.points.at(0)
+        : input.points.at(-2)
+    : undefined;
+  let coverage: "partial" | undefined;
+  if (
+    baseline &&
+    input.period === "today" &&
+    current &&
+    new Date(current.asOf).getTime() - new Date(baseline.asOf).getTime() >
+      4 * 24 * 60 * 60 * 1000
+  ) {
+    baseline = undefined;
+  }
+  if (input.period !== "today") {
+    const result = selectRangeBaseline({
+      period: input.period,
+      points: input.points,
+      asOf: input.asOf,
+      monitoringStartedAt: input.monitoringStartedAt,
+    });
+    baseline = result?.point;
+    coverage = result?.coverage;
+  }
+  return { baseline, coverage };
+}
+
 function createPeriodHistory(
   input: PortfolioHistoryInput,
   context: PortfolioHistoryContext,
@@ -203,34 +245,13 @@ function createPeriodHistory(
     points,
   } = context;
   const current = points.at(-1);
-  const previousPublishedObservationTime = publishedObservationTimeline.at(-2);
-  let baseline = period === "today"
-    ? previousPublishedObservationTime
-      ? points.find((point) => point.asOf === previousPublishedObservationTime)
-      : publishedObservationTimeline.length > 0
-        ? points.at(0)
-        : points.at(-2)
-    : undefined;
-  let coverage: "partial" | undefined;
-  if (
-    baseline &&
-    period === "today" &&
-    current &&
-    new Date(current.asOf).getTime() - new Date(baseline.asOf).getTime() >
-      4 * 24 * 60 * 60 * 1000
-  ) {
-    baseline = undefined;
-  }
-  if (period !== "today") {
-    const result = selectRangeBaseline({
-      period,
-      points,
-      asOf: input.asOf,
-      monitoringStartedAt: snapshots[0]?.asOf,
-    });
-    baseline = result?.point;
-    coverage = result?.coverage;
-  }
+  const { baseline, coverage } = selectPeriodHistoryBaseline({
+    period,
+    points,
+    publishedObservationTimeline,
+    monitoringStartedAt: snapshots[0]?.asOf,
+    asOf: input.asOf,
+  });
   const available = Boolean(
     current &&
     baseline &&
