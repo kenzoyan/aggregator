@@ -76,38 +76,19 @@ export function createAccountsHandlers(input: {
       return NextResponse.json(readAccountsPage());
     },
     async PATCH(request: Request) {
-      let rename: z.infer<typeof renameSchema>;
       try {
-        rename = renameSchema.parse(await request.json());
+        const rename = renameSchema.parse(await request.json());
+        input.database.renameSourceAccount(rename.id, rename.label);
+        return NextResponse.json(readAccountsPage());
       } catch (error) {
-        if (error instanceof z.ZodError || error instanceof SyntaxError) {
+        if (error instanceof z.ZodError) {
           return NextResponse.json(
             { error: "Choose an account and enter a name of 80 characters or fewer." },
             { status: 400 },
           );
         }
-        return NextResponse.json(
-          { error: "Account name could not be saved." },
-          { status: 400 },
-        );
-      }
-      try {
-        input.database.renameSourceAccount(rename.id, rename.label);
-      } catch (error) {
         (input.logError ?? console.error)("Source Account rename failed", error);
-        return NextResponse.json(
-          { error: "Account name could not be saved." },
-          { status: 400 },
-        );
-      }
-      try {
-        return NextResponse.json(readAccountsPage());
-      } catch (error) {
-        (input.logError ?? console.error)("Source Account reload failed", error);
-        return NextResponse.json(
-          { error: "Account name was saved, but account data could not be reloaded." },
-          { status: 500 },
-        );
+        return NextResponse.json({ error: "Account name could not be saved." }, { status: 400 });
       }
     },
   };
