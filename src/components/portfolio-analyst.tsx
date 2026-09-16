@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 
 import type { PortfolioAnalystAnswer } from "@/application/portfolio-analyst-answer";
@@ -11,6 +12,7 @@ import type {
 import type { PortfolioAnalystConversation } from "@/application/portfolio-analyst-conversation";
 import type {
   AnalystEvidenceFact,
+  FactualUpdate,
   PortfolioAnalystLanguage,
 } from "@/application/portfolio-analyst-contract";
 import {
@@ -64,11 +66,13 @@ const starterQuestions = {
     "今天我的投资组合表现怎么样？",
     "最近 7 天哪些持仓对组合影响最大？",
     "当前资产数据有哪些需要更新？",
+    "帮我创建一个新的投资账户。",
   ],
   en: [
     "How is my portfolio performing today?",
     "Which holdings affected my portfolio most over the last 7 days?",
     "Which portfolio data needs updating?",
+    "Help me create a new investment account.",
   ],
 } as const;
 
@@ -88,6 +92,10 @@ export function PortfolioAnalyst({ blocked = false }: { blocked?: boolean }) {
   const [question, setQuestion] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>();
+  const [accountActionStatus, setAccountActionStatus] = useState<Record<
+    string,
+    "confirming" | "created" | "failed"
+  >>({});
   const selectedProvider = configuration?.providers.find((item) => item.id === provider);
 
   useEffect(() => {
@@ -279,6 +287,27 @@ export function PortfolioAnalyst({ blocked = false }: { blocked?: boolean }) {
     }
   }
 
+  async function confirmCreateAccount(
+    actionKey: string,
+    action: Extract<FactualUpdate, { kind: "create-account" }>,
+  ) {
+    setAccountActionStatus((current) => ({ ...current, [actionKey]: "confirming" }));
+    setError(undefined);
+    try {
+      const response = await fetch("/api/accounts", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ accountType: action.accountType, label: action.label }),
+      });
+      const payload = (await response.json()) as { error?: string };
+      if (!response.ok) throw new Error(payload.error ?? "Account could not be created.");
+      setAccountActionStatus((current) => ({ ...current, [actionKey]: "created" }));
+    } catch (cause) {
+      setAccountActionStatus((current) => ({ ...current, [actionKey]: "failed" }));
+      setError(cause instanceof Error ? cause.message : "Account could not be created.");
+    }
+  }
+
   return (
     <div
       className={`portfolio-agent-shell${open ? " open" : ""}`}
@@ -374,7 +403,11 @@ export function PortfolioAnalyst({ blocked = false }: { blocked?: boolean }) {
                 <span>You</span>
                 <p>{turn.question}</p>
               </div>
-              <AnalystReport report={turn.report} />
+              <AnalystReport
+                report={turn.report}
+                actionStatus={accountActionStatus[turn.id]}
+                onConfirmCreateAccount={(action) => void confirmCreateAccount(turn.id, action)}
+              />
             </div>
           ))}
           {pendingTurn && (
@@ -482,17 +515,21 @@ function analystToolLabel(
     read_period_drivers: "期间表现",
     read_data_quality: "数据质量",
     read_portfolio_overview: "组合概览",
+    read_accounts: "账户列表",
+    propose_create_account: "账户创建提议",
   } : {
     read_period_drivers: "period performance",
     read_data_quality: "data quality",
     read_portfolio_overview: "portfolio overview",
+    read_accounts: "source accounts",
+    propose_create_account: "account creation proposal",
   };
   return labels[name];
 }
 
 function analystToolScope(
   name: PortfolioAnalystToolName,
-  input: { period?: "today" | "week" | "month" },
+  input: { period?: "today" | "week" | "month"; accountType?: string; label?: string },
   language: PortfolioAnalystLanguage,
 ) {
   if (name !== "read_period_drivers" || !input.period) return analystToolLabel(name, language);
@@ -556,8 +593,14 @@ export function AgentActivityTimeline({
 
 export function AnalystReport({
   report,
+  actionStatus,
+  onConfirmCreateAccount,
 }: {
   report: PortfolioAnalystReport;
+  actionStatus?: "confirming" | "created" | "failed";
+  onConfirmCreateAccount?: (
+    action: Extract<FactualUpdate, { kind: "create-account" }>,
+  ) => void;
 }) {
   const language = report.language;
   const evidence = new Map(report.evidence.map((fact) => [fact.key, fact]));
@@ -574,7 +617,9 @@ export function AnalystReport({
       ? `${language === "zh-CN" ? "期间表现" : "Performance drivers"} · ${periodLabel ?? (language === "zh-CN" ? "所选期间" : "Selected period")}`
       : report.job === "summarize-portfolio"
         ? (language === "zh-CN" ? "组合概览" : "Portfolio overview")
-        : (language === "zh-CN" ? "数据质量诊断" : "Data quality diagnosis");
+        : report.job === "manage-accounts"
+          ? (language === "zh-CN" ? "账户管理" : "Account management")
+          : (language === "zh-CN" ? "数据质量诊断" : "Data quality diagnosis");
   return (
     <article className="portfolio-analyst-result" aria-live="polite">
       {report.agentAudit && (
@@ -584,6 +629,33 @@ export function AnalystReport({
         <span>Portfolio Agent</span>
         <p>{answer.answer.text}</p>
       </div>
+      {answer.proposedUpdate?.kind === "create-account" && (
+        <section className="analyst-account-confirmation">
+          <span>{language === "zh-CN" ? "需要你的确认" : "Your confirmation is required"}</span>
+          <strong>{portfolioAnalystActionLabel(answer.proposedUpdate, language)}</strong>
+          <p>{language === "zh-CN"
+            ? "确认后才会写入本地账户注册表；随后可进入 Import 添加资产。"
+            : "The local account registry changes only after confirmation. You can then import its assets."}</p>
+          {actionStatus === "created" ? (
+            <div className="analyst-account-confirmed">
+              <span>{language === "zh-CN" ? "账户已创建" : "Account created"}</span>
+              <Link href="/accounts">{language === "zh-CN" ? "查看账户" : "View accounts"}</Link>
+            </div>
+          ) : (
+            <button
+              type="button"
+              disabled={!onConfirmCreateAccount || actionStatus === "confirming"}
+              onClick={() => onConfirmCreateAccount?.(answer.proposedUpdate as Extract<FactualUpdate, { kind: "create-account" }>)}
+            >
+              {actionStatus === "confirming"
+                ? (language === "zh-CN" ? "正在创建……" : "Creating…")
+                : actionStatus === "failed"
+                  ? (language === "zh-CN" ? "重试创建" : "Try again")
+                  : (language === "zh-CN" ? "确认创建账户" : "Confirm account creation")}
+            </button>
+          )}
+        </section>
+      )}
       <details className="analyst-facts-evidence">
         <summary>
           <span>{language === "zh-CN" ? "事实与依据" : "Facts & evidence"}</span>

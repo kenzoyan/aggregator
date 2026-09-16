@@ -23,6 +23,7 @@ import {
   type PortfolioAnalystReport,
 } from "@/application/portfolio-analyst-provider";
 import type { PortfolioAnalystSessionFactory } from "@/application/portfolio-analyst-session";
+import type { SourceAccountDefinition } from "@/domain/source-accounts";
 import {
   portfolioAnalystStreamContentType,
   type PortfolioAnalystStreamEvent,
@@ -33,7 +34,7 @@ import {
   getPortfolioAnalystProviderRegistry,
   type PortfolioAnalystProviderRegistry,
 } from "@/server/portfolio-analyst-config";
-import { readCurrentPortfolioOverview } from "@/server/current-portfolio";
+import { readPortfolioOverviewIncludingEmpty } from "@/server/current-portfolio";
 
 const MAX_REQUEST_BYTES = 8 * 1024;
 const commonRequest = {
@@ -110,6 +111,7 @@ export function createPortfolioAnalystHandlers(
   registry: PortfolioAnalystProviderRegistry,
   options: {
     readCurrentPortfolio: () => AnalystPortfolioReadModel | undefined;
+    readSourceAccounts?: () => SourceAccountDefinition[];
     now?: () => string;
     createId?: () => string;
     conversations?: PortfolioAnalystConversationStore;
@@ -208,7 +210,10 @@ export function createPortfolioAnalystHandlers(
       let answer: PortfolioAnalystAnswer;
       let agentAudit: PortfolioAnalystAgentAudit | undefined;
       try {
-        const tools = createPortfolioAnalystTools(portfolio);
+        const tools = createPortfolioAnalystTools(
+          portfolio,
+          options.readSourceAccounts?.() ?? [],
+        );
         const agentRuntime = registry.agentRuntimes?.[body.provider];
         if (agentRuntime) {
           emit?.({ type: "status", phase: "selecting-tool" });
@@ -321,10 +326,11 @@ function getProductionHandlers() {
     productionHandlers = createPortfolioAnalystHandlers(
       getPortfolioAnalystProviderRegistry(),
       {
-        readCurrentPortfolio: () => readCurrentPortfolioOverview(
+        readCurrentPortfolio: () => readPortfolioOverviewIncludingEmpty(
           database,
           new Date().toISOString(),
         ),
+        readSourceAccounts: () => database.readSourceAccounts(),
         conversations: database,
       },
     );

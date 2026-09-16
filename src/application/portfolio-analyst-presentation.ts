@@ -34,6 +34,10 @@ export function portfolioAnalystActionLabel(
       return language === "zh-CN" ? "配置 Danske 数据路线" : "Configure the Danske data route";
     case "retry-market-data-refresh":
       return language === "zh-CN" ? "重试市场数据刷新" : "Retry market data refresh";
+    case "create-account":
+      return language === "zh-CN"
+        ? `创建账户：${action.label}（${action.accountType}）`
+        : `Create account: ${action.label} (${action.accountType})`;
   }
 }
 
@@ -128,6 +132,16 @@ export function portfolioAnalystEvidenceValue(
         fact.name ?? (language === "zh-CN" ? "未发送持仓名称" : "Holding name withheld"),
         signedEur(fact.changeEur),
         `${fact.percent.toFixed(2)}%`,
+      ].join(" · ");
+    case "source-account":
+      return `${fact.displayName ?? fact.accountType} · ${fact.provider} · ${fact.updateMethod}`;
+    case "source-account-proposal":
+      return [
+        fact.displayName,
+        fact.accountType,
+        fact.alreadyExists
+          ? (language === "zh-CN" ? "该账户类型已存在" : "Account type already exists")
+          : (language === "zh-CN" ? "该账户类型尚未创建" : "Account type is not yet registered"),
       ].join(" · ");
   }
 }

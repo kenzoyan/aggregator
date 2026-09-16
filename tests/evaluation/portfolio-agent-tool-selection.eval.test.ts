@@ -70,6 +70,8 @@ describe.skipIf(!runCloudEvaluation)("Portfolio Agent real-provider tool selecti
         scope: {},
         facts: [],
       }),
+      readAccounts: () => { throw new Error("wrong tool"); },
+      proposeCreateAccount: () => { throw new Error("wrong tool"); },
     };
     const runtime = createPiNativePortfolioAnalystRuntime({
       provider: "openai",

@@ -288,6 +288,14 @@ h2 { margin-bottom: 0; font-family: Georgia, "Times New Roman", serif; font-size
 .analyst-proposed-update { display: grid; gap: 5px; margin-top: 11px; padding: 12px 13px; border: 1px solid #bfd8cc; border-radius: 11px; background: #ebf7f2; }
 .analyst-proposed-update > span { color: #557267; }
 .analyst-proposed-update > strong { color: #175f49; font-size: 11px; }
+.analyst-account-confirmation { display: grid; gap: 7px; margin: 10px 0 0 30px; padding: 13px 14px; border: 1px solid #a9cbbb; border-radius: 12px; background: #edf8f3; }
+.analyst-account-confirmation > span { color: #557267; font-size: 8px; font-weight: 850; letter-spacing: .06em; text-transform: uppercase; }
+.analyst-account-confirmation > strong { color: #175f49; font-size: 12px; }
+.analyst-account-confirmation > p { margin: 0; color: #557267; font-size: 10px; line-height: 1.45; }
+.analyst-account-confirmation > button { justify-self: start; margin-top: 2px; padding: 7px 10px; border: 1px solid #175f49; border-radius: 8px; background: #175f49; color: white; cursor: pointer; font-size: 9px; font-weight: 800; }
+.analyst-account-confirmation > button:disabled { cursor: not-allowed; opacity: .6; }
+.analyst-account-confirmed { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: #175f49; font-size: 10px; font-weight: 800; }
+.analyst-account-confirmed a { color: #175f49; text-decoration: underline; }
 .portfolio-analyst-evidence { margin-top: 10px; padding-top: 10px; border-top: 1px solid #d9e4df; }
 .analyst-answer-basis { display: flex; align-items: center; gap: 7px; margin-top: 7px; }
 .analyst-answer-basis .analyst-evidence-keys { display: inline; }
@@ -483,6 +491,15 @@ h2 { margin-bottom: 0; font-family: Georgia, "Times New Roman", serif; font-size
 .account-allocation-list > div small { grid-column: 2; color: var(--muted); font-size: 9px; text-align: right; }
 .account-allocation-list span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .account-allocation-empty { grid-column: 2 / -1; margin: 0; color: var(--muted); font-size: 12px; text-align: center; }
+.account-create-panel { display: grid; grid-template-columns: minmax(220px, .8fr) minmax(420px, 1.2fr); align-items: end; gap: 28px; margin-bottom: 22px; padding: 22px 24px; border: 1px solid rgba(11,30,53,.07); border-radius: 18px; background: white; box-shadow: var(--shadow); }
+.account-create-panel h2 { font-size: 18px; }
+.account-create-panel > div > p:last-child { max-width: 360px; margin: 6px 0 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
+.account-create-form { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; align-items: end; gap: 10px; }
+.account-create-form label { display: grid; gap: 6px; color: var(--muted); font-size: 10px; font-weight: 750; }
+.account-create-form label small { font-size: 8px; font-weight: 500; }
+.account-create-form input { min-width: 0; padding: 10px 11px; border: 1px solid #cbd6df; border-radius: 9px; background: #fbfcfd; color: var(--ink); font: inherit; }
+.account-create-form button { min-height: 37px; padding: 0 14px; border: 1px solid var(--ink); border-radius: 9px; background: var(--ink); color: white; cursor: pointer; font-size: 10px; font-weight: 800; }
+.account-create-form button:disabled { cursor: not-allowed; opacity: .55; }
 .accounts-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
 .account-card { padding: 20px; border: 1px solid rgba(11,30,53,.07); border-radius: 18px; background: white; box-shadow: var(--shadow); }
 .account-card-heading { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 12px; }
@@ -491,6 +508,7 @@ h2 { margin-bottom: 0; font-family: Georgia, "Times New Roman", serif; font-size
 .account-card-heading small { color: var(--muted); font-size: 10px; }
 .account-provider { width: 38px; height: 38px; display: grid; place-items: center; border-radius: 11px; background: #eaf0f8; color: #274e80; font-size: 11px; font-weight: 850; }
 .account-provider.trading212 { background: #e8f7f1; color: #087856; font-size: 9px; }
+.account-provider.generic { background: #f1ecfa; color: #624b8f; }
 .account-status { padding: 5px 8px; border-radius: 999px; font-size: 9px; font-weight: 800; }
 .account-status.current { background: #e7f6f0; color: #087856; }
 .account-status.stale { background: #fdecee; color: #a7444d; }
@@ -506,6 +524,8 @@ h2 { margin-bottom: 0; font-family: Georgia, "Times New Roman", serif; font-size
 .account-actions, .rename-form { display: flex; align-items: center; justify-content: flex-end; gap: 9px; padding-top: 14px; border-top: 1px solid #edf0f2; }
 .account-actions button, .account-actions a, .rename-form button { border: 1px solid #d7dfe5; border-radius: 9px; background: #f8fafb; padding: 7px 10px; cursor: pointer; font-size: 10px; font-weight: 800; }
 .account-actions a { background: var(--ink); color: white; border-color: var(--ink); }
+.account-actions button.danger { border-color: #e6c5c8; background: #fff7f8; color: #a7444d; }
+.account-actions button:disabled { cursor: not-allowed; opacity: .55; }
 .rename-form input { min-width: 0; flex: 1; border: 1px solid #cbd6df; border-radius: 9px; padding: 8px 10px; font-size: 11px; }
 
 .settings-page { min-height: 100vh; max-width: 1060px; margin: 0 auto; padding: 48px clamp(18px, 5vw, 64px) 80px; }
@@ -625,6 +645,8 @@ h2 { margin-bottom: 0; font-family: Georgia, "Times New Roman", serif; font-size
   .account-allocation-list { grid-column: auto; grid-template-columns: 1fr; }
   .account-allocation-empty { grid-column: auto; }
   .accounts-grid { grid-template-columns: 1fr; }
+  .account-create-panel { grid-template-columns: 1fr; }
+  .account-create-form { grid-template-columns: 1fr; }
   .settings-card { padding: 20px; }
   .settings-card-heading { align-items: flex-start; flex-direction: column; gap: 10px; }
   .settings-fields, .settings-provider-grid, .settings-privacy-facts { grid-template-columns: 1fr; }

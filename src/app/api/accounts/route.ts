@@ -22,6 +22,14 @@ export async function GET() {
   return getProductionHandlers().GET();
 }
 
+export async function POST(request: Request) {
+  return getProductionHandlers().POST(request);
+}
+
 export async function PATCH(request: Request) {
   return getProductionHandlers().PATCH(request);
+}
+
+export async function DELETE(request: Request) {
+  return getProductionHandlers().DELETE(request);
 }

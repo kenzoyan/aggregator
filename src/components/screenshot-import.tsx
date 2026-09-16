@@ -14,10 +14,6 @@ import {
 } from "@/application/imports/import-review-editor";
 import type { SourceAccountView } from "@/application/source-account-status";
 import { assetTypeLabels, assetTypes } from "@/domain/portfolio/types";
-import {
-  sourceAccounts,
-  trading212SourceAccountId,
-} from "@/domain/source-accounts";
 import type { ImportReconciliation } from "@/domain/imports";
 
 type ImportDraftView = ImportDraftReadModel;
@@ -42,17 +38,8 @@ function reviewChangeLabel(reconciliation: ImportReconciliation): string {
 }
 
 export function AssetImportWorkflow() {
-  const [sourceAccountId, setSourceAccountId] = useState("alipay-main");
-  const [accounts, setAccounts] = useState<AccountOption[]>(
-    sourceAccounts.map((account) => ({
-      id: account.id,
-      provider: account.provider,
-      label: account.label,
-      updateMethod: account.updateMethod === "screenshot"
-        ? "Screenshot"
-        : "Trading 212 API",
-    })),
-  );
+  const [sourceAccountId, setSourceAccountId] = useState("");
+  const [accounts, setAccounts] = useState<AccountOption[]>([]);
   const [files, setFiles] = useState<File[]>([]);
   const [csvFile, setCsvFile] = useState<File>();
   const [draft, setDraft] = useState<ImportDraftView>();
@@ -64,15 +51,23 @@ export function AssetImportWorkflow() {
   useEffect(() => {
     fetch("/api/accounts", { cache: "no-store" })
       .then(async (response) => {
-        const payload = (await response.json()) as { accounts?: AccountOption[] };
-        if (!response.ok || !payload.accounts) return;
+        const payload = (await response.json()) as { accounts?: AccountOption[]; error?: string };
+        if (!response.ok || !payload.accounts) {
+          throw new Error(payload.error ?? "Source accounts could not be loaded.");
+        }
         setAccounts(payload.accounts);
         const requested = new URLSearchParams(window.location.search).get("account");
-        if (requested && payload.accounts.some((account) => account.id === requested)) {
-          setSourceAccountId(requested);
-        }
+        setSourceAccountId((current) => {
+          if (requested && payload.accounts!.some((account) => account.id === requested)) {
+            return requested;
+          }
+          if (payload.accounts!.some((account) => account.id === current)) return current;
+          return payload.accounts![0]?.id ?? "";
+        });
       })
-      .catch(() => undefined);
+      .catch((reason) => {
+        setError(reason instanceof Error ? reason.message : "Source accounts could not be loaded.");
+      });
   }, []);
 
   const selectedAccount = accounts.find((account) => account.id === sourceAccountId);
@@ -126,9 +121,6 @@ export function AssetImportWorkflow() {
   }
 
   async function syncTrading212() {
-    const targetAccountId = selectedAccount?.provider === "trading212"
-      ? sourceAccountId
-      : trading212SourceAccountId;
     setBusy(true);
     setError("");
     setNotice("");
@@ -136,7 +128,7 @@ export function AssetImportWorkflow() {
       const response = await fetch("/api/imports/trading212", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ sourceAccountId: targetAccountId }),
+        body: JSON.stringify({ sourceAccountId }),
       });
       const payload = (await response.json()) as {
         outcome?: "review-required" | "market-data-only";
@@ -147,7 +139,6 @@ export function AssetImportWorkflow() {
       if (!response.ok) {
         throw new Error(payload.error ?? "Trading 212 sync failed.");
       }
-      setSourceAccountId(targetAccountId);
       if (payload.outcome === "market-data-only") {
         setDraft(undefined);
         setNotice(payload.message ?? "Prices updated. No holding changes need review.");
@@ -355,7 +346,7 @@ export function AssetImportWorkflow() {
             <button
               className="text-button"
               type="button"
-              disabled={busy}
+              disabled={busy || !selectedAccount}
               onClick={() => analyze("demo")}
             >
               Try the synthetic demo
@@ -363,7 +354,7 @@ export function AssetImportWorkflow() {
             <button
               className="text-button"
               type="button"
-              disabled={busy}
+              disabled={busy || !selectedAccount}
               onClick={startManualEntry}
             >
               Enter manually
@@ -386,7 +377,7 @@ export function AssetImportWorkflow() {
                 onChange={(event) => setCsvFile(event.target.files?.[0])}
               />
             </label>
-            <button type="button" disabled={busy || !csvFile} onClick={importCsv}>Review CSV</button>
+            <button type="button" disabled={busy || !csvFile || !selectedAccount} onClick={importCsv}>Review CSV</button>
           </div>
           <div className="connector-divider"><span>or</span></div>
           <div className="connector-panel">
@@ -400,7 +391,7 @@ export function AssetImportWorkflow() {
             </div>
             <button type="button" disabled={busy || selectedAccount?.provider !== "trading212"} onClick={syncTrading212}>Sync</button>
           </div>
-          <Link className="manage-accounts-link" href="/accounts">Manage account names and connection status →</Link>
+          <Link className="manage-accounts-link" href="/accounts">Create or manage source accounts →</Link>
           {error && <p className="error-message" role="alert">{error}</p>}
           {notice && <p className="success-message" role="status">{notice}</p>}
         </section>

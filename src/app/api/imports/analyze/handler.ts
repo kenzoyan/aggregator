@@ -16,7 +16,7 @@ import type {
   ImportDraftInput,
   StoredImportDraft,
 } from "@/domain/imports";
-import { findSourceAccount } from "@/domain/source-accounts";
+import type { SourceAccountDefinition } from "@/domain/source-accounts";
 import { OpenAIVisionExtractor } from "@/infrastructure/openai/openai-vision-extractor";
 import { getPortfolioDatabase } from "@/server/portfolio-db";
 
@@ -56,6 +56,7 @@ function errorResponse(message: string, status: number) {
 }
 
 interface AnalyzeImportDatabase {
+  readSourceAccounts(): SourceAccountDefinition[];
   saveImportDraft(draft: ImportDraftInput): void;
   getImportDraft(id: string): StoredImportDraft | undefined;
 }
@@ -93,7 +94,8 @@ export function createAnalyzeImportHandler(input: {
       if (!sourceAccountId) {
         return errorResponse("Choose a source account.", 400);
       }
-      const sourceAccount = findSourceAccount(sourceAccountId);
+      const sourceAccount = input.database.readSourceAccounts()
+        .find((account) => account.id === sourceAccountId);
       if (!sourceAccount) {
         return errorResponse("Choose a known source account.", 400);
       }

@@ -13,7 +13,9 @@ const globalDatabase = globalThis as typeof globalThis & {
 type CachedPortfolioDatabase = Pick<PortfolioDatabase, "close"> &
   Partial<Pick<
     PortfolioDatabase,
-    "readLatestMarketIntelligenceBrief" | "saveMarketIntelligenceBrief"
+    | "readLatestMarketIntelligenceBrief"
+    | "saveMarketIntelligenceBrief"
+    | "deleteSourceAccount"
   >>;
 
 export function ensureCurrentPortfolioDatabase<
@@ -26,7 +28,8 @@ export function ensureCurrentPortfolioDatabase<
   if (
     database &&
     typeof database.readLatestMarketIntelligenceBrief === "function" &&
-    typeof database.saveMarketIntelligenceBrief === "function"
+    typeof database.saveMarketIntelligenceBrief === "function" &&
+    typeof database.deleteSourceAccount === "function"
   ) {
     return database;
   }

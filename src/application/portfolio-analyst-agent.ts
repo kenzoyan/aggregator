@@ -11,6 +11,8 @@ export const portfolioAnalystToolNames = [
   "read_period_drivers",
   "read_data_quality",
   "read_portfolio_overview",
+  "read_accounts",
+  "propose_create_account",
 ] as const;
 
 export type PortfolioAnalystToolName = typeof portfolioAnalystToolNames[number];
@@ -18,7 +20,7 @@ export type PortfolioAnalystToolName = typeof portfolioAnalystToolNames[number];
 export interface PortfolioAnalystToolAudit {
   toolCallId: string;
   name: PortfolioAnalystToolName;
-  input: { period?: Period };
+  input: { period?: Period; accountType?: string; label?: string };
   status: "completed" | "blocked" | "failed";
   factsAsOf?: string;
   evidenceKeys: string[];

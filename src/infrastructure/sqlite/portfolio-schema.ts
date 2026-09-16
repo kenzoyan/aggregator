@@ -2,7 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 
 import { legacyPartialSnapshotWarningMarker } from "@/domain/imports";
 
-export const portfolioSchemaVersion = 7;
+export const portfolioSchemaVersion = 8;
 
 export class LegacyPortfolioDatabaseError extends Error {
   constructor() {
@@ -55,6 +55,31 @@ const marketIntelligenceSchema = `
 
   CREATE INDEX IF NOT EXISTS market_intelligence_briefs_latest
     ON market_intelligence_briefs(generated_at DESC);
+`;
+
+const sourceAccountsSchema = `
+  CREATE TABLE IF NOT EXISTS source_accounts (
+    id TEXT PRIMARY KEY,
+    account_type TEXT NOT NULL,
+    normalized_account_type TEXT NOT NULL UNIQUE,
+    provider TEXT NOT NULL CHECK (
+      provider IN ('alipay', 'wechat', 'danske', 'trading212', 'generic')
+    ),
+    label TEXT NOT NULL,
+    dashboard_label TEXT NOT NULL,
+    update_method TEXT NOT NULL CHECK (
+      update_method IN ('screenshot', 'trading-212')
+    )
+  );
+
+  INSERT OR IGNORE INTO source_accounts (
+    id, account_type, normalized_account_type, provider, label,
+    dashboard_label, update_method
+  ) VALUES
+    ('alipay-main', 'Alipay', 'alipay', 'alipay', 'Alipay', 'Alipay', 'screenshot'),
+    ('wechat-main', 'WeChat Wealth Management', 'wechatwealthmanagement', 'wechat', 'WeChat Wealth Management', 'WeChat', 'screenshot'),
+    ('danske-main', 'Danske Bank', 'danskebank', 'danske', 'Danske Bank', 'Danske', 'screenshot'),
+    ('trading212-main', 'Trading 212', 'trading212', 'trading212', 'Trading 212', 'Trading 212', 'trading-212');
 `;
 
 function tableExists(database: DatabaseSync, table: string): boolean {
@@ -173,6 +198,8 @@ export function initializePortfolioSchema(database: DatabaseSync) {
           source_account_id TEXT PRIMARY KEY,
           custom_label TEXT NOT NULL
         );
+
+        ${sourceAccountsSchema}
 
         ${portfolioNarrativesSchema}
         ${portfolioAnalystConversationsSchema}
@@ -296,6 +323,22 @@ export function initializePortfolioSchema(database: DatabaseSync) {
     try {
       database.exec(`
         ${marketIntelligenceSchema}
+        UPDATE schema_metadata SET version = 7;
+      `);
+      database.exec("COMMIT");
+    } catch (error) {
+      database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+  const sourceAccountsRow = database.prepare(
+    "SELECT version FROM schema_metadata LIMIT 1",
+  ).get() as { version: number } | undefined;
+  if (sourceAccountsRow?.version === 7) {
+    database.exec("BEGIN IMMEDIATE");
+    try {
+      database.exec(`
+        ${sourceAccountsSchema}
         UPDATE schema_metadata SET version = ${portfolioSchemaVersion};
       `);
       database.exec("COMMIT");

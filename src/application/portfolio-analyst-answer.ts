@@ -46,6 +46,12 @@ const factualUpdateSchemas = {
     kind: z.literal("retry-market-data-refresh"),
     reasonEvidenceKey: evidenceKeySchema,
   }).strict(),
+  "create-account": z.object({
+    kind: z.literal("create-account"),
+    accountType: z.string().trim().min(1).max(80),
+    label: z.string().trim().min(1).max(80),
+    reasonEvidenceKey: evidenceKeySchema,
+  }).strict(),
 } satisfies Record<FactualUpdate["kind"], z.ZodType>;
 
 type FactualUpdateSchema = typeof factualUpdateSchemas[
@@ -124,8 +130,15 @@ function sameFactualUpdate(
   ) {
     return false;
   }
-  return candidate.kind !== "refresh-fx" ||
-    (allowed.kind === "refresh-fx" && candidate.currency === allowed.currency);
+  if (candidate.kind === "refresh-fx") {
+    return allowed.kind === "refresh-fx" && candidate.currency === allowed.currency;
+  }
+  if (candidate.kind === "create-account") {
+    return allowed.kind === "create-account" &&
+      candidate.accountType === allowed.accountType &&
+      candidate.label === allowed.label;
+  }
+  return true;
 }
 
 function validateEvidence(

@@ -178,4 +178,49 @@ describe("Portfolio Analyst report hierarchy", () => {
 
     expect(new Set(limitations.map(analystLimitationKey)).size).toBe(limitations.length);
   });
+
+  it("renders account creation as an explicit confirmation instead of an executed action", () => {
+    const accountReport: PortfolioAnalystReport = {
+      ...report,
+      job: "manage-accounts",
+      scope: {},
+      answer: {
+        ...report.answer,
+        limitations: [],
+        claims: [],
+        proposedUpdate: {
+          kind: "create-account",
+          accountType: "Nordea",
+          label: "Brokerage",
+          reasonEvidenceKey: "account.proposal",
+        },
+        answer: {
+          text: "I prepared an account proposal.",
+          classification: "fact",
+          evidence: ["account.proposal"],
+        },
+      },
+      evidence: [{
+        key: "account.proposal",
+        kind: "source-account-proposal",
+        label: "Source account proposal",
+        accountType: "Nordea",
+        normalizedAccountType: "nordea",
+        displayName: "Brokerage",
+        alreadyExists: false,
+        provenance: "source-account-registry",
+      }],
+      agentAudit: undefined,
+    };
+
+    const markup = renderToStaticMarkup(createElement(AnalystReport, {
+      report: accountReport,
+      onConfirmCreateAccount: () => undefined,
+    }));
+
+    expect(markup).toContain("需要你的确认");
+    expect(markup).toContain("确认创建账户");
+    expect(markup).toContain("创建账户：Brokerage（Nordea）");
+    expect(markup).not.toContain("账户已创建");
+  });
 });

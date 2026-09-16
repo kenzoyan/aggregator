@@ -4,7 +4,6 @@ import { NextResponse } from "next/server";
 
 import { createCsvImportDraft } from "@/application/imports/csv-import";
 import { createImportDraftReadModel } from "@/application/imports/import-draft-read-model";
-import { findSourceAccount } from "@/domain/source-accounts";
 import { getPortfolioDatabase } from "@/server/portfolio-db";
 
 export const runtime = "nodejs";
@@ -16,8 +15,9 @@ export async function POST(request: Request) {
     const form = await request.formData();
     const sourceAccountId = String(form.get("sourceAccountId") ?? "");
     const file = form.get("file");
+    const database = getPortfolioDatabase();
 
-    if (!findSourceAccount(sourceAccountId)) {
+    if (!database.readSourceAccounts().some((account) => account.id === sourceAccountId)) {
       return NextResponse.json({ error: "Choose a known source account." }, { status: 400 });
     }
     if (!(file instanceof File) || !file.name.toLowerCase().endsWith(".csv")) {
@@ -35,7 +35,6 @@ export async function POST(request: Request) {
       createdAt: now,
       csv: await file.text(),
     });
-    const database = getPortfolioDatabase();
     database.saveImportDraft(draft);
     return NextResponse.json({
       draft: createImportDraftReadModel(database.getImportDraft(draft.id)!),

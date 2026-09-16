@@ -13,7 +13,10 @@ import {
 } from "@/domain/imports";
 import type { MarketPriceObservation } from "@/domain/market-data";
 import type { OpeningSnapshotInput } from "@/domain/portfolio/types";
-import { findSourceAccount, trading212SourceAccountId } from "@/domain/source-accounts";
+import {
+  trading212SourceAccountId,
+  type SourceAccountDefinition,
+} from "@/domain/source-accounts";
 import {
   Trading212Client,
   Trading212RequestError,
@@ -25,6 +28,7 @@ import {
 } from "@/server/trading212-config";
 
 interface Trading212ImportDatabase {
+  readSourceAccounts(): SourceAccountDefinition[];
   saveImportDraft(draft: ImportDraftInput): void;
   getImportDraft(id: string): StoredImportDraft | undefined;
   readPortfolioFacts(): {
@@ -52,7 +56,9 @@ export function createTrading212ImportHandler(input: {
   return async function handleTrading212Import(request: Request) {
     const body = await request.json().catch(() => ({})) as { sourceAccountId?: string };
     const sourceAccountId = body.sourceAccountId ?? trading212SourceAccountId;
-    if (findSourceAccount(sourceAccountId)?.provider !== "trading212") {
+    const sourceAccount = input.database.readSourceAccounts()
+      .find((account) => account.id === sourceAccountId);
+    if (sourceAccount?.provider !== "trading212") {
       return NextResponse.json({ error: "Choose a Trading 212 source account." }, { status: 400 });
     }
     const config = input.getConfig(sourceAccountId);

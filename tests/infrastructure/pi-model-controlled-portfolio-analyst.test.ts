@@ -133,6 +133,8 @@ describe("Pi model-controlled Portfolio Analyst", () => {
       readPeriodDrivers: () => context,
       readDataQuality: () => { throw new Error("wrong tool"); },
       readPortfolioOverview: () => { throw new Error("wrong tool"); },
+      readAccounts: () => { throw new Error("wrong tool"); },
+      proposeCreateAccount: () => { throw new Error("wrong tool"); },
     };
     const deltas: string[] = [];
     const activities: unknown[] = [];
@@ -152,6 +154,8 @@ describe("Pi model-controlled Portfolio Analyst", () => {
       "read_period_drivers",
       "read_data_quality",
       "read_portfolio_overview",
+      "read_accounts",
+      "propose_create_account",
     ]);
     expect(seenContexts[1]?.messages.at(-1)).toMatchObject({
       role: "toolResult",
@@ -239,6 +243,8 @@ describe("Pi model-controlled Portfolio Analyst", () => {
         };
       },
       readPortfolioOverview: () => { throw new Error("wrong tool"); },
+      readAccounts: () => { throw new Error("wrong tool"); },
+      proposeCreateAccount: () => { throw new Error("wrong tool"); },
     };
 
     const result = await createPiModelControlledPortfolioAnalyst({ model, streamFn }).runTurn({
@@ -298,6 +304,8 @@ describe("Pi model-controlled Portfolio Analyst", () => {
       readPeriodDrivers: () => { throw new Error("wrong tool"); },
       readDataQuality: () => { throw new Error("wrong tool"); },
       readPortfolioOverview: () => overviewContext,
+      readAccounts: () => { throw new Error("wrong tool"); },
+      proposeCreateAccount: () => { throw new Error("wrong tool"); },
     };
 
     const result = await createPiModelControlledPortfolioAnalyst({ model, streamFn }).runTurn({
@@ -315,6 +323,86 @@ describe("Pi model-controlled Portfolio Analyst", () => {
       name: "read_portfolio_overview",
       status: "completed",
       evidenceKeys: ["call1.overview.summary"],
+    });
+  });
+
+  it("lets the model propose but not execute account creation", async () => {
+    let modelCall = 0;
+    const proposalContext: PortfolioAnalystContextV1 = {
+      ...context,
+      job: "manage-accounts",
+      scope: {},
+      facts: [{
+        key: "account.proposal",
+        kind: "source-account-proposal",
+        label: "Source account proposal",
+        accountType: "Nordea",
+        normalizedAccountType: "nordea",
+        displayName: "Brokerage",
+        alreadyExists: false,
+        provenance: "source-account-registry",
+      }],
+      allowedActions: [{
+        kind: "create-account",
+        accountType: "Nordea",
+        label: "Brokerage",
+        reasonEvidenceKey: "account.proposal",
+      }],
+    };
+    const streamFn: StreamFn = () => {
+      modelCall += 1;
+      if (modelCall === 1) {
+        return completedStream(assistant([{
+          type: "toolCall",
+          id: "account-proposal-call",
+          name: "propose_create_account",
+          arguments: { accountType: "Nordea", label: "Brokerage" },
+        }], "toolUse"));
+      }
+      return completedStream(assistant([{ type: "text", text: JSON.stringify({
+        factsAsOf: context.factsAsOf,
+        answer: {
+          text: "已准备账户创建提议，等待你的确认。",
+          classification: "fact",
+          evidence: ["call1.account.proposal"],
+        },
+        claims: [],
+        limitations: [],
+        proposedUpdate: {
+          kind: "create-account",
+          accountType: "Nordea",
+          label: "Brokerage",
+          reasonEvidenceKey: "call1.account.proposal",
+        },
+      }) }], "stop"));
+    };
+    const tools: PortfolioAnalystTools = {
+      readPeriodDrivers: () => { throw new Error("wrong tool"); },
+      readDataQuality: () => { throw new Error("wrong tool"); },
+      readPortfolioOverview: () => { throw new Error("wrong tool"); },
+      readAccounts: () => { throw new Error("wrong tool"); },
+      proposeCreateAccount: () => proposalContext,
+    };
+
+    const result = await createPiModelControlledPortfolioAnalyst({ model, streamFn }).runTurn({
+      question: "帮我创建一个 Nordea 账户，名字叫 Brokerage。",
+      history: [],
+      tools,
+      language: "zh-CN",
+      includeHoldingNames: false,
+      defaultPeriod: "week",
+    });
+
+    expect(result.answer.proposedUpdate).toEqual({
+      kind: "create-account",
+      accountType: "Nordea",
+      label: "Brokerage",
+      reasonEvidenceKey: "call1.account.proposal",
+    });
+    expect(result.audit.toolCalls[0]).toMatchObject({
+      name: "propose_create_account",
+      input: { accountType: "Nordea", label: "Brokerage" },
+      status: "completed",
     });
   });
 });

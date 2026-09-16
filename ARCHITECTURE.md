@@ -27,7 +27,9 @@
 Browser / React
   ├─ Portfolio overview + holding drawer
   ├─ Import review + confirmation
-  └─ Source Account management
+  ├─ Source Account management
+  ├─ Portfolio Agent workspace
+  └─ External market watch
              │ HTTP / JSON
              ▼
 Next.js route handlers
@@ -53,6 +55,9 @@ Domain modules
 Infrastructure adapters
   ├─ SQLite repository
   ├─ OpenAI vision extractor
+  ├─ OpenAI / DeepSeek analyst runtimes
+  ├─ Structured Responses transport
+  ├─ OpenAI official-source market intelligence
   ├─ Trading 212 read-only client
   ├─ Eastmoney fund NAV client
   ├─ Danske Invest fund NAV client
@@ -350,17 +355,17 @@ Portfolio history 会重建每个历史时间点的 state，并同时保留两�
 
 `src/application/portfolio-narrative-facts.ts` 再把 insights 投影成有限的 cloud facts 和 provenance catalogue。发送给 provider 的每组事实都有 server-defined `factKey`；模型的 headline、overview、每条 observation 和 data-quality note 都必须返回受 schema 限制的 evidence keys。服务端过滤这些 keys，再保存对应的本地事实摘要，因此 UI 展示的是可校验映射，而不是模型自行编造的“引用”。
 
-`src/application/portfolio-analyst-context.ts` 是 Portfolio Agent 的确定性事实边界。目前通过 `portfolio-analyst-tools.ts` 提供三个只读工具：`readPeriodDrivers` 输出指定区间的组合变化、Price/FX effect、estimated portfolio activity 和最多三个主要 holding contributor；`readDataQuality` 输出 freshness/coverage 汇总、按影响排序的 Data Gap、最多三次安全 refresh 摘要和最多一个可提议但不会执行的 Factual Update；`readPortfolioOverview` 输出有界的总值、allocation、近期 movers 与数据质量摘要。它们不读取 SQLite、不调用 provider，也不执行刷新。
+`src/application/portfolio-analyst-context.ts` 是 Portfolio Agent 的确定性事实边界。`portfolio-analyst-tools.ts` 提供五个 application-owned 工具：`readPeriodDrivers` 输出指定区间的组合变化、Price/FX effect、estimated portfolio activity 和最多三个主要 holding contributor；`readDataQuality` 输出 freshness/coverage 汇总、按影响排序的 Data Gap、最多三次安全 refresh 摘要和最多一个可提议但不会执行的 Factual Update；`readPortfolioOverview` 输出有界的总值、allocation、近期 movers 与数据质量摘要；`readAccounts` 输出不含内部 id 的有界 Source Account registry，并在 name-sharing 关闭时省略自定义显示名；`proposeCreateAccount` 规范化账户类型并只在该类型尚不存在时产生一个严格的 `create-account` allowed action。这些工具不直接写 SQLite、不调用 provider，也不执行刷新或创建账户。
 
-工具输出固定为 `portfolio-analyst-context.v1`，每条事实由应用分配 context-local Evidence Key、label 和 provenance。Read model 单独保留只有用户明确提供时才存在的 `analystDisplayName`，因此 dashboard 为显示而使用的 instrument-id fallback 不会跨过 Agent seam；missing-input facts 也会在 application 层解析成这个安全名称。内部 holding/account id、symbol/ISIN、quantity、Cost Basis、原始 provider error 和数据库行不会进入工具结果；holding display name 最多三个且可由用户关闭。每次工具结果和多次结果合并后都受 32 KiB 限制。生产 Agent 允许模型在三个 allowlisted read tools 中按需选择，单轮最多四次调用；每次结果使用独立 Evidence namespace，最终仍由应用合并并校验。
+工具输出固定为 `portfolio-analyst-context.v1`，每条事实由应用分配 context-local Evidence Key、label 和 provenance。Read model 单独保留只有用户明确提供时才存在的 `analystDisplayName`，因此 dashboard 为显示而使用的 instrument-id fallback 不会跨过 Agent seam；missing-input facts 也会在 application 层解析成这个安全名称。内部 holding/account id、symbol/ISIN、quantity、Cost Basis、原始 provider error 和数据库行不会进入工具结果；holding display name 最多三个且可由用户关闭。每次工具结果和多次结果合并后都受 32 KiB 限制。生产 Agent 允许模型在五个 allowlisted tools 中按需选择，单轮最多四次调用；每次结果使用独立 Evidence namespace，最终仍由应用合并并校验。
 
 `src/application/portfolio-analyst-answer.ts` 定义模型输出的第二道边界。JSON Schema 只能约束字段、类型和数量；`validatePortfolioAnalystAnswer` 还会用本次 Context 做运行时语义校验：Evidence Key 必须真实存在且单个 claim 内不重复，`factsAsOf` 必须完全一致，limitations 必须逐项复制，proposed update 必须为 `null` 或命中 server-owned `allowedActions`。因此模型即使返回语法正确的 JSON，也不能引用另一次请求的证据、隐藏 Context 限制或发明一个更新动作。该 application 模块本身不调用 provider，也不保存或展示回答。
 
-`GET/POST/DELETE /api/portfolio/analyst` 是当前的 on-demand conversation boundary。浏览器只能提交 conversation id、当前问题、provider、默认 period、language 与 holding-name preference；不能提交 PortfolioOverview 或自造 Context。每个 POST 都从本地 ledger 和 Market Data 重建最新 overview。Production runtime 由 Pi Agent 和 `pi-ai` 直接连接配置的 OpenAI/DeepSeek provider：模型可在 `read_period_drivers`、`read_data_quality` 与 `read_portfolio_overview` allowlist 中最多调用四次，application-owned tools 为每次结果分配独立 Evidence namespace，再把同一 `factsAsOf` 的结果合并后验证回答。超过预算的调用会在 Pi preflight 被阻止且不能读取 portfolio facts。旧 provider adapter 路径只保留给未注入 agent runtime 的测试与兼容调用。OpenAI 的 Pi transport 设置 `store: false`/无 prompt cache，最终模型回合使用 strict JSON Schema；DeepSeek 使用 JSON object mode；两者随后仍执行同一个本地 semantic Evidence validation。
+`GET/POST/DELETE /api/portfolio/analyst` 是当前的 on-demand conversation boundary。浏览器只能提交 conversation id、当前问题、provider、默认 period、language 与 holding-name preference；不能提交 PortfolioOverview 或自造 Context。每个 POST 都从本地 ledger、Market Data 和 Source Account registry 重建当前工具输入。Production runtime 由 Pi Agent 和 `pi-ai` 直接连接配置的 OpenAI/DeepSeek provider：模型可在 `read_period_drivers`、`read_data_quality`、`read_portfolio_overview`、`read_accounts` 与 `propose_create_account` allowlist 中最多调用四次，application-owned tools 为每次结果分配独立 Evidence namespace，再把同一 `factsAsOf` 的结果合并后验证回答。超过预算的调用会在 Pi preflight 被阻止。旧 provider adapter 路径只保留给未注入 agent runtime 的测试与兼容调用。OpenAI 的 Pi transport 设置 `store: false`/无 prompt cache，最终模型回合使用 strict JSON Schema；DeepSeek 使用 JSON object mode；两者随后仍执行同一个本地 semantic Evidence validation。
 
 浏览器请求 `application/x-ndjson` 时，API 依次发送 accepted、选择工具、`tool-activity` started/completed、生成回答、answer delta 和 completed/failed 事件。activity 只包含 tool name、bounded input、facts timestamp 与 Evidence 数量，不包含原始 Portfolio Context。流中文字只是 provisional projection，服务端只在 schema 与 current-turn Evidence validation 都通过后保存 turn 和发出 completed。成功 report 的 `agentAudit` 保存 runtime、model-turn count、stop reason、bounded tool input、facts timestamp、Evidence Keys 与 blocked call，不保存 prompt、quantity、Cost Basis、内部 holding id 或 provider error。失败、中止或截断会丢弃 partial answer；durable failed-run audit 是 S 后续 slice。未请求流式内容的旧 JSON API 仍保留给兼容调用和测试。
 
-`src/components/portfolio-analyst.tsx` 是这条边界的显式 sidecar UI。关闭时只有悬浮 Agent control；打开后桌面端固定在收窄的 app icon rail 右侧并让右侧 portfolio workspace 自适应宽度，小屏幕则成为 full-width sheet。低频 conversation settings 默认折叠，让历史与 composer 占主要空间。发送时 UI 立即建立右侧 user message；左侧 activity timeline 按事件追加选择工具、调用、bounded result summary 与生成/验证状态，随后才显示独立的流式 assistant message。completed event 用完整已验证的同一段 `answer.text` 原子替换 provisional text，因此完成态不再从“对话”变成“事实报告”。Claims、classification 与 cited Evidence Facts 统一收在回答下方默认关闭的“事实与依据”附件里；activity 不嵌在回答或该附件中。页面加载只读取 provider 配置和最近一次本地 conversation；真正的 Context 构建与 cloud request 只在用户发送消息后发生。浏览器以 `mode: agent` 发送自然语言问题和默认 period，而不是预先指定 domain job；Pi 根据问题选择批准的只读工具。默认 period 可随问题改变，provider、language 和 holding-name permission 在有 turn 后锁定，避免旧的带名称回答被较严格的新 privacy setting 继续带入 history。用户可以停止当前请求，或显式 Reset & delete 后开始新 conversation。
+`src/components/portfolio-analyst.tsx` 是这条边界的显式 sidecar UI。关闭时只有悬浮 Agent control；打开后桌面端固定在收窄的 app icon rail 右侧并让右侧 portfolio workspace 自适应宽度，小屏幕则成为 full-width sheet。低频 conversation settings 默认折叠，让历史与 composer 占主要空间。发送时 UI 立即建立右侧 user message；左侧 activity timeline 只按 `tool-activity` 事件显示真正发生的工具调用及 bounded result summary。选择工具和生成回答等通用阶段只驱动 pending helper text，不会变成重复的 activity rows。流式 assistant message 独立显示；completed event 用完整已验证的同一段 `answer.text` 原子替换 provisional text，因此完成态不再从“对话”变成“事实报告”。Claims、classification 与 cited Evidence Facts 统一收在回答下方默认关闭的“事实与依据”附件里；activity 不嵌在回答或该附件中。`create-account` proposed update 额外显示在可见 confirmation card；只有用户点击确认后，浏览器才独立调用 Accounts API，模型工具本身永远不写入。页面加载只读取 provider 配置和最近一次本地 conversation；真正的 Context 构建与 cloud request 只在用户发送消息后发生。浏览器以 `mode: agent` 发送自然语言问题和默认 period，而不是预先指定 domain job；Pi 根据问题选择批准的工具。默认 period 可随问题改变，provider、language 和 holding-name permission 在有 turn 后锁定，避免旧的带名称回答被较严格的新 privacy setting 继续带入 history。用户可以停止当前请求，或显式 Reset & delete 后开始新 conversation。
 
 `src/application/portfolio-analyst-conversation.ts` 定义本地 conversation aggregate。SQLite 最多保存最近十二个完整 turn；发给 provider 的 history 只投影最近三个 turn pair，而且 assistant history 只含主回答文本和原始 `factsAsOf`，不含旧 Evidence payload。Prompt 明确规定历史文本只用于理解“它”“刚才的 FX”等指代，不能支持本轮 claim。本轮所有财务主张必须引用本轮刚重建的 Context，因此对话连续性与事实新鲜度是两条分开的责任链。
 
@@ -378,7 +383,7 @@ Narrative fingerprint 覆盖所有会影响报告内容的 aggregate facts，但
 - NAV refresh
 - demo/local data 隔离
 
-Account allocation 不在 overview 占据主卡，而是在 `src/components/source-accounts-panel.tsx` 中按稳定的 `sourceAccountId` 汇总本地已估值持仓。显示名称仍可重命名，但不会因此合并两个不同账户。
+Account allocation 不在 overview 占据主卡，而是在 `src/components/source-accounts-panel.tsx` 中按稳定的 `sourceAccountId` 汇总本地已估值持仓。该页面同时创建任意账户类型、修改显示名和删除空账户；`normalized_account_type` 的唯一约束保证当前阶段每种类型只有一个账户。存在 confirmed snapshot、confirmed import 或 Market Data 的账户会由 repository 拒绝删除；空账户删除时只清理尚未确认的 draft、label 和 connector state。显示名变化不会改变类型或合并账户。已知类型映射到专用 capability，并在删除后重新创建时恢复原有稳定 id；未知类型映射到 generic screenshot capability 并使用生成 id。Import 页面始终从 Accounts API 读取 registry，并支持账户卡片通过 query parameter 预选账户。
 
 小图先把每只 holding 转换成相对自身 baseline 的百分比变化，再使用同一 Y 轴范围，因此不同规模的基金可以视觉比较。
 
@@ -408,6 +413,7 @@ Account allocation 不在 overview 占据主卡，而是在 `src/components/sour
 | `market_price_observations` | 本地价格/NAV历史 |
 | `fx_observations` | 本地汇率历史 |
 | `market_refresh_runs` | 最近刷新 trigger、provider、统计和安全失败摘要 |
+| `source_accounts` | Source Account 类型、规范化唯一键、provider capability、默认名称和更新方式 |
 | `source_account_labels` | 用户自定义账户名称 |
 | `source_sync_state` | connector cursor/状态预留；当前尚未使用 |
 | `portfolio_narratives` | 已生成报告、模型元数据、facts fingerprint 与引用的聚合事实摘要 |
@@ -416,7 +422,7 @@ Account allocation 不在 overview 占据主卡，而是在 `src/components/sour
 
 Repository interface 位于 `src/infrastructure/sqlite/portfolio-repository-contract.ts`，`portfolio-repository.ts` 负责初始化 schema 并组合各 persistence adapter。Import/Portfolio、Market Data、Source Account label、Narrative、Market Intelligence 和 Analyst conversation 各自隐藏对应的 SQL、JSON encode/decode 与 transaction；legacy partial snapshot 恢复仍属于 Import/Portfolio adapter。
 
-当前 schema version 是 v7。v2 数据库先增加 narrative table，v2/v3 为 `opening_snapshots` 增加 `payload_scope`；v4 为 `market_refresh_runs` 增加 trigger mode，v5 增加本地 Analyst conversation table，v6 增加 Market Intelligence brief table，并在 transaction 中逐级更新到 v7。旧 refresh run 无法可靠推断原始 trigger，因此迁移后明确标成 `unknown`，UI 显示为 Earlier run；旧版本保存的任意错误详情同时被替换成固定的隐私安全摘要，避免迁移后进入浏览器。`payload_scope` 只有 `complete` 与 `legacy-partial`：新 confirmation 永远写 `complete`；`legacy-partial` 仅用于恢复旧版本曾经保存过的不完整 snapshot。
+当前 schema version 是 v8。v2 数据库先增加 narrative table，v2/v3 为 `opening_snapshots` 增加 `payload_scope`；v4 为 `market_refresh_runs` 增加 trigger mode，v5 增加本地 Analyst conversation table，v6 增加 Market Intelligence brief table，v7→v8 增加并播种 Source Account registry。迁移在 transaction 中逐级执行。已有四个账户保留稳定 id，因此旧 snapshots、Market Data 和 labels 不需要重写。旧 refresh run 无法可靠推断原始 trigger，因此迁移后明确标成 `unknown`，UI 显示为 Earlier run；旧版本保存的任意错误详情同时被替换成固定的隐私安全摘要，避免迁移后进入浏览器。`payload_scope` 只有 `complete` 与 `legacy-partial`：新 confirmation 永远写 `complete`；`legacy-partial` 仅用于恢复旧版本曾经保存过的不完整 snapshot。
 
 v3 以前的运行时曾依赖一段英文 warning 来推断旧 snapshot 是否需要补齐 omitted holdings。v4 migration 只在升级时读取一次旧 warning，把结论写成明确的结构化字段；升级完成后，正常 read path 不再让 UI 文案承担持久化语义。pre-v2 测试数据库仍不自动迁移，以避免对早期 disposable 测试数据做不可靠转换。
 
@@ -500,7 +506,7 @@ npm run build
 
 ## 13. 当前限制与后续演进
 
-- 没有后台 scheduler；价格刷新仍由用户触发。
+- 没有后台 scheduler；价格刷新只会由用户手工操作或非空 dashboard 的当日首次页面加载触发，不会在应用未使用时自主运行。
 - 可选 LLM narrative 已支持 OpenAI/DeepSeek、SQLite persistence、outdated detection 和 fact-level provenance；它仍只在用户主动点击时调用云端。
 - QDII 的“Today”是 latest available daily move，不等于尚未发布的实时 7/24 NAV。应用不能计算一个市场尚未公布的价格。
 - Portfolio Event 目前只有 sale domain model，尚无完整 UI/API 工作流。
@@ -535,9 +541,17 @@ npm run build
 - 改 narrative facts/provenance：`src/application/portfolio-narrative-facts.ts`
 - 改 narrative schema/provider contract：`src/application/portfolio-narrative.ts`
 - 改 Responses-style HTTP/envelope：`src/infrastructure/responses/structured-response-client.ts`
+- 改 Portfolio Agent 公开 contract 与值类型：`src/application/portfolio-analyst-contract.ts`
+- 改 Agent 事实选择、Evidence 与只读工具：`src/application/portfolio-analyst-context.ts`、`src/application/portfolio-analyst-tools.ts`
+- 改 Agent 工具调度、provider transport 与 turn runtime：`src/infrastructure/pi/`
+- 改 External Market Watch 领域契约与校验：`src/application/market-intelligence.ts`
+- 改 External Market Watch provider/Web Search：`src/infrastructure/openai/openai-market-intelligence-provider.ts`
 - 改当前持仓估值：`src/application/portfolio-current-valuation.ts`
 - 改历史时间点、收益与总值序列：`src/application/portfolio-history.ts`
-- 改 SQLite：`src/infrastructure/sqlite/`
+- 改本地 facts 到 overview 的共享组装：`src/server/stored-portfolio-overview.ts`
+- 改 Accounts HTTP contract：`src/app/api/accounts/handler.ts`
+- 改 SQLite 公开 contract 或组合根：`src/infrastructure/sqlite/portfolio-repository-contract.ts`、`src/infrastructure/sqlite/portfolio-repository.ts`
+- 改具体 SQLite 读写规则：`src/infrastructure/sqlite/` 中对应的窄 repository adapter
 - 改价格刷新 workflow：`src/application/market-data-refresh.ts`
 - 改首页展示：`src/components/dashboard.tsx`
 - 改 review UI：`src/components/screenshot-import.tsx`
@@ -650,14 +664,14 @@ sequenceDiagram
   API-->>U: report marked current facts
 ```
 
-Portfolio Agent 已使用 model-controlled read-only tool loop。Pi 负责 turn 生命周期、历史消息、工具调度和取消；应用定义唯一可用的三个只读工具、重建当前事实、限制每轮调用与 Context 大小，并对最终 Evidence 做语义校验。模型没有文件系统、shell、交易或 portfolio-write 权限；工具只能建议用户控制的事实更新，不能执行它。
+Portfolio Agent 已使用 model-controlled tool loop。Pi 负责 turn 生命周期、历史消息、工具调度和取消；应用定义唯一可用的五个有界工具、重建当前事实、限制每轮调用与 Context 大小，并对最终 Evidence 和 allowed action 做语义校验。模型没有文件系统、shell、交易或 portfolio-write 权限；账户工具只能生成等待显式确认的提议，不能创建账户或改变 Holding State。
 
 ## 16. HTTP API 与页面职责
 
 | Method + path | 用途 | 是否改变 Holding State |
 | --- | --- | --- |
 | `GET /api/portfolio` | 返回完整 overview read model | 否 |
-| `GET/PATCH /api/accounts` | 读取账户状态、修改本地显示名 | 否 |
+| `GET/POST/PATCH/DELETE /api/accounts` | 读取账户状态、创建唯一类型账户、修改显示名、删除空的自定义账户 | 否 |
 | `POST /api/imports/analyze` | 图片 → screenshot draft | 否 |
 | `POST /api/imports/csv` | CSV → draft | 否 |
 | `POST /api/imports/manual` | 手工数据 → draft | 否 |

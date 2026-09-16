@@ -9,10 +9,15 @@ describe("portfolio database singleton", () => {
       close: vi.fn(),
       readLatestMarketIntelligenceBrief: vi.fn(),
       saveMarketIntelligenceBrief: vi.fn(),
+      deleteSourceAccount: vi.fn(),
     };
     const create = vi.fn(() => replacement);
 
-    expect(ensureCurrentPortfolioDatabase({ close }, create)).toBe(replacement);
+    expect(ensureCurrentPortfolioDatabase({
+      close,
+      readLatestMarketIntelligenceBrief: vi.fn(),
+      saveMarketIntelligenceBrief: vi.fn(),
+    }, create)).toBe(replacement);
     expect(close).toHaveBeenCalledOnce();
     expect(create).toHaveBeenCalledOnce();
   });
@@ -22,6 +27,7 @@ describe("portfolio database singleton", () => {
       close: vi.fn(),
       readLatestMarketIntelligenceBrief: vi.fn(),
       saveMarketIntelligenceBrief: vi.fn(),
+      deleteSourceAccount: vi.fn(),
     };
     const create = vi.fn();
 

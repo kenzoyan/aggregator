@@ -5,6 +5,7 @@ import type {
   PortfolioInsightsReadModel,
   PortfolioOverviewReadModel,
 } from "@/application/portfolio-read-model";
+import type { SourceAccountDefinition } from "@/domain/source-accounts";
 
 export const ANALYST_CONTEXT_MAX_BYTES = 32 * 1024;
 
@@ -174,6 +175,28 @@ export interface PortfolioMoverFact {
   provenance: "holding-performance";
 }
 
+export interface SourceAccountFact {
+  key: string;
+  kind: "source-account";
+  label: "Source account";
+  accountType: string;
+  displayName?: string;
+  provider: SourceAccountDefinition["provider"];
+  updateMethod: SourceAccountDefinition["updateMethod"];
+  provenance: "source-account-registry";
+}
+
+export interface SourceAccountProposalFact {
+  key: string;
+  kind: "source-account-proposal";
+  label: "Source account proposal";
+  accountType: string;
+  normalizedAccountType: string;
+  displayName: string;
+  alreadyExists: boolean;
+  provenance: "source-account-registry";
+}
+
 export type AnalystEvidenceFact =
   | PortfolioTotalFact
   | PeriodPerformanceFact
@@ -183,7 +206,9 @@ export type AnalystEvidenceFact =
   | RefreshResultFact
   | PortfolioOverviewSummaryFact
   | PortfolioAllocationFact
-  | PortfolioMoverFact;
+  | PortfolioMoverFact
+  | SourceAccountFact
+  | SourceAccountProposalFact;
 
 export const analystLimitationCodes = [
   "period-unavailable",
@@ -201,17 +226,24 @@ export const factualUpdateKinds = [
   "record-dated-market-data",
   "configure-danske-route",
   "retry-market-data-refresh",
+  "create-account",
 ] as const;
 
 export type FactualUpdate =
   | { kind: "refresh-fx"; currency: string; reasonEvidenceKey: string }
   | { kind: "record-dated-market-data"; reasonEvidenceKey: string }
   | { kind: "configure-danske-route"; reasonEvidenceKey: string }
-  | { kind: "retry-market-data-refresh"; reasonEvidenceKey: string };
+  | { kind: "retry-market-data-refresh"; reasonEvidenceKey: string }
+  | {
+      kind: "create-account";
+      accountType: string;
+      label: string;
+      reasonEvidenceKey: string;
+    };
 
 export interface PortfolioAnalystContextV1 {
   version: "portfolio-analyst-context.v1";
-  job: PortfolioAnalystRequest["job"];
+  job: PortfolioAnalystRequest["job"] | "manage-accounts";
   language: PortfolioAnalystLanguage;
   factsAsOf: string;
   scope: { period?: Period };
@@ -240,6 +272,15 @@ export interface PortfolioAnalystTools {
   readPortfolioOverview(input: {
     language: PortfolioAnalystLanguage;
     includeHoldingNames: boolean;
+  }): AnalystEvidenceBundleV1;
+  readAccounts(input: {
+    language: PortfolioAnalystLanguage;
+    includeAccountNames: boolean;
+  }): AnalystEvidenceBundleV1;
+  proposeCreateAccount(input: {
+    accountType: string;
+    label?: string;
+    language: PortfolioAnalystLanguage;
   }): AnalystEvidenceBundleV1;
 }
 

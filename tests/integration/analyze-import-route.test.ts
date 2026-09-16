@@ -9,6 +9,11 @@ import {
   VisionExtractionError,
   type ScreenshotExtraction,
 } from "@/application/imports/vision-extractor";
+import {
+  createSourceAccountDefinition,
+  sourceAccounts,
+  type SourceAccountDefinition,
+} from "@/domain/source-accounts";
 
 const extraction: ScreenshotExtraction = {
   accountName: "Alipay",
@@ -36,9 +41,10 @@ const extraction: ScreenshotExtraction = {
   }],
 };
 
-function database() {
+function database(accounts: readonly SourceAccountDefinition[] = sourceAccounts) {
   const drafts = new Map<string, StoredImportDraft>();
   return {
+    readSourceAccounts: vi.fn(() => [...accounts]),
     saveImportDraft: vi.fn((draft: ImportDraftInput) => {
       drafts.set(draft.id, { ...draft, status: "draft" });
     }),
@@ -146,6 +152,31 @@ describe("POST /api/imports/analyze", () => {
     expect(response.status).toBe(200);
     expect(extract).toHaveBeenCalledWith(expect.objectContaining({
       sourceAccountHint: "WeChat Wealth Management",
+    }));
+  });
+
+  it("accepts a generic account created in the account registry", async () => {
+    const generic = createSourceAccountDefinition({
+      id: "nordea-main",
+      accountType: "Nordea",
+      label: "Brokerage",
+    });
+    const extract = vi.fn(async () => ({
+      ...extraction,
+      accountName: "Brokerage statement",
+    }));
+    const handler = createAnalyzeImportHandler({
+      database: database([...sourceAccounts, generic]),
+      createExtractor: () => ({ extract }),
+      newId: () => "id",
+      now: () => "2026-09-16T12:00:00.000Z",
+    });
+
+    const response = await handler(imageRequest("nordea-main"));
+
+    expect(response.status).toBe(200);
+    expect(extract).toHaveBeenCalledWith(expect.objectContaining({
+      sourceAccountHint: "Brokerage",
     }));
   });
 

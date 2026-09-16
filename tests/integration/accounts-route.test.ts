@@ -2,6 +2,12 @@ import { describe, expect, it, vi } from "vitest";
 
 import { createAccountsHandlers } from "@/app/api/accounts/handler";
 import { buildPortfolioState } from "@/domain/portfolio/ledger";
+import {
+  createSourceAccountDefinition,
+  SourceAccountDeletionError,
+  sourceAccounts,
+  type SourceAccountDefinition,
+} from "@/domain/source-accounts";
 
 describe("GET /api/accounts", () => {
   it("returns account allocation and market status from local data only", async () => {
@@ -22,8 +28,12 @@ describe("GET /api/accounts", () => {
       }],
     };
     const renameSourceAccount = vi.fn();
+    const accounts = [...sourceAccounts];
     const handlers = createAccountsHandlers({
       database: {
+        readSourceAccounts: () => accounts,
+        createSourceAccount: vi.fn(),
+        deleteSourceAccount: vi.fn(),
         readPortfolioFacts: () => ({
           openingSnapshots: [snapshot],
           events: [],
@@ -80,8 +90,12 @@ describe("GET /api/accounts", () => {
 
   it("renames an account and returns the refreshed accounts page", async () => {
     const labels: Record<string, string> = {};
+    const accounts = [...sourceAccounts];
     const handlers = createAccountsHandlers({
       database: {
+        readSourceAccounts: () => accounts,
+        createSourceAccount: vi.fn(),
+        deleteSourceAccount: vi.fn(),
         readPortfolioFacts: () => ({
           openingSnapshots: [],
           events: [],
@@ -121,8 +135,12 @@ describe("GET /api/accounts", () => {
   it("preserves generic 400 responses for malformed JSON and reload failures", async () => {
     let failReload = false;
     const logError = vi.fn();
+    const accounts = [...sourceAccounts];
     const handlers = createAccountsHandlers({
       database: {
+        readSourceAccounts: () => accounts,
+        createSourceAccount: vi.fn(),
+        deleteSourceAccount: vi.fn(),
         readPortfolioFacts: () => {
           if (failReload) throw new Error("synthetic reload failure");
           return {
@@ -174,5 +192,230 @@ describe("GET /api/accounts", () => {
       "Source Account rename failed",
       expect.any(Error),
     );
+  });
+
+  it("creates an arbitrary account type and returns the refreshed accounts page", async () => {
+    const accounts: SourceAccountDefinition[] = [...sourceAccounts];
+    const createSourceAccount = vi.fn((account: {
+      id: string;
+      accountType: string;
+      label?: string;
+    }) => {
+      const created = createSourceAccountDefinition(account);
+      accounts.push(created);
+      return created;
+    });
+    const handlers = createAccountsHandlers({
+      database: {
+        readSourceAccounts: () => accounts,
+        createSourceAccount,
+        deleteSourceAccount: vi.fn(),
+        readPortfolioFacts: () => ({
+          openingSnapshots: [],
+          events: [],
+          confirmedImports: [],
+          confirmedSnapshots: [],
+          state: buildPortfolioState({ openingSnapshots: [], events: [] }),
+        }),
+        readMarketData: () => ({
+          observations: [],
+          fxObservations: [],
+          marketRefreshHistory: [],
+          latestMarketRefresh: undefined,
+        }),
+        readSourceAccountLabels: () => ({}),
+        renameSourceAccount: vi.fn(),
+      },
+      newId: () => "account-nordea",
+      now: () => "2026-09-14T12:00:00.000Z",
+      isTrading212Configured: () => false,
+      trading212Environment: () => "demo",
+    });
+
+    const response = await handlers.POST(new Request("http://localhost/api/accounts", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ accountType: "Nordea", label: "Brokerage" }),
+    }));
+    const payload = await response.json();
+
+    expect(response.status).toBe(201);
+    expect(createSourceAccount).toHaveBeenCalledWith({
+      id: "account-nordea",
+      accountType: "Nordea",
+      label: "Brokerage",
+    });
+    expect(payload.accounts).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: "account-nordea",
+        provider: "generic",
+        label: "Brokerage",
+        status: "not-connected",
+      }),
+    ]));
+  });
+
+  it("reuses the stable id when a known account type is recreated", async () => {
+    const accounts: SourceAccountDefinition[] = sourceAccounts.filter(
+      (account) => account.id !== "wechat-main",
+    );
+    const createSourceAccount = vi.fn((account: {
+      id: string;
+      accountType: string;
+      label?: string;
+    }) => {
+      const created = createSourceAccountDefinition(account);
+      accounts.push(created);
+      return created;
+    });
+    const handlers = createAccountsHandlers({
+      database: {
+        readSourceAccounts: () => accounts,
+        createSourceAccount,
+        deleteSourceAccount: vi.fn(),
+        readPortfolioFacts: () => ({
+          openingSnapshots: [], events: [], confirmedImports: [], confirmedSnapshots: [],
+          state: buildPortfolioState({ openingSnapshots: [], events: [] }),
+        }),
+        readMarketData: () => ({
+          observations: [], fxObservations: [], marketRefreshHistory: [], latestMarketRefresh: undefined,
+        }),
+        readSourceAccountLabels: () => ({}),
+        renameSourceAccount: vi.fn(),
+      },
+      newId: () => "account-random",
+      now: () => "2026-09-16T12:00:00.000Z",
+      isTrading212Configured: () => false,
+      trading212Environment: () => "demo",
+    });
+
+    const response = await handlers.POST(new Request("http://localhost/api/accounts", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ accountType: "WeChat Wealth Management" }),
+    }));
+
+    expect(response.status).toBe(201);
+    expect(createSourceAccount).toHaveBeenCalledWith({
+      id: "wechat-main",
+      accountType: "WeChat Wealth Management",
+    });
+  });
+
+  it("rejects duplicate normalized account types with a conflict", async () => {
+    const handlers = createAccountsHandlers({
+      database: {
+        readSourceAccounts: () => [...sourceAccounts],
+        createSourceAccount: () => {
+          throw new Error("Source Account type already exists");
+        },
+        deleteSourceAccount: vi.fn(),
+        readPortfolioFacts: () => ({
+          openingSnapshots: [],
+          events: [],
+          confirmedImports: [],
+          confirmedSnapshots: [],
+          state: buildPortfolioState({ openingSnapshots: [], events: [] }),
+        }),
+        readMarketData: () => ({
+          observations: [],
+          fxObservations: [],
+          marketRefreshHistory: [],
+          latestMarketRefresh: undefined,
+        }),
+        readSourceAccountLabels: () => ({}),
+        renameSourceAccount: vi.fn(),
+      },
+      newId: () => "unused-id",
+      now: () => "2026-09-14T12:00:00.000Z",
+      isTrading212Configured: () => false,
+      trading212Environment: () => "demo",
+    });
+
+    const response = await handlers.POST(new Request("http://localhost/api/accounts", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ accountType: " trading 212 " }),
+    }));
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({
+      error: "An account of this type already exists.",
+    });
+  });
+
+  it("deletes an empty custom account and returns the refreshed accounts page", async () => {
+    const accounts: SourceAccountDefinition[] = [
+      ...sourceAccounts,
+      createSourceAccountDefinition({ id: "account-nordea", accountType: "Nordea" }),
+    ];
+    const handlers = createAccountsHandlers({
+      database: {
+        readSourceAccounts: () => accounts,
+        createSourceAccount: vi.fn(),
+        deleteSourceAccount: (id) => {
+          const index = accounts.findIndex((account) => account.id === id);
+          if (index >= 0) accounts.splice(index, 1);
+        },
+        readPortfolioFacts: () => ({
+          openingSnapshots: [], events: [], confirmedImports: [], confirmedSnapshots: [],
+          state: buildPortfolioState({ openingSnapshots: [], events: [] }),
+        }),
+        readMarketData: () => ({
+          observations: [], fxObservations: [], marketRefreshHistory: [], latestMarketRefresh: undefined,
+        }),
+        readSourceAccountLabels: () => ({}),
+        renameSourceAccount: vi.fn(),
+      },
+      now: () => "2026-09-16T12:00:00.000Z",
+      isTrading212Configured: () => false,
+      trading212Environment: () => "demo",
+    });
+
+    const response = await handlers.DELETE(new Request("http://localhost/api/accounts", {
+      method: "DELETE",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id: "account-nordea" }),
+    }));
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.accounts).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "account-nordea" }),
+    ]));
+  });
+
+  it("returns a conflict instead of deleting an account with portfolio data", async () => {
+    const handlers = createAccountsHandlers({
+      database: {
+        readSourceAccounts: () => [...sourceAccounts],
+        createSourceAccount: vi.fn(),
+        deleteSourceAccount: () => {
+          throw new SourceAccountDeletionError("has-data");
+        },
+        readPortfolioFacts: () => ({
+          openingSnapshots: [], events: [], confirmedImports: [], confirmedSnapshots: [],
+          state: buildPortfolioState({ openingSnapshots: [], events: [] }),
+        }),
+        readMarketData: () => ({
+          observations: [], fxObservations: [], marketRefreshHistory: [], latestMarketRefresh: undefined,
+        }),
+        readSourceAccountLabels: () => ({}),
+        renameSourceAccount: vi.fn(),
+      },
+      isTrading212Configured: () => false,
+      trading212Environment: () => "demo",
+    });
+
+    const response = await handlers.DELETE(new Request("http://localhost/api/accounts", {
+      method: "DELETE",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id: "account-with-data" }),
+    }));
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({
+      error: "Remove or transfer this account's portfolio data before deleting it.",
+    });
   });
 });

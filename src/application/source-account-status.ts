@@ -14,6 +14,7 @@ export type SourceAccountConnectionStatus = "current" | "stale" | "not-connected
 
 export interface SourceAccountStatus {
   id: string;
+  accountType: string;
   provider: SourceAccountDefinition["provider"];
   label: string;
   updateMethod: "Screenshot" | "Trading 212 API";
@@ -114,6 +115,7 @@ export function createSourceAccountStatusReadModel(input: {
 
     return {
       id: account.id,
+      accountType: account.accountType,
       provider: account.provider,
       label: input.labels[account.id] ?? account.label,
       updateMethod: account.updateMethod === "trading-212" ? "Trading 212 API" : "Screenshot",

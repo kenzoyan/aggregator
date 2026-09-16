@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { createPortfolioHandler } from "@/app/api/portfolio/handler";
 import { buildPortfolioState } from "@/domain/portfolio/ledger";
+import { sourceAccounts } from "@/domain/source-accounts";
 
 describe("GET /api/portfolio", () => {
   it("persists the latest ECB observation and returns holding period history", async () => {
@@ -91,6 +92,7 @@ describe("GET /api/portfolio", () => {
           },
         }),
         readSourceAccountLabels: () => ({}),
+        readSourceAccounts: () => [...sourceAccounts],
         recordMarketData,
       },
       fetchLatestRates: async () => ({
@@ -308,6 +310,7 @@ describe("GET /api/portfolio", () => {
           ],
         }),
         readSourceAccountLabels: () => ({}),
+        readSourceAccounts: () => [...sourceAccounts],
         recordMarketData: vi.fn(),
       },
       fetchLatestRates: async () => ({
@@ -394,6 +397,7 @@ describe("GET /api/portfolio", () => {
           ],
         }),
         readSourceAccountLabels: () => ({}),
+        readSourceAccounts: () => [...sourceAccounts],
         recordMarketData: vi.fn(),
       },
       fetchLatestRates: async () => ({
@@ -475,6 +479,7 @@ describe("GET /api/portfolio", () => {
           ],
         }),
         readSourceAccountLabels: () => ({}),
+        readSourceAccounts: () => [...sourceAccounts],
         recordMarketData: vi.fn(),
       },
       fetchLatestRates: async () => ({

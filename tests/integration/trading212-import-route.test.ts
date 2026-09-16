@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { createTrading212ImportHandler } from "@/app/api/imports/trading212/handler";
 import type { ImportDraftInput, StoredImportDraft } from "@/domain/imports";
 import type { PortfolioState } from "@/domain/portfolio/types";
+import { sourceAccounts } from "@/domain/source-accounts";
 import { Trading212RequestError } from "@/infrastructure/trading212/trading212-client";
 
 function request(sourceAccountId = "trading212-main") {
@@ -20,6 +21,7 @@ function database(state: PortfolioState = {
 }) {
   const drafts = new Map<string, StoredImportDraft>();
   return {
+    readSourceAccounts: vi.fn(() => [...sourceAccounts]),
     saveImportDraft: vi.fn((draft: ImportDraftInput) => {
       drafts.set(draft.id, { ...draft, status: "draft" });
     }),

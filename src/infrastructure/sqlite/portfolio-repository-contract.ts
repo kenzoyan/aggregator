@@ -19,6 +19,10 @@ import type {
   PortfolioEventInput,
   PortfolioState,
 } from "@/domain/portfolio/types";
+import type {
+  CreateSourceAccountDefinitionInput,
+  SourceAccountDefinition,
+} from "@/domain/source-accounts";
 
 export interface ConfirmedSnapshotRecord {
   snapshot: OpeningSnapshotInput;
@@ -54,6 +58,11 @@ export interface PortfolioDatabase extends PortfolioAnalystConversationStore {
   readPortfolioFacts(): PortfolioFacts;
   readMarketData(): MarketDataHistory;
   readSourceAccountLabels(): Record<string, string>;
+  readSourceAccounts(): SourceAccountDefinition[];
+  createSourceAccount(
+    input: CreateSourceAccountDefinitionInput,
+  ): SourceAccountDefinition;
+  deleteSourceAccount(id: string): void;
   recordMarketData(input: {
     observations: readonly MarketPriceObservation[];
     fxObservations?: readonly FxRateObservation[];

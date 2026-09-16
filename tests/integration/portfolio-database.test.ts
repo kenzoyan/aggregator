@@ -210,6 +210,35 @@ describe("Portfolio Database", () => {
     }
   });
 
+  it("upgrades a v7 database with dynamic accounts and preserves custom labels", () => {
+    const directory = mkdtempSync(join(tmpdir(), "invest-monitor-v7-accounts-"));
+    const filename = join(directory, "portfolio.sqlite");
+    const current = createPortfolioDatabase(filename);
+    current.renameSourceAccount("danske-main", "Retirement account");
+    current.close();
+
+    const previous = new DatabaseSync(filename);
+    previous.exec(`
+      DROP TABLE source_accounts;
+      UPDATE schema_metadata SET version = 7;
+    `);
+    previous.close();
+
+    try {
+      const upgraded = createPortfolioDatabase(filename);
+      expect(upgraded.readSourceAccounts().find((account) =>
+        account.id === "danske-main"
+      )).toMatchObject({
+        accountType: "Danske Bank",
+        label: "Retirement account",
+        normalizedAccountType: "danskebank",
+      });
+      upgraded.close();
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
   it("upgrades v4 refresh runs in place and labels their unknown trigger", () => {
     const directory = mkdtempSync(join(tmpdir(), "invest-monitor-v4-refresh-"));
     const filename = join(directory, "portfolio.sqlite");

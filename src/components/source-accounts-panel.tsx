@@ -41,7 +41,10 @@ export function SourceAccountsPanel() {
   const [allocationStatus, setAllocationStatus] = useState<"loading" | "ready" | "unavailable">("loading");
   const [editing, setEditing] = useState<string>();
   const [label, setLabel] = useState("");
+  const [newAccountType, setNewAccountType] = useState("");
+  const [newAccountLabel, setNewAccountLabel] = useState("");
   const [busy, setBusy] = useState(false);
+  const [deleting, setDeleting] = useState<string>();
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -91,6 +94,47 @@ export function SourceAccountsPanel() {
     setError("");
   }
 
+  function applyAccountsPage(payload: SourceAccountsPageReadModel) {
+    setAccounts(payload.accounts);
+    setAllocation(payload.accountAllocation);
+    setMarketDataStatuses(payload.marketDataStatuses);
+    setAllocationStatus("ready");
+  }
+
+  async function createAccount(event: FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      const response = await fetch("/api/accounts", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          accountType: newAccountType,
+          ...(newAccountLabel.trim() ? { label: newAccountLabel } : {}),
+        }),
+      });
+      const payload = (await response.json()) as Partial<SourceAccountsPageReadModel> & {
+        error?: string;
+      };
+      if (
+        !response.ok ||
+        !payload.accounts ||
+        !payload.accountAllocation ||
+        !payload.marketDataStatuses
+      ) {
+        throw new Error(payload.error ?? "Account could not be created.");
+      }
+      applyAccountsPage(payload as SourceAccountsPageReadModel);
+      setNewAccountType("");
+      setNewAccountLabel("");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Account could not be created.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function saveRename(event: FormEvent) {
     event.preventDefault();
     if (!editing) return;
@@ -109,6 +153,40 @@ export function SourceAccountsPanel() {
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Account name could not be saved.");
     } finally {
+      setBusy(false);
+    }
+  }
+
+  async function deleteAccount(account: AccountView) {
+    if (!window.confirm(
+      `Delete ${account.label}? This is only allowed when the account has no confirmed portfolio data.`,
+    )) return;
+    setBusy(true);
+    setDeleting(account.id);
+    setError("");
+    try {
+      const response = await fetch("/api/accounts", {
+        method: "DELETE",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: account.id }),
+      });
+      const payload = (await response.json()) as Partial<SourceAccountsPageReadModel> & {
+        error?: string;
+      };
+      if (
+        !response.ok ||
+        !payload.accounts ||
+        !payload.accountAllocation ||
+        !payload.marketDataStatuses
+      ) {
+        throw new Error(payload.error ?? "Account could not be deleted.");
+      }
+      applyAccountsPage(payload as SourceAccountsPageReadModel);
+      if (editing === account.id) setEditing(undefined);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Account could not be deleted.");
+    } finally {
+      setDeleting(undefined);
       setBusy(false);
     }
   }
@@ -154,6 +232,37 @@ export function SourceAccountsPanel() {
           <p className="account-allocation-empty">Allocation appears after an account has valued assets.</p>
         ) : null}
       </section>
+      <section className="account-create-panel" aria-labelledby="account-create-heading">
+        <div>
+          <p className="eyebrow">ADD AN ACCOUNT</p>
+          <h2 id="account-create-heading">Create a source account</h2>
+          <p>Each account type can be added once. You can import its assets after creation.</p>
+        </div>
+        <form className="account-create-form" onSubmit={createAccount}>
+          <label>
+            <span>Account type</span>
+            <input
+              maxLength={80}
+              placeholder="For example, Nordea or Trading 212"
+              required
+              value={newAccountType}
+              onChange={(event) => setNewAccountType(event.target.value)}
+            />
+          </label>
+          <label>
+            <span>Display name <small>Optional</small></span>
+            <input
+              maxLength={80}
+              placeholder="For example, Long-term savings"
+              value={newAccountLabel}
+              onChange={(event) => setNewAccountLabel(event.target.value)}
+            />
+          </label>
+          <button disabled={busy || !newAccountType.trim()} type="submit">
+            {busy ? "Creating…" : "Create account"}
+          </button>
+        </form>
+      </section>
       <section className="accounts-grid">
         {accounts.map((account) => {
           const marketData = marketDataByAccount.get(account.id);
@@ -162,7 +271,7 @@ export function SourceAccountsPanel() {
               <span className={`account-provider ${account.provider}`}>{account.provider === "trading212" ? "T212" : account.provider.slice(0, 1).toUpperCase()}</span>
               <div>
                 <strong>{account.label}</strong>
-                <small>{account.updateMethod}</small>
+                <small>{account.accountType} · {account.updateMethod}</small>
               </div>
               <span className={`account-status ${account.status}`}>{statusLabels[account.status]}</span>
             </div>
@@ -187,7 +296,15 @@ export function SourceAccountsPanel() {
               </form>
             ) : (
               <div className="account-actions">
-                <button type="button" onClick={() => beginRename(account)}>Rename</button>
+                <button disabled={busy} type="button" onClick={() => beginRename(account)}>Rename</button>
+                <button
+                  className="danger"
+                  disabled={busy}
+                  type="button"
+                  onClick={() => void deleteAccount(account)}
+                >
+                  {deleting === account.id ? "Deleting…" : "Delete"}
+                </button>
                 <Link href={`/imports?account=${encodeURIComponent(account.id)}`}>{account.status === "not-connected" ? "Add assets" : "Update"}</Link>
               </div>
             )}

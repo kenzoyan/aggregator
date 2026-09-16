@@ -202,6 +202,12 @@ describe("portfolio analyst answer contract", () => {
       { kind: "record-dated-market-data", reasonEvidenceKey: "quality.gap.1" },
       { kind: "configure-danske-route", reasonEvidenceKey: "quality.gap.1" },
       { kind: "retry-market-data-refresh", reasonEvidenceKey: "quality.gap.1" },
+      {
+        kind: "create-account",
+        accountType: "Nordea",
+        label: "Brokerage",
+        reasonEvidenceKey: "quality.gap.1",
+      },
     ];
 
     for (const action of actions) {

@@ -5,7 +5,7 @@ import {
 } from "@/application/fx-history";
 import { createSourceAccountStatusReadModel } from "@/application/source-account-status";
 import type { FxRateObservation } from "@/domain/market-data";
-import { sourceAccounts } from "@/domain/source-accounts";
+import { effectiveSourceAccountLabels } from "@/domain/source-accounts";
 import { EcbFxClient, type EcbRates } from "@/infrastructure/ecb/ecb-fx-client";
 import type { PortfolioDatabase } from "@/infrastructure/sqlite/portfolio-repository";
 import { getPortfolioDatabase } from "@/server/portfolio-db";
@@ -25,6 +25,7 @@ type PortfolioQueryDatabase = Pick<
   | "readPortfolioFacts"
   | "readMarketData"
   | "readSourceAccountLabels"
+  | "readSourceAccounts"
   | "recordMarketData"
 >;
 
@@ -41,7 +42,11 @@ export function createPortfolioHandler(input: {
     const marketData = database.readMarketData();
     const state = facts.state;
     const snapshots = facts.openingSnapshots;
-    const accountLabels = database.readSourceAccountLabels();
+    const sourceAccounts = database.readSourceAccounts();
+    const accountLabels = effectiveSourceAccountLabels(
+      sourceAccounts,
+      database.readSourceAccountLabels(),
+    );
     let additionalFxObservations: FxRateObservation[] = [];
     try {
       const rates = await input.fetchLatestRates();
