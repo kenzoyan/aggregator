@@ -263,7 +263,7 @@ describe("POST /api/imports/analyze", () => {
     }
   });
 
-  it("blocks an obvious provider mismatch before saving a draft", async () => {
+  it("keeps the selected account and warns when model provider detection disagrees", async () => {
     const store = database();
     const handler = createAnalyzeImportHandler({
       database: store,
@@ -274,11 +274,16 @@ describe("POST /api/imports/analyze", () => {
 
     const response = await handler(imageRequest("wechat-main"));
 
-    expect(response.status).toBe(422);
-    await expect(response.json()).resolves.toEqual({
-      error: "This screenshot appears to belong to a different provider than WeChat Wealth Management. Choose the matching Source Account and try again.",
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      draft: {
+        sourceAccountId: "wechat-main",
+        warnings: expect.arrayContaining([
+          "Image analysis labeled this account as Alipay, which may not match the selected WeChat Wealth Management account. Verify the source account before confirming.",
+        ]),
+      },
     });
-    expect(store.saveImportDraft).not.toHaveBeenCalled();
+    expect(store.saveImportDraft).toHaveBeenCalledOnce();
   });
 
   it("does not send connector accounts through image extraction", async () => {

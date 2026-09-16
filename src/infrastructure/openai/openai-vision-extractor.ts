@@ -48,7 +48,7 @@ export class OpenAIVisionExtractor implements VisionExtractor {
               {
                 type: "input_text",
                 text: request.sourceAccountHint
-                  ? `Trusted account context: ${request.sourceAccountHint}. Combine all ${request.images.length} screenshots into one account snapshot.`
+                  ? `The user-selected Source Account is authoritative: ${request.sourceAccountHint}. Do not infer a different provider from ambiguous branding or holding names; report a different accountName only when the screenshots explicitly show it. Combine all ${request.images.length} screenshots into one account snapshot.`
                   : `Combine all ${request.images.length} screenshots into one account snapshot.`,
               },
               ...request.images.map((image) => ({

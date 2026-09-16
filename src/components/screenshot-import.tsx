@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from "react";
 
 import {
   createDemoPortfolioRecord,
@@ -13,6 +13,13 @@ import {
   type EditableHoldingField,
 } from "@/application/imports/import-review-editor";
 import type { SourceAccountView } from "@/application/source-account-status";
+import { ScreenshotPreviewTray } from "@/components/screenshot-preview-tray";
+import {
+  maximumScreenshotCount,
+  mergeScreenshotFiles,
+  removeScreenshotFile,
+  screenshotSelectionSignature,
+} from "@/components/screenshot-selection";
 import { assetTypeLabels, assetTypes } from "@/domain/portfolio/types";
 import type { ImportReconciliation } from "@/domain/imports";
 
@@ -47,6 +54,7 @@ export function AssetImportWorkflow() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [operationLabel, setOperationLabel] = useState("");
+  const [analyzedScreenshotSignature, setAnalyzedScreenshotSignature] = useState<string>();
 
   useEffect(() => {
     fetch("/api/accounts", { cache: "no-store" })
@@ -72,6 +80,34 @@ export function AssetImportWorkflow() {
 
   const selectedAccount = accounts.find((account) => account.id === sourceAccountId);
   const imageImportSupported = selectedAccount?.updateMethod === "Screenshot";
+  const screenshotSignature = useMemo(
+    () => screenshotSelectionSignature(files),
+    [files],
+  );
+  const screenshotsChangedSinceAnalysis = Boolean(
+    draft?.sourceKind === "screenshot" &&
+    analyzedScreenshotSignature !== undefined &&
+    screenshotSignature !== analyzedScreenshotSignature,
+  );
+
+  function selectScreenshots(event: ChangeEvent<HTMLInputElement>) {
+    const selected = Array.from(event.currentTarget.files ?? []);
+    const merged = mergeScreenshotFiles(files, selected);
+    setFiles(merged.files);
+    setNotice(merged.duplicateCount > 0
+      ? `${merged.duplicateCount} duplicate screenshot${merged.duplicateCount === 1 ? " was" : "s were"} already selected.`
+      : "");
+    setError(merged.overflowCount > 0
+      ? `Only ${maximumScreenshotCount} screenshots can be analyzed together. Remove one before adding another.`
+      : "");
+    event.currentTarget.value = "";
+  }
+
+  function removeScreenshot(file: File) {
+    setFiles((current) => removeScreenshotFile(current, file));
+    setError("");
+    setNotice("");
+  }
 
   async function requestDraft(
     request: () => Promise<Response>,
@@ -114,7 +150,11 @@ export function AssetImportWorkflow() {
           method: "POST",
           body: form,
         });
-      }, "Image analysis failed.");
+      }, "Image analysis failed.", () => {
+        if (mode === "image") {
+          setAnalyzedScreenshotSignature(screenshotSelectionSignature(files));
+        }
+      });
     } finally {
       setOperationLabel("");
     }
@@ -230,6 +270,10 @@ export function AssetImportWorkflow() {
   async function confirm(event: FormEvent) {
     event.preventDefault();
     if (!draft) return;
+    if (screenshotsChangedSinceAnalysis) {
+      setError("Analyze the updated screenshot set before confirming this import.");
+      return;
+    }
     if (draft.portfolio.holdings.length === 0 && !draft.portfolio.portfolioCash) {
       setError("Add at least one holding before confirmation.");
       return;
@@ -268,6 +312,8 @@ export function AssetImportWorkflow() {
         }
       }
       setDraft(payload.draft);
+      setFiles([]);
+      setAnalyzedScreenshotSignature(undefined);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Confirmation failed.");
     } finally {
@@ -295,6 +341,8 @@ export function AssetImportWorkflow() {
               onChange={(event) => {
                 setSourceAccountId(event.target.value);
                 setDraft(undefined);
+                setFiles([]);
+                setAnalyzedScreenshotSignature(undefined);
                 setNotice("");
               }}
               disabled={busy}
@@ -305,32 +353,48 @@ export function AssetImportWorkflow() {
             </select>
           </label>
 
-          <label className="upload-zone">
-            <span className="upload-icon">↥</span>
-            <strong>
-              {files.length === 0
-                ? "Choose portfolio screenshots"
-                : files.length === 1
-                  ? files[0]!.name
-                  : `${files.length} complementary screenshots selected`}
-            </strong>
-            <small>
-              {imageImportSupported
-                ? "OpenAI Vision · 1–6 JPEG, PNG or WebP images · 10 MB each"
-                : "Select a screenshot-based Source Account"}
-            </small>
-            <input
-              type="file"
-              multiple
-              accept="image/jpeg,image/png,image/webp"
-              onChange={(event) => setFiles(Array.from(event.target.files ?? []))}
-            />
-          </label>
+          {files.length === 0 && (
+            <label className="upload-zone">
+              <span className="upload-icon">↥</span>
+              <strong>Choose portfolio screenshots</strong>
+              <small>
+                {imageImportSupported
+                  ? "OpenAI Vision · 1–6 JPEG, PNG or WebP images · 10 MB each"
+                  : "Select a screenshot-based Source Account"}
+              </small>
+              <input
+                type="file"
+                multiple
+                accept="image/jpeg,image/png,image/webp"
+                disabled={busy || !imageImportSupported}
+                onChange={selectScreenshots}
+              />
+            </label>
+          )}
 
-          <div className="privacy-callout">
-            <strong>OpenAI cloud image analysis</strong>
-            <p>The selected screenshots are sent together to the OpenAI API for one structured account extraction. This app does not save the original images or provider response. Review every detected value; your portfolio changes only after confirmation.</p>
-          </div>
+          <ScreenshotPreviewTray
+            files={files}
+            disabled={busy}
+            onRemove={removeScreenshot}
+            addControl={files.length < maximumScreenshotCount ? (
+              <label className="screenshot-add-tile">
+                <span aria-hidden="true">＋</span>
+                <strong>Add screenshot</strong>
+                <input
+                  type="file"
+                  multiple
+                  accept="image/jpeg,image/png,image/webp"
+                  disabled={busy || !imageImportSupported}
+                  onChange={selectScreenshots}
+                />
+              </label>
+            ) : undefined}
+          />
+          {screenshotsChangedSinceAnalysis && (
+            <p className="screenshot-change-notice" role="status">
+              Screenshot set changed. Analyze again before confirming; re-analysis replaces the current review edits.
+            </p>
+          )}
 
           <div className="import-actions">
             <button
@@ -341,7 +405,9 @@ export function AssetImportWorkflow() {
             >
               {busy && operationLabel
                 ? operationLabel
-                : "Analyze with OpenAI"}
+                : screenshotsChangedSinceAnalysis
+                  ? "Analyze again"
+                  : "Analyze with OpenAI"}
             </button>
             <button
               className="text-button"
@@ -585,7 +651,7 @@ export function AssetImportWorkflow() {
                   ))}
               </div>
               <button className="add-holding-button" type="button" disabled={busy} onClick={addPosition}>+ Add holding</button>
-              <button className="primary-button confirm-button" disabled={busy || (draft.portfolio.holdings.length === 0 && !draft.portfolio.portfolioCash)} type="submit">
+              <button className="primary-button confirm-button" disabled={busy || screenshotsChangedSinceAnalysis || (draft.portfolio.holdings.length === 0 && !draft.portfolio.portfolioCash)} type="submit">
                 {busy
                   ? "Saving…"
                   : draft.reconciliation

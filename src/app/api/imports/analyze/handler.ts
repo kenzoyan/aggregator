@@ -162,26 +162,33 @@ export function createAnalyzeImportHandler(input: {
         sourceAccountHint: sourceAccount.label,
       });
       const detectedProvider = detectedSourceProvider(extraction.accountName);
-      if (detectedProvider && detectedProvider !== sourceAccount.provider) {
-        return errorResponse(
-          `This screenshot appears to belong to a different provider than ${sourceAccount.label}. Choose the matching Source Account and try again.`,
-          422,
-        );
-      }
+      const providerMismatchWarning = detectedProvider &&
+        detectedProvider !== sourceAccount.provider
+        ? `Image analysis labeled this account as ${extraction.accountName}, which may not match the selected ${sourceAccount.label} account. Verify the source account before confirming.`
+        : undefined;
+      const reviewedExtraction = providerMismatchWarning
+        ? {
+            ...extraction,
+            warnings: [
+              ...extraction.warnings.slice(0, 19),
+              providerMismatchWarning,
+            ],
+          }
+        : extraction;
       const now = input.now();
       const draft = prepareScreenshotImport({
         draftId: input.newId(),
         snapshotId: input.newId(),
         sourceAccountId,
         createdAt: now,
-        extraction,
+        extraction: reviewedExtraction,
         sourceKind: mode === "demo" ? "demo" : "screenshot",
       });
       input.database.saveImportDraft(draft);
 
       return NextResponse.json({
         draft: createImportDraftReadModel(input.database.getImportDraft(draft.id)!),
-        extraction,
+        extraction: reviewedExtraction,
         visionProvider: mode === "demo" ? "demo" : "openai",
       });
     } catch (error) {

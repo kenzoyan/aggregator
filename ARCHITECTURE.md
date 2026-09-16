@@ -195,6 +195,8 @@ Market Data 独立存储：
 
 同一次 import 最多包含 6 张、每张不超过 10 MB、合计不超过 30 MB。模型把账户 overview、holding rows 与 fund detail 当成同一组证据，通过名称和 ISIN 合并；同一基金出现在多张图中时只能生成一个 position。结构化结果包含可见的 units、market value、prior return、NAV、NAV date、ISIN 和 asset type，并在 review 前检查 `quantity × NAV ≈ market value` 等可核对关系。限制必须在创建 extractor 前验证，避免错误选择产生云端费用。
 
+浏览器只为当前页面会话创建原图 object URL，用缩略图和 modal 预览辅助 review；切换账户或确认完成后立即释放，不进入 Draft persistence。用户明确选择的 Source Account 是归属事实，Vision 返回的 `accountName` 只是可能出错的模型观察：如果它命中另一个已知 provider，服务端把冲突追加为 review warning，而不是用 422 阻断 Draft。这样仍保留人工核对信号，但不会让缺少品牌标识的基金详情页推翻用户选择。
+
 截图被定义为 **detected-holdings update**：
 
 - review 只展示本次截图实际识别出的基金。

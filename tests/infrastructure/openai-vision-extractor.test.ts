@@ -64,6 +64,9 @@ describe("OpenAI vision import extractor", () => {
       RequestInit,
     ];
     const body = JSON.parse(String(request?.body));
+    expect(body.input[0].content[0].text).toContain(
+      "The user-selected Source Account is authoritative",
+    );
     expect(body).toMatchObject({
       model: "synthetic-vision-model",
       store: false,
