@@ -32,7 +32,10 @@ function errorForStatus(status: number): StructuredResponseError {
   return new StructuredResponseError("service-unavailable");
 }
 
-function parseOutputText(payload: unknown): unknown {
+function parseResponsePayload(payload: unknown): {
+  outputText: unknown;
+  responseEnvelope: unknown;
+} {
   const response = responsesEnvelopeSchema.parse(payload);
   if (response.status && response.status !== "completed") {
     throw new StructuredResponseError("invalid-response");
@@ -41,7 +44,56 @@ function parseOutputText(payload: unknown): unknown {
     .flatMap((item) => item.content ?? [])
     .find((item) => item.type === "output_text")?.text;
   if (!text) throw new StructuredResponseError("invalid-response");
-  return JSON.parse(text);
+  return {
+    outputText: JSON.parse(text),
+    responseEnvelope: payload,
+  };
+}
+
+async function parseStreamingOutput<T>(
+  response: Response,
+  parse: (payload: unknown) => T,
+  projection: {
+    project: (partialOutputText: string) => string | undefined;
+    onDelta: (delta: string) => void;
+  },
+): Promise<T> {
+  if (!response.body) throw new StructuredResponseError("invalid-response");
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let outputText = "";
+  let emittedProjectedText = "";
+
+  function consume(line: string) {
+    if (!line.startsWith("data:")) return;
+    const data = line.slice(5).trim();
+    if (!data || data === "[DONE]") return;
+    const event = JSON.parse(data) as { type?: string; delta?: unknown };
+    if (event.type !== "response.output_text.delta" || typeof event.delta !== "string") {
+      return;
+    }
+    outputText += event.delta;
+    const projectedText = projection.project(outputText);
+    if (projectedText?.startsWith(emittedProjectedText)) {
+      const delta = projectedText.slice(emittedProjectedText.length);
+      if (delta) {
+        emittedProjectedText = projectedText;
+        projection.onDelta(delta);
+      }
+    }
+  }
+
+  while (true) {
+    const { done, value } = await reader.read();
+    buffer += decoder.decode(value, { stream: !done });
+    const lines = buffer.split(/\r?\n/);
+    buffer = lines.pop() ?? "";
+    for (const line of lines) consume(line);
+    if (done) break;
+  }
+  if (buffer) consume(buffer);
+  return parse(JSON.parse(outputText));
 }
 
 export async function requestStructuredResponse<T>(input: {
@@ -52,11 +104,20 @@ export async function requestStructuredResponse<T>(input: {
   prompt: unknown;
   schemaName: string;
   jsonSchema: object;
-  reasoningEffort: "none" | "medium";
-  maxOutputTokens: number;
+  reasoningEffort?: "none" | "medium";
+  maxOutputTokens?: number;
   timeoutMs: number;
   store?: false;
-  parse: (payload: unknown) => T;
+  tools?: ReadonlyArray<Record<string, unknown>>;
+  toolChoice?: string;
+  maxToolCalls?: number;
+  include?: readonly string[];
+  signal?: AbortSignal;
+  streamProjection?: {
+    project: (partialOutputText: string) => string | undefined;
+    onDelta: (delta: string) => void;
+  };
+  parse: (payload: unknown, responseEnvelope: unknown) => T;
   fetch?: typeof globalThis.fetch;
 }): Promise<T> {
   try {
@@ -69,10 +130,15 @@ export async function requestStructuredResponse<T>(input: {
       body: JSON.stringify({
         model: input.model,
         ...(input.store === false ? { store: false } : {}),
-        reasoning: { effort: input.reasoningEffort },
-        max_output_tokens: input.maxOutputTokens,
+        ...(input.reasoningEffort ? { reasoning: { effort: input.reasoningEffort } } : {}),
+        ...(input.maxOutputTokens === undefined ? {} : { max_output_tokens: input.maxOutputTokens }),
         instructions: input.instructions,
         input: input.prompt,
+        ...(input.tools ? { tools: input.tools } : {}),
+        ...(input.toolChoice ? { tool_choice: input.toolChoice } : {}),
+        ...(input.maxToolCalls === undefined ? {} : { max_tool_calls: input.maxToolCalls }),
+        ...(input.include ? { include: input.include } : {}),
+        ...(input.streamProjection ? { stream: true } : {}),
         text: {
           format: {
             type: "json_schema",
@@ -82,10 +148,20 @@ export async function requestStructuredResponse<T>(input: {
           },
         },
       }),
-      signal: AbortSignal.timeout(input.timeoutMs),
+      signal: input.signal
+        ? AbortSignal.any([input.signal, AbortSignal.timeout(input.timeoutMs)])
+        : AbortSignal.timeout(input.timeoutMs),
     });
     if (!response.ok) throw errorForStatus(response.status);
-    return input.parse(parseOutputText(await response.json()));
+    if (input.streamProjection) {
+      return await parseStreamingOutput(
+        response,
+        (payload) => input.parse(payload, undefined),
+        input.streamProjection,
+      );
+    }
+    const parsedResponse = parseResponsePayload(await response.json());
+    return input.parse(parsedResponse.outputText, parsedResponse.responseEnvelope);
   } catch (error) {
     if (error instanceof StructuredResponseError) throw error;
     if (

@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   createImportConfirmHandler,
-} from "@/app/api/imports/[id]/confirm/route";
+} from "@/app/api/imports/[id]/confirm/handler";
 import { createImportDraftReadModel } from "@/application/imports/import-draft-read-model";
 import {
   draftPortfolioFromOpeningSnapshot,
@@ -11,6 +11,110 @@ import {
 } from "@/domain/imports";
 
 describe("POST /api/imports/:id/confirm", () => {
+  it("returns the existing not-found response without attempting confirmation", async () => {
+    const confirmImport = vi.fn();
+    const response = await createImportConfirmHandler({
+      database: {
+        getImportDraft: () => undefined,
+        confirmImport,
+      },
+      newId: () => "unused",
+      now: () => "2026-07-21T00:01:00.000Z",
+    })(new Request("http://localhost/api/imports/missing/confirm", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        confidence: "high",
+        warnings: [],
+        portfolio: {
+          snapshotId: "snapshot-missing",
+          asOf: "2026-07-21T00:00:00.000Z",
+          holdings: [],
+          portfolioCash: { amount: "0", currency: "EUR" },
+        },
+      }),
+    }), "missing");
+
+    expect(response.status).toBe(404);
+    await expect(response.json()).resolves.toEqual({ error: "Import draft not found." });
+    expect(confirmImport).not.toHaveBeenCalled();
+  });
+
+  it("preserves validation paths and messages for empty and malformed reviews", async () => {
+    const stored: StoredImportDraft = {
+      id: "draft",
+      sourceAccountId: "manual-main",
+      sourceKind: "manual",
+      createdAt: "2026-07-21T00:00:00.000Z",
+      confidence: "high",
+      warnings: [],
+      portfolio: draftPortfolioFromOpeningSnapshot({
+        id: "snapshot-empty",
+        sourceAccountId: "manual-main",
+        asOf: "2026-07-21T00:00:00.000Z",
+        positions: [],
+      }, "manual"),
+      status: "draft",
+    };
+    const handler = createImportConfirmHandler({
+      database: {
+        getImportDraft: () => stored,
+        confirmImport: vi.fn(),
+      },
+      newId: () => "unused",
+      now: () => "2026-07-21T00:01:00.000Z",
+    });
+
+    const emptyResponse = await handler(new Request(
+      "http://localhost/api/imports/draft/confirm",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          confidence: "high",
+          warnings: [],
+          portfolio: {
+            snapshotId: "snapshot-empty",
+            asOf: "2026-07-21T00:00:00.000Z",
+            holdings: [],
+          },
+        }),
+      },
+    ), "draft");
+    expect(emptyResponse.status).toBe(400);
+    await expect(emptyResponse.json()).resolves.toEqual({
+      error: "Add at least one holding or a portfolio cash balance.",
+      fieldErrors: {
+        "portfolio.holdings": "Add at least one holding or a portfolio cash balance.",
+      },
+    });
+
+    const malformedResponse = await handler(new Request(
+      "http://localhost/api/imports/draft/confirm",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          confidence: "high",
+          warnings: [],
+          portfolio: {
+            snapshotId: "",
+            asOf: "not-a-date",
+            holdings: [],
+          },
+        }),
+      },
+    ), "draft");
+    expect(malformedResponse.status).toBe(400);
+    await expect(malformedResponse.json()).resolves.toMatchObject({
+      fieldErrors: {
+        "portfolio.snapshotId": "Too small: expected string to have >=1 characters",
+        "portfolio.asOf": "Invalid ISO datetime",
+        "portfolio.holdings": "Add at least one holding or a portfolio cash balance.",
+      },
+    });
+  });
+
   it("explains the exact inconsistent holding values instead of returning a generic 400", async () => {
     const request = new Request("http://localhost/api/imports/draft/confirm", {
       method: "POST",

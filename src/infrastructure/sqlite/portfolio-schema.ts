@@ -2,7 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 
 import { legacyPartialSnapshotWarningMarker } from "@/domain/imports";
 
-export const portfolioSchemaVersion = 5;
+export const portfolioSchemaVersion = 7;
 
 export class LegacyPortfolioDatabaseError extends Error {
   constructor() {
@@ -29,6 +29,32 @@ const portfolioNarrativesSchema = `
 
   CREATE INDEX portfolio_narratives_latest
     ON portfolio_narratives(generated_at DESC);
+`;
+
+const portfolioAnalystConversationsSchema = `
+  CREATE TABLE IF NOT EXISTS portfolio_analyst_conversations (
+    id TEXT PRIMARY KEY,
+    provider TEXT NOT NULL,
+    language TEXT NOT NULL,
+    include_holding_names INTEGER NOT NULL CHECK (include_holding_names IN (0, 1)),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    turns_json TEXT NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS portfolio_analyst_conversations_latest
+    ON portfolio_analyst_conversations(updated_at DESC);
+`;
+
+const marketIntelligenceSchema = `
+  CREATE TABLE IF NOT EXISTS market_intelligence_briefs (
+    id TEXT PRIMARY KEY,
+    generated_at TEXT NOT NULL,
+    content_json TEXT NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS market_intelligence_briefs_latest
+    ON market_intelligence_briefs(generated_at DESC);
 `;
 
 function tableExists(database: DatabaseSync, table: string): boolean {
@@ -149,6 +175,8 @@ export function initializePortfolioSchema(database: DatabaseSync) {
         );
 
         ${portfolioNarrativesSchema}
+        ${portfolioAnalystConversationsSchema}
+        ${marketIntelligenceSchema}
       `);
       database.exec("COMMIT");
     } catch (error) {
@@ -236,6 +264,38 @@ export function initializePortfolioSchema(database: DatabaseSync) {
             '[{"instrumentCode":"Earlier run","message":"Failure details from this earlier run were removed for privacy"}]'
           ELSE '[]'
         END;
+        UPDATE schema_metadata SET version = 5;
+      `);
+      database.exec("COMMIT");
+    } catch (error) {
+      database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+  const analystConversationRow = database.prepare(
+    "SELECT version FROM schema_metadata LIMIT 1",
+  ).get() as { version: number } | undefined;
+  if (analystConversationRow?.version === 5) {
+    database.exec("BEGIN IMMEDIATE");
+    try {
+      database.exec(`
+        ${portfolioAnalystConversationsSchema}
+        UPDATE schema_metadata SET version = 6;
+      `);
+      database.exec("COMMIT");
+    } catch (error) {
+      database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+  const marketIntelligenceRow = database.prepare(
+    "SELECT version FROM schema_metadata LIMIT 1",
+  ).get() as { version: number } | undefined;
+  if (marketIntelligenceRow?.version === 6) {
+    database.exec("BEGIN IMMEDIATE");
+    try {
+      database.exec(`
+        ${marketIntelligenceSchema}
         UPDATE schema_metadata SET version = ${portfolioSchemaVersion};
       `);
       database.exec("COMMIT");

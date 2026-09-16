@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { createAnalyzeImportHandler } from "@/app/api/imports/analyze/route";
+import { createAnalyzeImportHandler } from "@/app/api/imports/analyze/handler";
 import type {
   ImportDraftInput,
   StoredImportDraft,

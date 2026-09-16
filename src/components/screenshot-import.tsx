@@ -292,7 +292,6 @@ export function AssetImportWorkflow() {
           <h1>Update assets</h1>
           <p>Every update creates a draft. Your portfolio does not change until you confirm it.</p>
         </div>
-        <Link className="secondary-button" href="/">Back to overview</Link>
       </header>
 
       <div className="import-layout">

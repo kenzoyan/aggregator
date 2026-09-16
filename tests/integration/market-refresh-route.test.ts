@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { createMarketRefreshHandler } from "@/app/api/market-data/refresh/route";
+import { createMarketRefreshHandler } from "@/app/api/market-data/refresh/handler";
 import type {
   MarketPriceObservation,
   MarketRefreshRecord,

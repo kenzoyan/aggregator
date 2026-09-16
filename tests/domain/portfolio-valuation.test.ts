@@ -169,7 +169,12 @@ describe("daily portfolio valuation", () => {
     });
     expect(valuation.cash[0]?.eurValue).toBe("5");
     expect(valuation.missingInputs).toEqual([
-      { kind: "price", instrumentId: "fund-cny", currency: "CNY" },
+      {
+        kind: "price",
+        sourceAccountId: "alipay",
+        instrumentId: "fund-cny",
+        currency: "CNY",
+      },
     ]);
   });
 

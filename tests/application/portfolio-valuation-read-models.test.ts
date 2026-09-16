@@ -1,8 +1,16 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  createDashboardReadModel,
+  createCurrentPortfolioValuationReadModel,
+} from "@/application/portfolio-current-valuation";
+import {
   createPortfolioHistoryReadModel,
+  type PortfolioPeriodHistory,
+} from "@/application/portfolio-history";
+import {
+  createDashboardReadModel,
+  createPortfolioHistoryReadModel as createLegacyPortfolioHistoryReadModel,
+  type DashboardPeriodHistory,
 } from "@/application/portfolio-dashboard";
 import { buildPortfolioState } from "@/domain/portfolio/ledger";
 
@@ -49,7 +57,31 @@ const marketPrices = [
   },
 ];
 
-describe("market-priced dashboard", () => {
+describe("portfolio valuation read models", () => {
+  it("preserves the former portfolio-dashboard import surface", () => {
+    const period: PortfolioPeriodHistory = {
+      available: false,
+      change: 0,
+      percent: 0,
+      points: [],
+      dailyChanges: [],
+      valueHistory: {
+        available: false,
+        change: 0,
+        percent: 0,
+        investmentChange: 0,
+        portfolioActivity: 0,
+        activityAvailable: false,
+        timeline: [],
+      },
+    };
+    const legacyPeriod: DashboardPeriodHistory = period;
+
+    expect(createDashboardReadModel).toBe(createCurrentPortfolioValuationReadModel);
+    expect(createLegacyPortfolioHistoryReadModel).toBe(createPortfolioHistoryReadModel);
+    expect(legacyPeriod).toBe(period);
+  });
+
   it("renders a confirmed ETF as ETF instead of collapsing it into another asset type", () => {
     const etfSnapshot = {
       id: "opening-trading212-etf",
@@ -67,7 +99,7 @@ describe("market-priced dashboard", () => {
       }],
     };
 
-    const readModel = createDashboardReadModel({
+    const readModel = createCurrentPortfolioValuationReadModel({
       state: buildPortfolioState({ openingSnapshots: [etfSnapshot], events: [] }),
       asOf: "2026-07-21T19:28:00.000Z",
       snapshotTimes: { "trading212-main": etfSnapshot.asOf },
@@ -79,7 +111,7 @@ describe("market-priced dashboard", () => {
   });
 
   it("does not render a zero cash balance as an extra holding", () => {
-    const readModel = createDashboardReadModel({
+    const readModel = createCurrentPortfolioValuationReadModel({
       state: {
         positions: [],
         cashBalances: [{
@@ -98,8 +130,42 @@ describe("market-priced dashboard", () => {
     expect(readModel.holdings).toEqual([]);
   });
 
+  it("keeps an explicit safe display name for an unvalued holding", () => {
+    const state = buildPortfolioState({
+      openingSnapshots: [{
+        id: "missing-price",
+        sourceAccountId: "alipay-main",
+        asOf: "2026-07-21T19:28:00.000Z",
+        positions: [{
+          instrumentId: "private-internal-id",
+          displayName: "Synthetic Missing Price Fund",
+          quantity: "10",
+          currency: "USD",
+          costBasis: "100",
+        }],
+      }],
+      events: [],
+    });
+
+    const readModel = createCurrentPortfolioValuationReadModel({
+      state,
+      asOf: "2026-07-21T19:28:00.000Z",
+      snapshotTimes: { "alipay-main": "2026-07-21T19:28:00.000Z" },
+      eurPerUnit: { EUR: "1" },
+      fxAsOf: "2026-07-21",
+    });
+
+    expect(readModel.missingInputs).toEqual([{
+      kind: "fx",
+      sourceAccountId: "alipay-main",
+      instrumentId: "private-internal-id",
+      currency: "USD",
+      analystDisplayName: "Synthetic Missing Price Fund",
+    }]);
+  });
+
   it("uses the latest saved NAV instead of the imported market value", () => {
-    const readModel = createDashboardReadModel({
+    const readModel = createCurrentPortfolioValuationReadModel({
       state: buildPortfolioState({ openingSnapshots: [openingSnapshot], events: [] }),
       asOf: "2026-07-19T23:59:59.999Z",
       snapshotTimes: { "alipay-main": openingSnapshot.asOf },
@@ -165,7 +231,7 @@ describe("market-priced dashboard", () => {
   });
 
   it("labels a user-entered market price as manual", () => {
-    const readModel = createDashboardReadModel({
+    const readModel = createCurrentPortfolioValuationReadModel({
       state: buildPortfolioState({ openingSnapshots: [openingSnapshot], events: [] }),
       asOf: "2026-07-19T23:59:59.999Z",
       snapshotTimes: { "alipay-main": openingSnapshot.asOf },
@@ -178,7 +244,7 @@ describe("market-priced dashboard", () => {
   });
 
   it("uses a same-day market observation whose as-of value includes a time", () => {
-    const readModel = createDashboardReadModel({
+    const readModel = createCurrentPortfolioValuationReadModel({
       state: buildPortfolioState({ openingSnapshots: [openingSnapshot], events: [] }),
       asOf: "2026-07-19T23:59:59.999Z",
       snapshotTimes: { "alipay-main": openingSnapshot.asOf },

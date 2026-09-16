@@ -70,19 +70,21 @@ Infrastructure adapters
 
 正常依赖方向是 `app/components → application → domain`；infrastructure 实现 application/domain 所需的外部能力，route 在 composition root 把它们连接起来。Domain 不知道 React、HTTP、provider 或 SQLite。Application 可以组合 domain 与抽象输入，但不读取环境变量。只有 server/route 和 infrastructure 接触进程配置、网络和文件数据库。
 
-当前最重要的三个 deep interface：
+当前最重要的五个 deep interface：
 
 | Interface | 输入 | 输出 | 隐藏的复杂度 |
 | --- | --- | --- | --- |
 | `createPortfolioValuationTimeline` | snapshots、events、prices、FX、labels、asOf | 完整 overview read model | state 重建、当前估值、历史估值、period、allocation、FX overview |
 | `createMarketDataRefresh` | repository 能力、NAV provider、可选 T212 snapshot | refresh outcome | 每日 gate、provider 聚合、Market Data-only 过滤、持久化、并发串行化 |
-| `applyImportDraftEdit` | draft + 一个编辑意图 | 新 draft | Decimal 比较、cash/holding 编辑、reconciliation 重算 |
+| `applyImportDraftEdit` | draft + 一个编辑意图 | 新 draft | 不可变 portfolio 更新、holding 字段规范化、reconciliation 重算 |
+| `createPortfolioAnalystContext` | overview read model + 一个批准的 analyst job | versioned evidence bundle | job-specific 事实选择、排序、脱敏、Evidence Key、限制与 32 KiB guard |
+| `validatePortfolioAnalystAnswer` | Analyst Context + 不可信 candidate output | validated answer | strict shape、Evidence Key membership、Facts As Of、limitations 与 allowed action 校验 |
 
 ## 3. 三类核心数据
 
 ### 3.1 Import Draft：尚未确认的输入
 
-相关类型位于 `src/domain/imports.ts`。
+相关类型位于 `src/domain/import-draft.ts`；`src/domain/imports.ts` 保留为兼容导入入口。
 
 Import Draft 保存 Vision、CSV、API 或手工输入的解释结果。每个字段都是 `DraftValue<T>`：
 
@@ -174,7 +176,9 @@ Market Data 独立存储：
 关键文件：
 
 - `src/infrastructure/openai/openai-vision-extractor.ts`
-- `src/application/imports/vision-extractor.ts`
+- `src/application/imports/vision-extraction-contract.ts`
+- `src/application/imports/vision-position-merge.ts`
+- `src/application/imports/screenshot-import-preparation.ts`
 - `src/app/api/imports/analyze/route.ts`
 
 隐私边界：
@@ -195,7 +199,7 @@ Market Data 独立存储：
 
 ### 5.2 CSV 与手工输入
 
-CSV parser 会验证：
+`csv-holdings-parser.ts` 负责 CSV quoting、header 与逐行 schema；`csv-import.ts` 再验证账户/会计规则并映射成带 provenance 的 DraftValue。整体会验证：
 
 - 必需列
 - Source Account 是否匹配
@@ -234,9 +238,11 @@ API response 被转换成一个完整 account snapshot，然后与最新 Holding
 
 `reconcileImportDraft` 只把 quantity、Cost Basis 和 currency 的改变算作 Holding State change；NAV、market value 或 price date 的变化属于 `market-data-updated`。
 
+初次 reconciliation 与用户编辑后的重新分类共用 `src/domain/holding-state-comparison.ts`，因此 Decimal 等价、currency 大小写归一化和 Holding State 字段集合不会在两条路径中漂移。
+
 确认时：
 
-1. HTTP route 用 Zod 校验可编辑值。
+1. HTTP route 把不可信 body 交给 `import-confirmation-review.ts`；该模块用 Zod 校验 shape、逐行 accounting 一致性和已跟踪 Trading 212 holding 的例外。
 2. `applyImportDraftReview` 保留未被用户修改字段的原始来源信息。
 3. repository 再次读取最新 facts，避免使用过时 current state。
 4. screenshot draft 通过 `materializeConfirmedImportSnapshot` 自动补齐未被截图覆盖的既有持仓。
@@ -259,6 +265,8 @@ latest confirmed Portfolio State
 ```
 
 Route 不再先计算一个 `state` 再连同 snapshots 一起传入。`createPortfolioValuationTimeline` 只接受原始 facts，并在内部唯一地调用 `buildPortfolioState`；这消除了“caller 传入的 current state 与历史 snapshots 不一致”的无效状态。它随后统一组装 current dashboard、portfolio history、holding history、period combination、account allocation 和 FX overview。较小的 history 模块仍然保留为内部可测试 seam，但 route 只需要知道这一个高层入口。
+
+旧的 `src/application/portfolio-dashboard.ts` import path 保留为兼容 facade，只 re-export `createDashboardReadModel`、`createPortfolioHistoryReadModel` 和 `DashboardPeriodHistory` 的新实现；新代码应直接使用 current valuation 或 portfolio history 模块。
 
 `valuePortfolio` 位于 `src/domain/portfolio/valuation.ts`：
 
@@ -342,6 +350,20 @@ Portfolio history 会重建每个历史时间点的 state，并同时保留两�
 
 `src/application/portfolio-narrative-facts.ts` 再把 insights 投影成有限的 cloud facts 和 provenance catalogue。发送给 provider 的每组事实都有 server-defined `factKey`；模型的 headline、overview、每条 observation 和 data-quality note 都必须返回受 schema 限制的 evidence keys。服务端过滤这些 keys，再保存对应的本地事实摘要，因此 UI 展示的是可校验映射，而不是模型自行编造的“引用”。
 
+`src/application/portfolio-analyst-context.ts` 是 Portfolio Agent 的确定性事实边界。目前通过 `portfolio-analyst-tools.ts` 提供三个只读工具：`readPeriodDrivers` 输出指定区间的组合变化、Price/FX effect、estimated portfolio activity 和最多三个主要 holding contributor；`readDataQuality` 输出 freshness/coverage 汇总、按影响排序的 Data Gap、最多三次安全 refresh 摘要和最多一个可提议但不会执行的 Factual Update；`readPortfolioOverview` 输出有界的总值、allocation、近期 movers 与数据质量摘要。它们不读取 SQLite、不调用 provider，也不执行刷新。
+
+工具输出固定为 `portfolio-analyst-context.v1`，每条事实由应用分配 context-local Evidence Key、label 和 provenance。Read model 单独保留只有用户明确提供时才存在的 `analystDisplayName`，因此 dashboard 为显示而使用的 instrument-id fallback 不会跨过 Agent seam；missing-input facts 也会在 application 层解析成这个安全名称。内部 holding/account id、symbol/ISIN、quantity、Cost Basis、原始 provider error 和数据库行不会进入工具结果；holding display name 最多三个且可由用户关闭。每次工具结果和多次结果合并后都受 32 KiB 限制。生产 Agent 允许模型在三个 allowlisted read tools 中按需选择，单轮最多四次调用；每次结果使用独立 Evidence namespace，最终仍由应用合并并校验。
+
+`src/application/portfolio-analyst-answer.ts` 定义模型输出的第二道边界。JSON Schema 只能约束字段、类型和数量；`validatePortfolioAnalystAnswer` 还会用本次 Context 做运行时语义校验：Evidence Key 必须真实存在且单个 claim 内不重复，`factsAsOf` 必须完全一致，limitations 必须逐项复制，proposed update 必须为 `null` 或命中 server-owned `allowedActions`。因此模型即使返回语法正确的 JSON，也不能引用另一次请求的证据、隐藏 Context 限制或发明一个更新动作。该 application 模块本身不调用 provider，也不保存或展示回答。
+
+`GET/POST/DELETE /api/portfolio/analyst` 是当前的 on-demand conversation boundary。浏览器只能提交 conversation id、当前问题、provider、默认 period、language 与 holding-name preference；不能提交 PortfolioOverview 或自造 Context。每个 POST 都从本地 ledger 和 Market Data 重建最新 overview。Production runtime 由 Pi Agent 和 `pi-ai` 直接连接配置的 OpenAI/DeepSeek provider：模型可在 `read_period_drivers`、`read_data_quality` 与 `read_portfolio_overview` allowlist 中最多调用四次，application-owned tools 为每次结果分配独立 Evidence namespace，再把同一 `factsAsOf` 的结果合并后验证回答。超过预算的调用会在 Pi preflight 被阻止且不能读取 portfolio facts。旧 provider adapter 路径只保留给未注入 agent runtime 的测试与兼容调用。OpenAI 的 Pi transport 设置 `store: false`/无 prompt cache，最终模型回合使用 strict JSON Schema；DeepSeek 使用 JSON object mode；两者随后仍执行同一个本地 semantic Evidence validation。
+
+浏览器请求 `application/x-ndjson` 时，API 依次发送 accepted、选择工具、`tool-activity` started/completed、生成回答、answer delta 和 completed/failed 事件。activity 只包含 tool name、bounded input、facts timestamp 与 Evidence 数量，不包含原始 Portfolio Context。流中文字只是 provisional projection，服务端只在 schema 与 current-turn Evidence validation 都通过后保存 turn 和发出 completed。成功 report 的 `agentAudit` 保存 runtime、model-turn count、stop reason、bounded tool input、facts timestamp、Evidence Keys 与 blocked call，不保存 prompt、quantity、Cost Basis、内部 holding id 或 provider error。失败、中止或截断会丢弃 partial answer；durable failed-run audit 是 S 后续 slice。未请求流式内容的旧 JSON API 仍保留给兼容调用和测试。
+
+`src/components/portfolio-analyst.tsx` 是这条边界的显式 sidecar UI。关闭时只有悬浮 Agent control；打开后桌面端固定在收窄的 app icon rail 右侧并让右侧 portfolio workspace 自适应宽度，小屏幕则成为 full-width sheet。低频 conversation settings 默认折叠，让历史与 composer 占主要空间。发送时 UI 立即建立右侧 user message；左侧 activity timeline 按事件追加选择工具、调用、bounded result summary 与生成/验证状态，随后才显示独立的流式 assistant message。completed event 用完整已验证的同一段 `answer.text` 原子替换 provisional text，因此完成态不再从“对话”变成“事实报告”。Claims、classification 与 cited Evidence Facts 统一收在回答下方默认关闭的“事实与依据”附件里；activity 不嵌在回答或该附件中。页面加载只读取 provider 配置和最近一次本地 conversation；真正的 Context 构建与 cloud request 只在用户发送消息后发生。浏览器以 `mode: agent` 发送自然语言问题和默认 period，而不是预先指定 domain job；Pi 根据问题选择批准的只读工具。默认 period 可随问题改变，provider、language 和 holding-name permission 在有 turn 后锁定，避免旧的带名称回答被较严格的新 privacy setting 继续带入 history。用户可以停止当前请求，或显式 Reset & delete 后开始新 conversation。
+
+`src/application/portfolio-analyst-conversation.ts` 定义本地 conversation aggregate。SQLite 最多保存最近十二个完整 turn；发给 provider 的 history 只投影最近三个 turn pair，而且 assistant history 只含主回答文本和原始 `factsAsOf`，不含旧 Evidence payload。Prompt 明确规定历史文本只用于理解“它”“刚才的 FX”等指代，不能支持本轮 claim。本轮所有财务主张必须引用本轮刚重建的 Context，因此对话连续性与事实新鲜度是两条分开的责任链。
+
 浏览器生成请求只包含 provider 和 language，不上传一份可自行修改的 insights。Narrative route 会通过 `createPortfolioOverviewReadModel` 从当前 SQLite ledger 与 Market Data 重建 insights；portfolio overview route 也复用同一 application seam。因此旧标签页不能把过时或任意构造的 aggregate facts 保存成 current report。
 
 Narrative fingerprint 覆盖所有会影响报告内容的 aggregate facts，但忽略单纯的 dashboard request time。相同事实重新加载页面时报告仍标为 current；持仓构成、配置比例、performance 或 data-quality 改变后，旧报告保留并标为 previous facts。
@@ -368,7 +390,7 @@ Account allocation 不在 overview 占据主卡，而是在 `src/components/sour
 - reconciliation 状态
 - confirmation
 
-它不再自行实现 holding/cash reconciliation reducer。所有 add/remove/update/cash edit 都转换成一个明确的 edit intent，交给 `src/application/imports/import-review-editor.ts` 的纯函数处理。这样 React 只管理交互，Holding State 字段如何比较由一个可独立测试的模块决定；display name 或 market-price 字段变化不会被误报成 quantity/Cost Basis 变化。
+它不再自行实现 holding/cash reconciliation reducer。所有 add/remove/update/cash edit 都转换成一个明确的 edit intent，交给 `src/application/imports/import-review-editor.ts` 的纯函数处理。该 reducer 把字段规范化委托给 `import-review-holding-editor.ts`，把 Decimal 比较、Holding State 分类和计数委托给 `import-edit-reconciliation.ts`。这样 React 只管理交互；display name 或 market-price 字段变化不会被误报成 quantity/Cost Basis 变化。
 
 前端没有权限绕过 confirmation；真正写入 snapshot 的 gate 在服务端 repository。
 
@@ -389,10 +411,12 @@ Account allocation 不在 overview 占据主卡，而是在 `src/components/sour
 | `source_account_labels` | 用户自定义账户名称 |
 | `source_sync_state` | connector cursor/状态预留；当前尚未使用 |
 | `portfolio_narratives` | 已生成报告、模型元数据、facts fingerprint 与引用的聚合事实摘要 |
+| `portfolio_analyst_conversations` | 最多十二轮的本地 Analyst conversation 与已验证报告 |
+| `market_intelligence_briefs` | 最近一次已验证的 official-source 外部市场事件 brief |
 
-Repository interface 位于 `src/infrastructure/sqlite/portfolio-repository.ts`。它把 SQL、JSON encode/decode、transaction 和 legacy partial snapshot 恢复隐藏在一个模块内。
+Repository interface 位于 `src/infrastructure/sqlite/portfolio-repository-contract.ts`，`portfolio-repository.ts` 负责初始化 schema 并组合各 persistence adapter。Import/Portfolio、Market Data、Source Account label、Narrative、Market Intelligence 和 Analyst conversation 各自隐藏对应的 SQL、JSON encode/decode 与 transaction；legacy partial snapshot 恢复仍属于 Import/Portfolio adapter。
 
-当前 schema version 是 v5。v2 数据库会先增加 narrative table，v2/v3 都会为 `opening_snapshots` 增加 `payload_scope`；v2–v4 随后为 `market_refresh_runs` 增加 trigger mode，并在 transaction 中逐级更新 schema version。旧 refresh run 无法可靠推断原始 trigger，因此迁移后明确标成 `unknown`，UI 显示为 Earlier run；旧版本保存的任意错误详情同时被替换成固定的隐私安全摘要，避免迁移后进入浏览器。`payload_scope` 只有 `complete` 与 `legacy-partial`：新 confirmation 永远写 `complete`；`legacy-partial` 仅用于恢复旧版本曾经保存过的不完整 snapshot。
+当前 schema version 是 v7。v2 数据库先增加 narrative table，v2/v3 为 `opening_snapshots` 增加 `payload_scope`；v4 为 `market_refresh_runs` 增加 trigger mode，v5 增加本地 Analyst conversation table，v6 增加 Market Intelligence brief table，并在 transaction 中逐级更新到 v7。旧 refresh run 无法可靠推断原始 trigger，因此迁移后明确标成 `unknown`，UI 显示为 Earlier run；旧版本保存的任意错误详情同时被替换成固定的隐私安全摘要，避免迁移后进入浏览器。`payload_scope` 只有 `complete` 与 `legacy-partial`：新 confirmation 永远写 `complete`；`legacy-partial` 仅用于恢复旧版本曾经保存过的不完整 snapshot。
 
 v3 以前的运行时曾依赖一段英文 warning 来推断旧 snapshot 是否需要补齐 omitted holdings。v4 migration 只在升级时读取一次旧 warning，把结论写成明确的结构化字段；升级完成后，正常 read path 不再让 UI 文案承担持久化语义。pre-v2 测试数据库仍不自动迁移，以避免对早期 disposable 测试数据做不可靠转换。
 
@@ -410,9 +434,9 @@ Narrative table 不保存 API key、原始 prompt、截图或 provider request�
 
 ### Structured Responses transport
 
-`src/infrastructure/responses/structured-response-client.ts` 是 OpenAI Vision、OpenAI narrative 和 DeepSeek narrative 共用的窄传输层。它只负责 Responses-style HTTP request、deadline、status mapping、`output_text` envelope extraction 和 JSON decode。每个 adapter 仍各自决定 endpoint、模型、instructions、schema、token limit，以及如何把通用传输错误翻译成产品错误。
+`src/infrastructure/responses/structured-response-client.ts` 是 OpenAI Vision、OpenAI/DeepSeek narrative 与 OpenAI Market Intelligence 共用的窄传输层。它只负责 Responses-style HTTP request、deadline、status mapping、`output_text` envelope extraction 和 JSON decode。每个 adapter 仍各自决定 endpoint、模型、instructions、schema、token limit，以及如何把通用传输错误翻译成产品错误。
 
-Zod schema 是结构化输出 contract 的唯一来源。图片与 narrative 都用 `z.toJSONSchema` 生成 provider JSON Schema，provider 返回后再用同一个 Zod schema 校验，避免“发给模型的 schema”和“本地接受的 schema”逐渐分叉。
+Zod schema 是结构化输出 contract 的唯一来源。图片、narrative 与 Market Intelligence 都用 `z.toJSONSchema` 生成 provider JSON Schema，provider 返回后再用同一个 Zod schema 校验，避免“发给模型的 schema”和“本地接受的 schema”逐渐分叉。
 
 ### Eastmoney
 
@@ -461,8 +485,8 @@ Dashboard 首次读取到非空本地组合后，会调用 `/api/market-data/ref
 
 - QDII 的 Today 在 FX 日期比 NAV 新时仍包含最近 NAV move。
 - 单基金 screenshot draft 只显示检测出的基金，但 confirmation 后 omitted holdings 仍存在。
-- v3 legacy partial snapshot 升级到 v5 后仍能正确恢复 omitted holdings，且运行时不再读取 warning 文案。
-- v4 refresh history 升级到 v5 后保留旧运行，并把无法追溯的 trigger 标成 `unknown`。
+- v3 legacy partial snapshot 升级到当前 schema 后仍能正确恢复 omitted holdings，且运行时不再读取 warning 文案。
+- v4 refresh history 升级到当前 schema 后保留旧运行，并把无法追溯的 trigger 标成 `unknown`。
 - review editor 用 Decimal 语义比较数量、成本和现金，metadata/market edit 不会制造 Holding State change。
 - valuation timeline 只接受原始 facts，不允许 route 额外传入一个可能与 snapshots 不一致的 current state。
 
@@ -488,9 +512,20 @@ npm run build
 ## 14. 修改功能时从哪里开始
 
 - 改持仓/成本规则：`src/domain/portfolio/`
-- 改 import/reconciliation：`src/domain/imports.ts`
-- 改 review 编辑行为：`src/application/imports/import-review-editor.ts`
-- 改 Vision 字段协议：`src/application/imports/vision-extractor.ts`
+- 改 Import Draft 契约与值语义：`src/domain/import-draft.ts`
+- 改 draft review 合并规则：`src/domain/import-draft-review.ts`
+- 改 import/reconciliation：`src/domain/import-reconciliation.ts`
+- 改 Holding State Decimal/字段差异规则：`src/domain/holding-state-comparison.ts`
+- 改确认后 snapshot 与历史兼容：`src/domain/confirmed-import-snapshot.ts`
+- 改 review edit intent 与不可变 draft 更新：`src/application/imports/import-review-editor.ts`
+- 改 review holding 字段规范化与 identity 规则：`src/application/imports/import-review-holding-editor.ts`
+- 改 review 后的 Holding State 比较与 reconciliation 计数：`src/application/imports/import-edit-reconciliation.ts`
+- 改 confirmation body、会计一致性与 Trading 212 例外校验：`src/application/imports/import-confirmation-review.ts`
+- 改 CSV quoting、header 与逐行字段校验：`src/application/imports/csv-holdings-parser.ts`
+- 改 CSV 账户/会计规则与 Import Draft 映射：`src/application/imports/csv-import.ts`
+- 改 Vision schema/instructions/adapter contract：`src/application/imports/vision-extraction-contract.ts`
+- 改多截图持仓去重与冲突选择：`src/application/imports/vision-position-merge.ts`
+- 改截图到 Import Draft 的会计推导：`src/application/imports/screenshot-import-preparation.ts`
 - 改 OpenAI 图片调用：`src/infrastructure/openai/openai-vision-extractor.ts`
 - 改 Today/holding history：`src/application/holding-history.ts`
 - 改 portfolio period 聚合：`src/application/portfolio-periods.ts`
@@ -500,7 +535,8 @@ npm run build
 - 改 narrative facts/provenance：`src/application/portfolio-narrative-facts.ts`
 - 改 narrative schema/provider contract：`src/application/portfolio-narrative.ts`
 - 改 Responses-style HTTP/envelope：`src/infrastructure/responses/structured-response-client.ts`
-- 改 7/30 天历史重建：`src/application/portfolio-dashboard.ts`
+- 改当前持仓估值：`src/application/portfolio-current-valuation.ts`
+- 改历史时间点、收益与总值序列：`src/application/portfolio-history.ts`
 - 改 SQLite：`src/infrastructure/sqlite/`
 - 改价格刷新 workflow：`src/application/market-data-refresh.ts`
 - 改首页展示：`src/components/dashboard.tsx`
@@ -596,7 +632,7 @@ flowchart LR
 
 Provider 部分失败不会删除旧价格。一次 refresh 会记录 manual/automatic trigger、provider、updated、unchanged 和 safe failures；首页提供最近十次记录，并继续用最近成功的本地 observation。
 
-### 15.5 Narrative
+### 15.5 Narrative 与 Portfolio Agent
 
 ```mermaid
 sequenceDiagram
@@ -614,7 +650,7 @@ sequenceDiagram
   API-->>U: report marked current facts
 ```
 
-模型不是自主交易 Agent，也没有 tool loop。它目前是受限的解释器：输入有限、输出有 schema、每条话有 evidence key、事实改变后旧报告会过期。这是刻意的安全边界，也为将来增加多轮问答、比较两个时期或数据质量诊断留下稳定基础。
+Portfolio Agent 已使用 model-controlled read-only tool loop。Pi 负责 turn 生命周期、历史消息、工具调度和取消；应用定义唯一可用的三个只读工具、重建当前事实、限制每轮调用与 Context 大小，并对最终 Evidence 做语义校验。模型没有文件系统、shell、交易或 portfolio-write 权限；工具只能建议用户控制的事实更新，不能执行它。
 
 ## 16. HTTP API 与页面职责
 
@@ -630,20 +666,26 @@ sequenceDiagram
 | `POST /api/market-data/refresh` | 自动或手工批量刷新 | 否 |
 | `POST /api/market-data/manual` | 保存一条 dated price | 否 |
 | `GET/POST /api/portfolio/narrative` | 读取或生成解释报告 | 否 |
+| `GET/POST/DELETE /api/portfolio/analyst` | 恢复、继续或删除本地 Agent conversation；模型按需选择有界只读工具，回答须通过 Evidence 校验 | 否 |
+| `GET/POST /api/market-intelligence` | 读取或主动刷新 official-source 外部市场事件 brief | 否 |
 
-页面只有三个：`/` 是 overview，`/accounts` 是 Source Account 管理与 allocation，`/imports` 是 Update assets 和 review。页面组件不直接访问 SQLite 或外部 provider。
+页面有四个：`/` 是 overview 与 Portfolio Agent，`/accounts` 是 Source Account 管理与 allocation，`/imports` 是 Update assets 和 review，`/settings` 是 Agent 默认 provider、language 与 holding-name privacy 设置。页面组件不直接访问 SQLite 或外部 provider。
 
 ## 17. 本地配置、数据与运维
 
 | 环境变量 | 作用 | 默认值 |
 | --- | --- | --- |
 | `PORTFOLIO_DB_FILENAME` | `data/` 下 SQLite basename | `invest-assets-monitor.sqlite` |
-| `OPENAI_API_KEY` | Vision；也可启用 OpenAI narrative | 无 |
+| `OPENAI_API_KEY` | Vision、OpenAI narrative、Portfolio Agent 与 Market Intelligence | 无 |
 | `OPENAI_IMAGE_IMPORT_MODEL` | 图片识别模型 | `gpt-5.6-terra` |
 | `OPENAI_NARRATIVE_MODEL` | OpenAI narrative 模型 | `gpt-5.6-terra` |
-| `DEEPSEEK_API_KEY` | DeepSeek narrative | 无 |
+| `DEEPSEEK_API_KEY` | DeepSeek narrative 与 Portfolio Agent | 无 |
 | `DEEPSEEK_NARRATIVE_MODEL` | DeepSeek narrative 模型 | `deepseek-v4-flash` |
 | `PORTFOLIO_NARRATIVE_DEFAULT_PROVIDER` | narrative 默认 provider | `openai` |
+| `OPENAI_ANALYST_MODEL` | OpenAI Analyst 模型；未设置时复用 narrative model | `gpt-5.6-terra` |
+| `DEEPSEEK_ANALYST_MODEL` | DeepSeek Analyst 模型；未设置时复用 narrative model | `deepseek-v4-flash` |
+| `PORTFOLIO_ANALYST_DEFAULT_PROVIDER` | Analyst 默认 provider；未设置时复用 narrative default | `openai` |
+| `OPENAI_MARKET_INTELLIGENCE_MODEL` | Market Intelligence 模型；依次回退到 Analyst、Narrative 默认 | `gpt-5.6-terra` |
 | `TRADING212_API_KEY/SECRET` | 只读账户与持仓访问 | 无 |
 | `TRADING212_ENVIRONMENT` | `demo` 或 `live` | `demo` |
 

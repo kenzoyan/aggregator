@@ -7,7 +7,7 @@ tables and performance calculations, see [ARCHITECTURE.md](./ARCHITECTURE.md).
 
 ## Initial product scope
 
-- Desktop-first web app, with mobile layout polish planned after the core workflow
+- Responsive, desktop-first web app with shared desktop/mobile navigation
 - Funds, stocks, bonds, and investment-account cash
 - Trading 212 read-only synchronization
 - Screenshot-assisted imports with review and confirmation
@@ -17,11 +17,11 @@ tables and performance calculations, see [ARCHITECTURE.md](./ARCHITECTURE.md).
 - Clear source timestamps and stale/manual data states
 - Four independently named Source Accounts: Alipay, WeChat, Danske and Trading 212
 
-The first milestone is developed and tested locally. Tested source-code milestones are committed to this repository afterward.
+The application is developed and tested locally. Tested source-code milestones are committed to this repository afterward.
 
 ## Run locally
 
-Requirements: Node.js 23+ and npm.
+Requirements: Node.js 22.12+ (22.x) or Node.js 24+ and npm.
 
 ```bash
 npm install
@@ -33,14 +33,14 @@ Open [http://localhost:3000](http://localhost:3000). A new local database starts
 
 ### Rebuild the local test database
 
-Schema v5 separates editable Import Drafts, Confirmed Imports and portfolio facts, saves narrative reports locally, records an explicit snapshot payload scope for legacy recovery, and distinguishes manual from automatic market refresh runs. Existing v2–v4 databases upgrade to v5 in place without rebuilding portfolio data. The pre-v2 local database contained test data only and is intentionally not migrated. If startup reports a disposable pre-v2 schema, stop the app and move the old file out of the active path:
+Schema v7 separates editable Import Drafts, Confirmed Imports and portfolio facts, records snapshot payload scope and refresh trigger metadata, and stores optional narrative reports, Portfolio Agent conversations and external market briefs locally. Existing v2–v6 databases upgrade to v7 in place without rebuilding portfolio data. The pre-v2 local database contained test data only and is intentionally not migrated. If startup reports a disposable pre-v2 schema, stop the app and move the old file out of the active path:
 
 ```bash
 mkdir -p data/pre-v2
 mv data/invest-assets-monitor.sqlite* data/pre-v2/
 ```
 
-If `.env.local` sets `PORTFOLIO_DB_FILENAME`, replace `invest-assets-monitor.sqlite` in the command with that configured basename. Start the app again to create a clean v5 database, then import your local CSV and sync Trading 212 again. The moved database remains local and ignored by Git, so the reset is recoverable.
+If `.env.local` sets `PORTFOLIO_DB_FILENAME`, replace `invest-assets-monitor.sqlite` in the command with that configured basename. Start the app again to create a clean v7 database, then import your local CSV and sync Trading 212 again. The moved database remains local and ignored by Git, so the reset is recoverable.
 
 Real integrations are enabled only through `.env.local`:
 
@@ -50,7 +50,7 @@ Screenshot-based accounts use OpenAI vision through the Responses API. Set `OPEN
 
 The normal test suite mocks the cloud boundary. To run the opt-in accuracy check against the committed synthetic Chinese multi-holding image, set `RUN_OPENAI_VISION_EVAL=1` and run `npm test -- tests/evaluation/openai-vision-import.eval.test.ts`. This consumes OpenAI API usage and never sends personal portfolio data.
 
-Use **Accounts** to see current allocation by source, rename the four local Source Accounts and inspect the last confirmed snapshot, imported holding count, update method and stale/not-connected state. Account names are stored only in the ignored local SQLite database.
+Use **Accounts** to see current allocation by source, rename the four local Source Accounts and inspect Holding State separately from Market Data. Each account shows when its holdings were last confirmed and whether current valuations are fresh, manual or need attention; a screenshot account can therefore be due for a holding review while still using current NAVs. Account names are stored only in the ignored local SQLite database.
 
 Use **Update assets → Saved holdings CSV** to reopen a locally stored holdings file as a review draft. CSV rows do not affect the portfolio until confirmation. Personal CSV files under `data/imports/` remain ignored by Git.
 
@@ -72,17 +72,43 @@ Select an investment holding to open its detail drawer. The drawer keeps Holding
 
 Price observations are stored separately from Holding State. A refresh never changes quantity, Cost Basis or Reported Prior Return. **Today** means each holding's latest available daily price/NAV move plus the applicable FX move; this allows a QDII fund whose NAV publishes one or more days later to use its latest two available NAV dates instead of degrading to an FX-only calendar-day comparison. The portfolio Today number is the sum of those holding changes. The app cannot calculate a NAV that has not yet been published, so the UI retains the actual baseline/current NAV dates. Before a full 7-day or 30-day window exists, the UI uses the earliest real monitored baseline and labels the result as a partial range; older portfolios with missing history remain in **Awaiting baseline**.
 
-The overview keeps one primary chart with a **Total value / Daily change** switch. Total value reconstructs the actual amount held at each dated valuation, so deposits, withdrawals, purchases and sales can move that line. It separates the period movement into investment performance and inferred portfolio activity. Quantity comparisons provide factual added, increased, reduced and exited holding markers even when a cash-funded trade leaves total value unchanged; unexplained EUR movement remains separately labelled as estimated capital activity. Recent events are listed below the chart. Daily change remains the capital-flow-adjusted investment-performance view: Today uses the summary only, while 7- and 30-day bars can be selected to inspect a specific date and EUR move. These meanings stay separate instead of overlaying incompatible EUR balances and returns.
+The overview keeps one primary chart with an **Investment change / Total value** switch. Investment change is the default capital-flow-adjusted performance view: Today uses the summary only, while 7- and 30-day bars can be selected to inspect a specific date and EUR move. Its period summary separates Price and FX contributions. Total value reconstructs the actual amount held at each dated valuation, so deposits, withdrawals, purchases and sales can move that line; the low-information Total value mode is disabled for Today. The longer-period total-value view separates investment performance from inferred portfolio activity. Quantity comparisons provide factual added, increased, reduced and exited holding markers, while estimated activity below €1 is treated as rounding-sized display noise. The chart and grouped activity list show at most the four most recent material activity dates, keeping holding facts distinct from estimated capital activity.
 
 FX observations are also stored as dated market data. The overview shows the latest ECB EUR/CNY reference rate (`€1` in CNY) in its compact data-status row. Portfolio and holding history use only prices and ECB rates known at each valuation date. Each holding shows its selected-period EUR change and a compact trend once a valid baseline exists; otherwise it explicitly stays in **Awaiting baseline**. Additional units, newly imported holdings and sale proceeds are treated as capital changes rather than investment return.
 
-The overview also derives a local **Portfolio insights** read model from the valued holdings. It summarizes position concentration, holding-currency and asset-category allocation, the latest price/FX contribution, available movers and data-quality gaps. Holding currency means the instrument's quoted currency, not look-through exposure to its underlying assets. These facts are calculated by application code and remain useful without an LLM.
+The overview also derives a local **What matters now** read model from the valued holdings. It gives current price/FX movement and movers first, surfaces data issues only when attention is needed, and keeps slower-changing portfolio concentration in a compact summary. Quoted-currency allocation is omitted from the homepage because it is not look-through market exposure. These facts are calculated by application code and remain useful without an LLM.
 
-An optional cloud narrative can explain that read model in English or Simplified Chinese. It is generated only after selecting **Generate narrative**; loading or refreshing the dashboard never calls an LLM. The browser sends only the selected provider and language, and the server rebuilds current insights from the local ledger and Market Data before contacting the provider. Configure either `OPENAI_API_KEY` or `DEEPSEEK_API_KEY` in `.env.local`, optionally choose models with `OPENAI_NARRATIVE_MODEL` and `DEEPSEEK_NARRATIVE_MODEL`, then restart the app. The defaults are `gpt-5.6-terra` and `deepseek-v4-flash`. The provider receives only aggregate insight facts, including the display names of the largest holding and recent movers when available. It does not receive internal holding IDs, the full holding list, quantities, cost basis, trades, screenshots, credentials or database records.
+The overview presents Portfolio insights as local calculated facts without a separate cloud-narrative panel. Conversational explanations belong in the Portfolio Agent. The earlier on-demand narrative API and locally saved reports remain compatible for now, but loading or refreshing the dashboard does not call them or any LLM.
 
-Each generated statement must cite one or more server-defined fact keys. The completed report, model metadata, an aggregate-facts fingerprint and only the cited fact summaries are saved in the ignored local SQLite database. The latest report returns after a page reload; it is marked **current facts** while its fingerprint matches the current local insights, and **previous facts** after the portfolio facts change. Expand **View saved fact sources** to inspect the exact aggregate facts supporting each statement. API keys and raw prompts are never stored. Narrative text remains informational, may be incorrect, and is never investment advice.
+Legacy narrative reports remain evidence-backed: each saved statement cites server-defined fact keys, and the ignored local SQLite database stores only the completed report, model metadata, an aggregate-facts fingerprint and cited fact summaries. API keys and raw prompts are never stored. This compatibility path may be removed after equivalent aggregate-insight tools are available in the Portfolio Agent.
+
+The **Portfolio Agent** is a primary workspace on the overview. Its prominent homepage entry shows three localized starter questions that can begin an answer directly, plus a **Start chat** or **Continue chat** action that opens a wider left-side conversation workspace while the portfolio remains visible. On small screens the conversation becomes a full-width sheet. One shared collapsible navigation rail remains visible across Overview, Accounts, Import and Settings, with mobile navigation using the same destinations. Infrequently changed Agent defaults and AI privacy controls live on Settings so the conversation remains primary. Agent Activity shows one compact row for each read tool that actually ran, including its scope and bounded fact count; generic selection and answer-generation steps are omitted. The conversational answer streams beneath that activity without changing into a report when it completes. Each answer retains only its generation time and local-facts marker in the conversation; scope, snapshot time, provider and model move inside the collapsed Facts & evidence attachment, while the investment-advice boundary appears once at the composer. The streamed text is provisional: only a complete answer that passes the existing schema and current-turn Evidence validation is persisted. Every message rebuilds fresh, bounded facts; only the last three user/assistant turn pairs are sent to resolve conversational references, and historical answer text is explicitly excluded as evidence. Up to twelve complete turns are retained in the ignored local SQLite database for page reloads. Provider, language and holding-name privacy remain fixed within a conversation; saved Settings apply after **Reset & delete** starts a new conversation. Pi owns the model/tool loop, provider transport, events and cancellation behind an application interface; application-owned tools and semantic validation continue to own portfolio facts and safety boundaries.
+
+The overview also has an on-demand **External market watch** for the next thirty calendar days. It uses OpenAI Web Search only after the owner clicks refresh, restricts discovery to official Federal Reserve, ECB, BLS, BEA, European Commission and Eurostat domains, and requires every displayed event link to appear in the provider's actual search citations. It covers scheduled central-bank, inflation, employment and growth releases, keeps their factual relevance separate from local portfolio facts, and never predicts direction. Exact release times show both the official source timezone and `Europe/Helsinki`; repeated pages from the same official organization collapse to one event source. The latest successful brief is saved in the ignored local database; a failed refresh leaves it intact. Set `OPENAI_MARKET_INTELLIGENCE_MODEL` to override the Analyst/Narrative model fallback.
 
 ## Near-term roadmap
+
+The milestone letters are retained for continuity, but their execution order is intentionally not alphabetical. Milestone O remains deferred until explicit Portfolio Events are useful enough to justify their additional workflow complexity.
+
+### Completed foundation
+
+- **Milestones K–M — Application seams and import reliability (complete):** import lifecycle semantics, review editing, valuation orchestration, provider boundaries, synthetic tests and the current Danske multi-image workflow.
+- **Milestone N — Stabilization and operational visibility (complete, v1.0):** auditable manual/automatic refresh history, provider results, updated/unchanged/failed counts and privacy-safe configuration diagnostics. Market refresh remains read-only with respect to Holding State.
+- **Milestone P — Bounded Analyst foundation (complete, v1.1):** deterministic `readPeriodDrivers` and `readDataQuality` tools, a versioned privacy-preserving context, strict Evidence and answer validation, OpenAI/DeepSeek adapters and the explicit on-demand Analyst panel. This foundation was later extended by the conversational milestones below.
+- **Milestone Q — Conversation architecture and Pi Harness spike (accepted):** the owner accepted the conversational interaction after hands-on review. A disposable synthetic prototype validated per-turn immutable facts snapshots, stale-Evidence omission, privacy-triggered reset, cancellation and application-owned budgets. Its decision was absorbed into the production `PortfolioAnalystSession` seam; the prototype itself was removed.
+- **Milestone R — Evidence-backed multi-round Analyst (complete locally):** Pi-backed conversation lifecycle, bounded history, fresh facts on every turn, local persistence, reload recovery, cancellation, reset/delete controls, genuine provider streaming and per-call disclosure. A pending question is visible immediately; partial answer text is never persisted and is replaced only by a complete schema- and Evidence-validated report. Provider/language/name privacy settings are immutable inside one conversation. The compatibility path still maps legacy explicit jobs; the production agent path added by Milestone S lets the model choose only approved read tools. Every material claim must pass the current-turn Evidence validator in both paths.
+- **Milestone U — External market information (accepted):** an on-demand official-source web search creates a cited thirty-day macro calendar on the homepage. Results are validated against the returned search sources and stored locally, while failures keep the previous brief. Automatic refresh and portfolio-specific impact analysis remain outside this slice.
+
+### Planned execution order
+
+1. **Milestone S — Model-controlled read-only tools and audit (in progress):** Pi and `pi-ai` let the configured OpenAI or DeepSeek model select the current read tools it needs, up to a four-call safety bound. The allowlist now includes period drivers, data quality and a bounded portfolio overview; results from multiple calls receive separate Evidence namespaces and are combined before answer validation. Each actual tool call appears as one compact Agent Activity row and is stored in the completed turn audit. Synthetic runtime tests and an opt-in real-OpenAI evaluation verify tool selection without using the owner's portfolio. Next slices can add period comparison, holding timeline, refresh-history inspection and durable audit records for failed runs. Tools may suggest a refresh or open an import workflow, but they cannot execute a Holding State change.
+
+### Deferred and optional work
+
+- **Milestone O — Explicit Portfolio Events (deferred):** add confirmed purchase, sale, deposit/withdrawal, distribution, fee, transfer and correction workflows only when the owner needs those operations or Agent evaluations show that estimated portfolio activity is no longer sufficient. Preserve confirmation and append-only auditability.
+- **Milestone T — Automation and reliability (optional):** consider local scheduled market refresh, stale-data alerts, provider health/backoff and backup/recovery guidance after the conversational Analyst and refresh history are reliable. Do not run background LLM calls by default.
+
+The current intended sequence is **N → P → Q → R → S → U**, then reassess **O** and **T** from actual usage. The Agent remains informational: no trading permissions, autonomous portfolio mutations or investment advice.
 
 Local portfolio records are stored in `data/invest-assets-monitor.sqlite`. The entire `data` database remains ignored by Git.
 

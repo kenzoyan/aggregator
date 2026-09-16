@@ -69,6 +69,124 @@ function edit(input: ImportDraftEdit) {
 }
 
 describe("Import review editing", () => {
+  it("ignores edits for confirmed drafts and missing holding indexes", () => {
+    const confirmed = { ...editableDraft(), status: "confirmed" as const };
+
+    expect(applyImportDraftEdit(confirmed, {
+      type: "update-cash",
+      field: "amount",
+      value: "100",
+    })).toBe(confirmed);
+    expect(edit({ type: "remove-holding", index: 99 })).toEqual(editableDraft());
+    expect(edit({
+      type: "update-holding",
+      index: 99,
+      field: "quantity",
+      value: "3",
+    })).toEqual(editableDraft());
+  });
+
+  it("adds and removes new holdings without leaving stale reconciliation entries", () => {
+    const holding = {
+      lineId: "line-b",
+      instrumentId: "fund-b",
+      displayName: "Second Synthetic Fund",
+      quantity: "4",
+      currency: "EUR",
+      costBasis: "200",
+      reportedPriorReturn: "10",
+    };
+    const added = edit({ type: "add-holding", holding });
+
+    expect(added.portfolio.holdings).toHaveLength(2);
+    expect(added.reconciliation).toMatchObject({
+      changeCount: 1,
+      unchangedCount: 1,
+      holdings: [
+        { proposedLineId: "line-a", kind: "unchanged" },
+        { proposedLineId: "line-b", kind: "new", after: { instrumentId: "fund-b" } },
+      ],
+    });
+
+    const removed = applyImportDraftEdit(added, { type: "remove-holding", index: 1 });
+    expect(removed.portfolio.holdings).toHaveLength(1);
+    expect(removed.reconciliation).toMatchObject({
+      changeCount: 0,
+      unchangedCount: 1,
+      holdings: [{ proposedLineId: "line-a", kind: "unchanged" }],
+    });
+  });
+
+  it("preserves matched holding identity while allowing new holding identity edits", () => {
+    const renamedMatched = edit({
+      type: "update-holding",
+      index: 0,
+      field: "instrumentCode",
+      value: "UPDATED",
+    });
+    expect(renamedMatched.portfolio.holdings[0]).toMatchObject({
+      instrumentId: "fund-a",
+      instrumentCode: "UPDATED",
+    });
+
+    const newHoldingDraft = applyImportDraftEdit(editableDraft(), {
+      type: "add-holding",
+      holding: {
+        lineId: "line-b",
+        instrumentId: "temporary-id",
+        displayName: "Second Synthetic Fund",
+        quantity: "1",
+        currency: "EUR",
+        costBasis: "50",
+        reportedPriorReturn: "0",
+      },
+    });
+    const recoded = applyImportDraftEdit(newHoldingDraft, {
+      type: "update-holding",
+      index: 1,
+      field: "instrumentCode",
+      value: "FUND-B",
+    });
+    expect(recoded.portfolio.holdings[1]).toMatchObject({
+      instrumentId: "FUND-B",
+      instrumentCode: "FUND-B",
+    });
+  });
+
+  it("normalizes editable optional and schema-backed holding fields", () => {
+    const withPrice = edit({
+      type: "update-holding",
+      index: 0,
+      field: "observedPrice",
+      value: "12.5",
+    });
+    const withDate = applyImportDraftEdit(withPrice, {
+      type: "update-holding",
+      index: 0,
+      field: "priceAsOf",
+      value: "2026-09-15",
+    });
+    const invalidAssetType = applyImportDraftEdit(withDate, {
+      type: "update-holding",
+      index: 0,
+      field: "assetType",
+      value: "not-an-asset-type",
+    });
+    const cleared = applyImportDraftEdit(invalidAssetType, {
+      type: "update-holding",
+      index: 0,
+      field: "observedPrice",
+      value: "",
+    });
+
+    expect(withDate.portfolio.holdings[0]).toMatchObject({
+      observedPrice: "12.5",
+      priceAsOf: "2026-09-15T00:00:00.000Z",
+    });
+    expect(invalidAssetType.portfolio.holdings[0]?.assetType).toBeUndefined();
+    expect(cleared.portfolio.holdings[0]?.observedPrice).toBeUndefined();
+  });
+
   it("reconciles Holding State edits with Decimal equality", () => {
     const equivalent = edit({
       type: "update-holding",

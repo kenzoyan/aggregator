@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { createSourceAccountStatusReadModel } from "@/application/source-account-status";
+import {
+  createSourceAccountMarketDataStatuses,
+  createSourceAccountStatusReadModel,
+} from "@/application/source-account-status";
 import { buildPortfolioState } from "@/domain/portfolio/ledger";
 import type { OpeningSnapshotInput } from "@/domain/portfolio/types";
 import { sourceAccounts } from "@/domain/source-accounts";
@@ -13,6 +16,67 @@ function activePortfolio(snapshots: readonly OpeningSnapshotInput[]) {
 }
 
 describe("source account status", () => {
+  it("keeps holding snapshot age separate from current market data", () => {
+    const marketData = createSourceAccountMarketDataStatuses([{
+      sourceAccountId: "alipay-main",
+      category: "Fund",
+      freshness: "fresh",
+      asOf: "2026-09-10T00:00:00.000Z",
+    }, {
+      sourceAccountId: "alipay-main",
+      category: "Fund",
+      freshness: "fresh",
+      asOf: "2026-09-09T00:00:00.000Z",
+    }, {
+      sourceAccountId: "trading212-main",
+      category: "ETF",
+      freshness: "stale",
+      asOf: "2026-09-08T00:00:00.000Z",
+    }, {
+      sourceAccountId: "trading212-main",
+      category: "Portfolio cash",
+      freshness: "fresh",
+      asOf: "2026-09-12T00:00:00.000Z",
+    }]);
+
+    expect(marketData).toEqual([{
+      sourceAccountId: "alipay-main",
+      status: "current",
+      asOf: "2026-09-10T00:00:00.000Z",
+      holdingCount: 2,
+    }, {
+      sourceAccountId: "trading212-main",
+      status: "attention",
+      asOf: "2026-09-08T00:00:00.000Z",
+      holdingCount: 1,
+    }]);
+  });
+
+  it("marks missing inputs as attention and dates mixed freshness from the oldest issue", () => {
+    const marketData = createSourceAccountMarketDataStatuses([{
+      sourceAccountId: "alipay-main",
+      category: "Fund",
+      freshness: "fresh",
+      asOf: "2026-09-10T00:00:00.000Z",
+    }, {
+      sourceAccountId: "alipay-main",
+      category: "Fund",
+      freshness: "stale",
+      asOf: "2026-07-21T00:00:00.000Z",
+    }], [{ sourceAccountId: "trading212-main" }]);
+
+    expect(marketData).toEqual([{
+      sourceAccountId: "alipay-main",
+      status: "attention",
+      asOf: "2026-07-21T00:00:00.000Z",
+      holdingCount: 2,
+    }, {
+      sourceAccountId: "trading212-main",
+      status: "attention",
+      holdingCount: 1,
+    }]);
+  });
+
   it("keeps every configured account visible and reports its latest confirmed snapshot", () => {
     const confirmedSnapshots = [
         {

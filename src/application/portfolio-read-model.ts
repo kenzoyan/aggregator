@@ -1,4 +1,5 @@
 import type { MarketRefreshFailure } from "@/domain/market-data";
+import type { MissingValuationInput } from "@/domain/portfolio/valuation";
 
 export type Period = "today" | "week" | "month";
 
@@ -33,6 +34,7 @@ export interface HoldingReadModel {
     instrumentId: string;
   };
   name: string;
+  analystDisplayName?: string;
   symbol: string;
   source: string;
   category: "Fund" | "Stock" | "Bond" | "ETF" | "Portfolio cash" | "Unclassified";
@@ -186,13 +188,17 @@ export interface PortfolioInsightsReadModel {
   };
 }
 
+export type MissingValuationInputReadModel = MissingValuationInput & {
+  analystDisplayName?: string;
+};
+
 export interface PortfolioOverviewReadModel {
   holdings: HoldingReadModel[];
   totalValueEur: number;
   accountAllocation: SourceAccountAllocationReadModel[];
   fxAsOf: string;
   fxOverview?: FxOverviewReadModel;
-  missingInputs: unknown[];
+  missingInputs: MissingValuationInputReadModel[];
   marketData: MarketDataStatusReadModel;
   history: Record<Period, PeriodPerformanceReadModel>;
   insights?: PortfolioInsightsReadModel;

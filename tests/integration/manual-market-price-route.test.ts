@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { createManualMarketPriceHandler } from "@/app/api/market-data/manual/route";
+import { createManualMarketPriceHandler } from "@/app/api/market-data/manual/handler";
 import { createHoldingHistoryReadModel } from "@/application/holding-history";
 import { createCsvImportDraft } from "@/application/imports/csv-import";
 import { createPortfolioDatabase } from "@/infrastructure/sqlite/portfolio-repository";

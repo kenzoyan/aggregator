@@ -1,0 +1,68 @@
+import type { MarketIntelligenceBrief } from "@/application/market-intelligence";
+import type {
+  PortfolioAnalystConversationStore,
+} from "@/application/portfolio-analyst-conversation";
+import type { PortfolioNarrativeReport } from "@/application/portfolio-narrative";
+import type {
+  ConfirmedImportRecord,
+  ImportDraftInput,
+  ImportDraftReview,
+  StoredImportDraft,
+} from "@/domain/imports";
+import type {
+  FxRateObservation,
+  MarketPriceObservation,
+  MarketRefreshRecord,
+} from "@/domain/market-data";
+import type {
+  OpeningSnapshotInput,
+  PortfolioEventInput,
+  PortfolioState,
+} from "@/domain/portfolio/types";
+
+export interface ConfirmedSnapshotRecord {
+  snapshot: OpeningSnapshotInput;
+  confirmedAt: string;
+}
+
+export interface PortfolioFacts {
+  openingSnapshots: OpeningSnapshotInput[];
+  events: PortfolioEventInput[];
+  confirmedImports: ConfirmedImportRecord[];
+  confirmedSnapshots: ConfirmedSnapshotRecord[];
+  state: PortfolioState;
+}
+
+export interface MarketDataHistory {
+  observations: MarketPriceObservation[];
+  fxObservations: FxRateObservation[];
+  latestMarketRefresh?: MarketRefreshRecord;
+  marketRefreshHistory?: MarketRefreshRecord[];
+}
+
+export interface ConfirmImportCommand {
+  draftId: string;
+  confirmedImportId: string;
+  confirmedAt: string;
+  review: ImportDraftReview;
+}
+
+export interface PortfolioDatabase extends PortfolioAnalystConversationStore {
+  saveImportDraft(draft: ImportDraftInput): void;
+  getImportDraft(id: string): StoredImportDraft | undefined;
+  confirmImport(command: ConfirmImportCommand): StoredImportDraft;
+  readPortfolioFacts(): PortfolioFacts;
+  readMarketData(): MarketDataHistory;
+  readSourceAccountLabels(): Record<string, string>;
+  recordMarketData(input: {
+    observations: readonly MarketPriceObservation[];
+    fxObservations?: readonly FxRateObservation[];
+    refresh?: MarketRefreshRecord;
+  }): void;
+  renameSourceAccount(id: string, label: string): void;
+  savePortfolioNarrative(report: PortfolioNarrativeReport): void;
+  readLatestPortfolioNarrative(): PortfolioNarrativeReport | undefined;
+  saveMarketIntelligenceBrief(brief: MarketIntelligenceBrief): void;
+  readLatestMarketIntelligenceBrief(): MarketIntelligenceBrief | undefined;
+  close(): void;
+}
