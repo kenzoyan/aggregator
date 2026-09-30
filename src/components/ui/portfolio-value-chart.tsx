@@ -12,13 +12,7 @@ import {
 } from "recharts";
 
 import type { PortfolioValuePointReadModel } from "@/application/portfolio-read-model";
-
-const compactEur = new Intl.NumberFormat("en-FI", {
-  style: "currency",
-  currency: "EUR",
-  notation: "compact",
-  maximumFractionDigits: 1,
-});
+import { createPortfolioValueAxisFormatter } from "@/application/portfolio-value-axis";
 
 const exactEur = new Intl.NumberFormat("en-FI", {
   style: "currency",
@@ -52,6 +46,13 @@ export function PortfolioValueChart({
     ...point,
     label: formatDate(point.asOf),
   }));
+  const formatAxisValue = createPortfolioValueAxisFormatter(
+    data.map((point) => point.valueEur),
+  );
+  const axisWidth = Math.max(
+    68,
+    ...data.map((point) => formatAxisValue(point.valueEur).length * 7 + 8),
+  );
   const stroke = negative ? "var(--loss)" : "var(--gain)";
 
   return (
@@ -81,9 +82,9 @@ export function PortfolioValueChart({
             axisLine={false}
             domain={["dataMin", "dataMax"]}
             tick={{ fill: "var(--muted)", fontSize: 11 }}
-            tickFormatter={(value: number) => compactEur.format(value)}
+            tickFormatter={formatAxisValue}
             tickLine={false}
-            width={68}
+            width={axisWidth}
           />
           <Tooltip
             cursor={{ stroke: "var(--chart-cursor)", strokeDasharray: "3 3" }}
