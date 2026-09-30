@@ -6,6 +6,7 @@ import {
 } from "@/application/market-refresh";
 import type { MarketPriceObservation } from "@/domain/market-data";
 import type { PortfolioState } from "@/domain/portfolio/types";
+import { createSourceAccountDefinition } from "@/domain/source-accounts";
 
 const state: PortfolioState = {
   positions: [
@@ -30,6 +31,99 @@ const state: PortfolioState = {
 };
 
 describe("fund NAV refresh", () => {
+  it("records the published NAV on the import date when no provider observation exists", async () => {
+    const saved: MarketPriceObservation[] = [];
+    const result = await refreshFundNavs({
+      state: {
+        ...state,
+        positions: [{ ...state.positions[0]!, priceAsOf: "2026-07-16" }],
+      },
+      existingObservations: [],
+      monitoringStartedAtByPosition: {},
+      provider: {
+        id: "eastmoney",
+        fetchSince: async () => [{
+          instrumentCode: "040046",
+          price: "8.1202",
+          currency: "CNY",
+          asOf: "2026-07-16",
+          source: "eastmoney",
+        }],
+      },
+      record: (observations) => { saved.push(...observations); },
+      now: "2026-07-16T18:00:00.000Z",
+    });
+
+    expect(result).toMatchObject({ updated: 1, recordedPrices: 1 });
+    expect(saved[0]).toMatchObject({ asOf: "2026-07-16", source: "eastmoney" });
+
+    const repeated = await refreshFundNavs({
+      state,
+      existingObservations: saved,
+      monitoringStartedAtByPosition: {},
+      provider: {
+        id: "eastmoney",
+        fetchSince: async () => [{
+          instrumentCode: "040046",
+          price: "8.1202",
+          currency: "CNY",
+          asOf: "2026-07-16",
+          source: "eastmoney",
+        }],
+      },
+      record: () => { throw new Error("must not record the same NAV twice"); },
+      now: "2026-07-16T19:00:00.000Z",
+    });
+    expect(repeated).toMatchObject({ updated: 0, recordedPrices: 0, unchanged: 1 });
+  });
+
+  it("refreshes a CNY fund held in a dynamically created WeChat account", async () => {
+    const saved: MarketPriceObservation[] = [];
+    const result = await refreshFundNavs({
+      state: {
+        positions: [{
+          sourceAccountId: "account-wechat-wealth",
+          instrumentId: "019670",
+          instrumentCode: "019670",
+          displayName: "Synthetic Hong Kong fund",
+          assetType: "fund",
+          quantity: "10",
+          currency: "CNY",
+          costBasis: "10",
+          reportedPriorReturn: "0",
+          priceAsOf: "2026-09-16",
+        }],
+        cashBalances: [],
+        appliedEventIds: [],
+      },
+      sourceAccounts: [{
+        ...createSourceAccountDefinition({
+          id: "account-wechat-wealth",
+          accountType: "WeChat Wealth",
+        }),
+        provider: "generic", // Existing accounts retain the provider stored before this alias existed.
+      }],
+      existingObservations: [],
+      monitoringStartedAtByPosition: {},
+      provider: {
+        id: "eastmoney",
+        supportsInstrumentCode: (code) => /^\d{6}$/.test(code),
+        fetchSince: async () => [{
+          instrumentCode: "019670",
+          price: "1.3726",
+          currency: "CNY",
+          asOf: "2026-09-18",
+          source: "eastmoney",
+        }],
+      },
+      record: (observations) => { saved.push(...observations); },
+      now: "2026-09-22T12:00:00.000Z",
+    });
+
+    expect(result).toMatchObject({ updated: 1, recordedPrices: 1, failed: [] });
+    expect(saved[0]).toMatchObject({ instrumentCode: "019670", price: "1.3726" });
+  });
+
   it("records a newer NAV without changing quantity, cost basis or prior return", async () => {
     const saved: MarketPriceObservation[] = [];
     const originalState = structuredClone(state);

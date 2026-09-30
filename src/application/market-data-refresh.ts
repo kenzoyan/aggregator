@@ -16,6 +16,7 @@ import type {
   PortfolioState,
 } from "@/domain/portfolio/types";
 import { trading212SourceAccountId } from "@/domain/source-accounts";
+import type { SourceAccountDefinition } from "@/domain/source-accounts";
 
 export type MarketDataRefreshMode = "manual" | "automatic";
 
@@ -34,6 +35,7 @@ export type MarketDataRefreshOutcome =
     };
 
 interface MarketRefreshDatabase {
+  readSourceAccounts?(): SourceAccountDefinition[];
   readPortfolioFacts(): {
     state: PortfolioState;
     openingSnapshots: OpeningSnapshotInput[];
@@ -81,8 +83,9 @@ export function createMarketDataRefresh(
     }
 
     const facts = input.database.readPortfolioFacts();
+    const sourceAccounts = input.database.readSourceAccounts?.() ?? [];
     const hasRefreshablePosition = facts.state.positions.some((position) =>
-      hasFundNavRefreshTarget(position, input.fundNavProvider) ||
+      hasFundNavRefreshTarget(position, input.fundNavProvider, sourceAccounts) ||
       (Boolean(input.refreshTrading212Snapshot) &&
         position.sourceAccountId === trading212SourceAccountId)
     );
@@ -97,6 +100,7 @@ export function createMarketDataRefresh(
     const observations: MarketPriceObservation[] = [];
     const result = await refreshFundNavs({
       state: facts.state,
+      sourceAccounts,
       existingObservations: marketData.observations,
       monitoringStartedAtByPosition: Object.fromEntries(
         facts.openingSnapshots

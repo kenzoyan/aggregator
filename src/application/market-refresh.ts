@@ -4,7 +4,24 @@ import type {
   MarketPriceObservation,
 } from "@/domain/market-data";
 import type { PortfolioState, Position } from "@/domain/portfolio/types";
-import { findSourceAccount } from "@/domain/source-accounts";
+import {
+  createSourceAccountDefinition,
+  findSourceAccount,
+  type SourceAccountDefinition,
+} from "@/domain/source-accounts";
+
+function accountProvider(
+  sourceAccountId: string,
+  sourceAccounts: readonly SourceAccountDefinition[] = [],
+) {
+  const account = sourceAccounts.find((candidate) => candidate.id === sourceAccountId);
+  if (account) {
+    return account.provider === "generic"
+      ? createSourceAccountDefinition(account).provider
+      : account.provider;
+  }
+  return findSourceAccount(sourceAccountId)?.provider;
+}
 
 export interface MarketRefreshResult {
   refreshedAt: string;
@@ -84,10 +101,10 @@ export function safeMarketRefreshFailure(error: unknown): MarketRefreshFailure {
   };
 }
 
-function isDanskeIsinPosition(position: Position): position is Position & {
+function isDanskeIsinPosition(position: Position, sourceAccounts: readonly SourceAccountDefinition[] = []): position is Position & {
   instrumentCode: string;
 } {
-  return findSourceAccount(position.sourceAccountId)?.provider === "danske" &&
+  return accountProvider(position.sourceAccountId, sourceAccounts) === "danske" &&
     position.currency === "EUR" &&
     Boolean(
       position.instrumentCode &&
@@ -95,10 +112,10 @@ function isDanskeIsinPosition(position: Position): position is Position & {
     );
 }
 
-function isDanskeFundCandidate(position: Position): position is Position & {
+function isDanskeFundCandidate(position: Position, sourceAccounts: readonly SourceAccountDefinition[] = []): position is Position & {
   instrumentCode: string;
 } {
-  return isDanskeIsinPosition(position) &&
+  return isDanskeIsinPosition(position, sourceAccounts) &&
     (position.assetType === undefined ||
       position.assetType === "fund" ||
       position.assetType === "etf");
@@ -107,9 +124,10 @@ function isDanskeFundCandidate(position: Position): position is Position & {
 export function hasFundNavRefreshTarget(
   position: Position,
   provider?: FundNavProvider,
+  sourceAccounts: readonly SourceAccountDefinition[] = [],
 ): boolean {
-  return supportsFundNavRefresh(position, provider) ||
-    isDanskeFundCandidate(position);
+  return supportsFundNavRefresh(position, provider, sourceAccounts) ||
+    isDanskeFundCandidate(position, sourceAccounts);
 }
 
 export function safeMarketRefreshFailureMessage(error: unknown): string {
@@ -119,16 +137,17 @@ export function safeMarketRefreshFailureMessage(error: unknown): string {
 export function supportsFundNavRefresh(
   position: Position,
   provider?: FundNavProvider,
+  sourceAccounts: readonly SourceAccountDefinition[] = [],
 ): position is Position & {
   instrumentCode: string;
 } {
-  const accountProvider = findSourceAccount(position.sourceAccountId)?.provider;
+  const sourceProvider = accountProvider(position.sourceAccountId, sourceAccounts);
   const sourceSupportsNav = (
-    (accountProvider === "alipay" || accountProvider === "wechat") &&
+    (sourceProvider === "alipay" || sourceProvider === "wechat") &&
     (position.assetType === "fund" || position.assetType === "etf") &&
     position.currency === "CNY" &&
     Boolean(position.instrumentCode && /^\d{6}$/.test(position.instrumentCode))
-  ) || (isDanskeIsinPosition(position) &&
+  ) || (isDanskeIsinPosition(position, sourceAccounts) &&
     (provider?.supportsInstrumentCode?.(position.instrumentCode) ?? false));
   return sourceSupportsNav && Boolean(
     position.instrumentCode &&
@@ -156,6 +175,7 @@ function newestKnownPriceDate(
 
 export async function refreshFundNavs(input: {
   state: PortfolioState;
+  sourceAccounts?: readonly SourceAccountDefinition[];
   existingObservations: readonly MarketPriceObservation[];
   monitoringStartedAtByPosition: Readonly<Record<string, string>>;
   provider: FundNavProvider;
@@ -165,11 +185,11 @@ export async function refreshFundNavs(input: {
   now: string;
 }): Promise<MarketRefreshResult> {
   const eligible = input.state.positions.filter((position) =>
-    supportsFundNavRefresh(position, input.provider)
+    supportsFundNavRefresh(position, input.provider, input.sourceAccounts)
   );
   const configurationFailures: MarketRefreshFailure[] = input.state.positions
     .flatMap((position) => {
-      if (!isDanskeFundCandidate(position)) return [];
+      if (!isDanskeFundCandidate(position, input.sourceAccounts)) return [];
       if (!input.provider.supportsInstrumentCode) return [];
       if (input.provider.supportsInstrumentCode(position.instrumentCode)) return [];
       return [{
@@ -200,7 +220,16 @@ export async function refreshFundNavs(input: {
         fetchStart,
       );
       const newQuotes = quotes.filter((quote) =>
-        quote.asOf >= monitoringStart && (!knownDate || quote.asOf > knownDate)
+        quote.asOf >= monitoringStart && (
+          !knownDate || quote.asOf > knownDate || (
+            quote.asOf === knownDate &&
+            !input.existingObservations.some((observation) =>
+              observation.sourceAccountId === position.sourceAccountId &&
+              observation.instrumentId === position.instrumentId &&
+              observation.asOf.slice(0, 10) === quote.asOf
+            )
+          )
+        )
       );
       if (newQuotes.length === 0) {
         unchanged += 1;
