@@ -81,7 +81,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const items = [
     { href: "/#overview", label: "Overview", icon: LayoutDashboard, active: overviewActive, current: "location" as const },
     { href: "/#holdings", label: "Holdings", icon: ChartNoAxesCombined, active: holdingsActive, current: "location" as const },
-    { href: "/accounts", label: "Accounts", icon: WalletCards, active: pathname === "/accounts", current: "page" as const },
+    { href: "/accounts", label: "Accounts", icon: WalletCards, active: pathname === "/accounts" || pathname.startsWith("/accounts/"), current: "page" as const },
     { href: "/imports", label: "Import", icon: ArrowDownToLine, active: pathname === "/imports", current: "page" as const },
     { href: "/settings", label: "Settings", icon: Settings, active: pathname === "/settings", current: "page" as const },
   ];

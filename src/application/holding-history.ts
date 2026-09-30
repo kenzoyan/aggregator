@@ -235,19 +235,24 @@ function periodPerformance(
   const fxChange = current.quantity
     .mul(current.unitPrice)
     .mul(current.fxRate.minus(baseline.fxRate));
+  const chartPoints = [
+    baseline,
+    ...points.filter((point) =>
+      point.asOf > baseline.asOf && point.asOf <= current.asOf
+    ),
+  ];
   return {
     available: true,
     ...(baselineResult.coverage ? { coverage: baselineResult.coverage } : {}),
     change: change.toNumber(),
     percent: change.div(baseline.valueEur).mul(100).toNumber(),
-    points: [
-      baseline.valueEur.toNumber(),
-      ...points
-        .filter((point) =>
-          point.asOf > baseline.asOf && point.asOf <= current.asOf
-        )
-        .map((point) => point.valueEur.toNumber()),
-    ],
+    points: chartPoints.map((point) => point.valueEur.toNumber()),
+    holdingPoints: chartPoints.map((point) => ({
+      asOf: point.asOf.slice(0, 10),
+      priceAsOf: point.priceAsOf.slice(0, 10),
+      unitPrice: point.unitPrice.toString(),
+      valueEur: point.valueEur.toNumber(),
+    })),
     priceChange: priceChange.toNumber(),
     fxChange: fxChange.toNumber(),
     baselineAsOf: baseline.priceAsOf,

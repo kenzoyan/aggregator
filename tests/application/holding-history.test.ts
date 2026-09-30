@@ -43,6 +43,10 @@ describe("holding history read model", () => {
       change: 20,
       percent: 10,
       points: [200, 220],
+      holdingPoints: [
+        { asOf: "2026-07-20", priceAsOf: "2026-07-20", unitPrice: "100", valueEur: 200 },
+        { asOf: "2026-07-21", priceAsOf: "2026-07-21", unitPrice: "110", valueEur: 220 },
+      ],
       priceChange: 20,
       fxChange: 0,
       baselineAsOf: "2026-07-20T23:59:59.999Z",
@@ -165,6 +169,10 @@ describe("holding history read model", () => {
       change: 0.5,
       points: [12, 12.5],
       currentAsOf: "2026-07-20T23:59:59.999Z",
+      holdingPoints: [
+        { asOf: "2026-07-20", priceAsOf: "2026-07-20", unitPrice: "10", valueEur: 12 },
+        { asOf: "2026-07-21", priceAsOf: "2026-07-20", unitPrice: "10", valueEur: 12.5 },
+      ],
     });
   });
 

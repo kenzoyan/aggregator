@@ -10,10 +10,8 @@ import {
   useEffect,
   useId,
   useMemo,
-  useRef,
   useState,
   type CSSProperties,
-  type FormEvent,
 } from "react";
 
 import {
@@ -24,8 +22,6 @@ import {
   createPortfolioChartPresentation,
   minimumVisiblePortfolioActivityEur,
 } from "@/application/portfolio-chart-presentation";
-import { formatSignedOriginalMoney } from "@/application/money-format";
-import { portfolioCalendarDate } from "@/application/portfolio-calendar";
 import type {
   FxOverviewReadModel,
   HoldingReadModel,
@@ -47,7 +43,6 @@ import type { MarketRefreshResult } from "@/application/market-refresh";
 import { PortfolioAnalyst } from "@/components/portfolio-analyst";
 import { PortfolioInsights } from "@/components/portfolio-insights";
 import { MarketIntelligence } from "@/components/market-intelligence";
-import { useAppShellModalState } from "@/components/app-shell";
 import { PortfolioValueChart } from "@/components/ui/portfolio-value-chart";
 
 const eur = new Intl.NumberFormat("en-FI", {
@@ -86,30 +81,6 @@ interface AutomaticRefreshSkip {
   skipped: true;
   reason: "already-refreshed-today" | "no-refreshable-positions";
   lastRefreshedAt?: string;
-}
-
-const focusableSelector = [
-  "button:not([disabled])",
-  "[href]",
-  "input:not([disabled])",
-  "select:not([disabled])",
-  "[tabindex]:not([tabindex='-1'])",
-].join(",");
-
-function keepTabFocusInside(
-  event: KeyboardEvent,
-  focusable: readonly HTMLElement[],
-) {
-  if (event.key !== "Tab" || focusable.length === 0) return;
-  const first = focusable[0]!;
-  const last = focusable.at(-1)!;
-  if (event.shiftKey && document.activeElement === first) {
-    event.preventDefault();
-    last.focus();
-  } else if (!event.shiftKey && document.activeElement === last) {
-    event.preventDefault();
-    first.focus();
-  }
 }
 
 function formatRefreshFailures(
@@ -281,8 +252,7 @@ function returnPercent(percent?: number) {
 }
 
 export function Dashboard() {
-  const setAppShellModalActive = useAppShellModalState();
-  const [period, setPeriod] = useState<Period>("today");
+  const [period, setPeriod] = useState<Period>("week");
   const [chartMode, setChartMode] = useState<ChartMode>("daily-change");
   const [selectedDailyDate, setSelectedDailyDate] = useState<string>();
   const [source, setSource] = useState(allAccounts);
@@ -294,23 +264,6 @@ export function Dashboard() {
   const [localFxOverview, setLocalFxOverview] = useState<FxOverviewReadModel>();
   const [refreshingPrices, setRefreshingPrices] = useState(false);
   const [refreshMessage, setRefreshMessage] = useState<string>();
-  const [priceEditor, setPriceEditor] = useState<HoldingReadModel>();
-  const [manualPrice, setManualPrice] = useState("");
-  const [manualPriceDate, setManualPriceDate] = useState("");
-  const [savingManualPrice, setSavingManualPrice] = useState(false);
-  const [manualPriceError, setManualPriceError] = useState<string>();
-  const [selectedHoldingId, setSelectedHoldingId] = useState<string>();
-  const [drawerPeriod, setDrawerPeriod] = useState<Period>("today");
-  const holdingDrawerRef = useRef<HTMLElement>(null);
-  const holdingDrawerTriggerRef = useRef<HTMLElement | null>(null);
-  const priceEditorRef = useRef<HTMLFormElement>(null);
-  const priceEditorTriggerRef = useRef<HTMLElement | null>(null);
-
-  useEffect(() => {
-    setAppShellModalActive(Boolean(selectedHoldingId || priceEditor));
-    return () => setAppShellModalActive(false);
-  }, [priceEditor, selectedHoldingId, setAppShellModalActive]);
-
   async function loadLocalPortfolio(signal?: AbortSignal) {
     setPortfolioLoadError(undefined);
     try {
@@ -358,44 +311,6 @@ export function Dashboard() {
       .finally(() => setLoading(false));
     return () => controller.abort();
   }, []);
-
-  useEffect(() => {
-    if (!selectedHoldingId && !priceEditor) return;
-    function closeOnEscape(event: KeyboardEvent) {
-      if (event.key !== "Escape") return;
-      if (priceEditor) {
-        closePriceEditor();
-      } else {
-        closeHoldingDrawer();
-      }
-    }
-    window.addEventListener("keydown", closeOnEscape);
-    return () => window.removeEventListener("keydown", closeOnEscape);
-  }, [priceEditor, selectedHoldingId]);
-
-  useEffect(() => {
-    const drawer = holdingDrawerRef.current;
-    if (!selectedHoldingId || priceEditor || !drawer) return;
-    const focusable = [...drawer.querySelectorAll<HTMLElement>(focusableSelector)];
-    focusable[0]?.focus();
-    function keepFocusInside(event: KeyboardEvent) {
-      keepTabFocusInside(event, focusable);
-    }
-    window.addEventListener("keydown", keepFocusInside);
-    return () => window.removeEventListener("keydown", keepFocusInside);
-  }, [priceEditor, selectedHoldingId]);
-
-  useEffect(() => {
-    const editor = priceEditorRef.current;
-    if (!priceEditor || !editor) return;
-    const focusable = [...editor.querySelectorAll<HTMLElement>(focusableSelector)];
-    focusable[0]?.focus();
-    function keepFocusInside(event: KeyboardEvent) {
-      keepTabFocusInside(event, focusable);
-    }
-    window.addEventListener("keydown", keepFocusInside);
-    return () => window.removeEventListener("keydown", keepFocusInside);
-  }, [priceEditor]);
 
   function setDemoMode(enabled: boolean) {
     setDemoEnabled(enabled);
@@ -446,67 +361,6 @@ export function Dashboard() {
     }
   }
 
-  function openPriceEditor(
-    holding: HoldingReadModel,
-    trigger?: HTMLElement,
-  ) {
-    priceEditorTriggerRef.current = trigger ?? null;
-    trigger?.blur();
-    setPriceEditor(holding);
-    setManualPrice("");
-    setManualPriceDate(portfolioCalendarDate());
-    setManualPriceError(undefined);
-  }
-
-  function closePriceEditor() {
-    setPriceEditor(undefined);
-    window.requestAnimationFrame(() => priceEditorTriggerRef.current?.focus());
-  }
-
-  function openHoldingDrawer(
-    holding: HoldingReadModel,
-    trigger?: HTMLElement,
-  ) {
-    if (!holding.detail) return;
-    holdingDrawerTriggerRef.current = trigger ?? null;
-    trigger?.blur();
-    setSelectedHoldingId(holding.id);
-    setDrawerPeriod(period);
-  }
-
-  function closeHoldingDrawer() {
-    setSelectedHoldingId(undefined);
-    window.requestAnimationFrame(() => holdingDrawerTriggerRef.current?.focus());
-  }
-
-  async function saveManualPrice(event: FormEvent) {
-    event.preventDefault();
-    if (!priceEditor?.holdingKey) return;
-    setSavingManualPrice(true);
-    setManualPriceError(undefined);
-    try {
-      const response = await fetch("/api/market-data/manual", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          sourceAccountId: priceEditor.holdingKey.sourceAccountId,
-          instrumentId: priceEditor.holdingKey.instrumentId,
-          price: manualPrice,
-          asOf: manualPriceDate,
-        }),
-      });
-      const payload = (await response.json()) as { error?: string };
-      if (!response.ok) throw new Error(payload.error ?? "Price update failed");
-      await loadLocalPortfolio();
-      setRefreshMessage(`Saved ${priceEditor.name} price for ${manualPriceDate}`);
-      closePriceEditor();
-    } catch (error) {
-      setManualPriceError(error instanceof Error ? error.message : "Price update failed");
-    } finally {
-      setSavingManualPrice(false);
-    }
-  }
-
   const isLocal = Boolean(localPortfolio) && !demoEnabled;
   const hasVisiblePortfolio = isLocal || demoEnabled;
   const usingReviewedDemo = demoEnabled && Boolean(reviewedDemoHoldings);
@@ -534,16 +388,6 @@ export function Dashboard() {
         : []
     ),
   );
-  const selectedHolding = isLocal
-    ? holdings.find((holding) => holding.id === selectedHoldingId)
-    : undefined;
-  const selectedPerformance = selectedHolding?.history?.[drawerPeriod];
-  const drawerSparkline = selectedHolding && selectedPerformance?.available
-    ? comparableSparklineModels([{
-        id: selectedHolding.id,
-        points: selectedPerformance.points,
-      }])[selectedHolding.id]
-    : undefined;
   const sources = [allAccounts, ...new Set(holdings.map((holding) => holding.source))];
   const latestMarketResult = localPortfolio?.marketData.latestResult;
   const marketRefreshHistory = localPortfolio?.marketData.refreshHistory ?? [];
@@ -596,7 +440,7 @@ export function Dashboard() {
 
   return (
     <>
-      <main className="main-content" id="overview" aria-hidden={Boolean(selectedHolding || priceEditor)}>
+      <main className="main-content" id="overview">
         <header className="topbar">
           <div>
             <p className="eyebrow">YOUR PRIVATE WEALTH</p>
@@ -625,7 +469,7 @@ export function Dashboard() {
           </div>
         </header>
 
-        <PortfolioAnalyst blocked={Boolean(selectedHolding || priceEditor)} />
+        <PortfolioAnalyst blocked={false} />
 
         {portfolioLoadError && (
           <section className="portfolio-load-error" role="alert">
@@ -880,31 +724,11 @@ export function Dashboard() {
             <div className="holding-row holding-header"><span>Asset</span><span>Status</span><span>Current value</span><span>Period change</span></div>
             {filtered.map((holding) => (
               <article
-                className={`holding-row${isLocal && holding.detail ? " holding-row-interactive" : ""}`}
+                className={`holding-row${isLocal ? " holding-row-interactive" : ""}`}
                 key={holding.id}
-                onClick={isLocal && holding.detail
-                  ? (event) => openHoldingDrawer(
-                      holding,
-                      event.currentTarget.querySelector<HTMLElement>(".asset-cell") ??
-                        event.currentTarget,
-                    )
-                  : undefined}
               >
-                <div
-                  className="asset-cell"
-                  {...(isLocal && holding.detail
-                    ? {
-                        role: "button",
-                        tabIndex: 0,
-                        onKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => {
-                          if (event.key === "Enter" || event.key === " ") {
-                            event.preventDefault();
-                            openHoldingDrawer(holding, event.currentTarget);
-                          }
-                        },
-                      }
-                    : {})}
-                ><span className="asset-icon">{holding.category === "Bond" ? "B" : holding.category === "Fund" ? "F" : holding.category === "ETF" ? "E" : holding.category === "Portfolio cash" ? "€" : holding.category === "Stock" ? "S" : "?"}</span><p><strong>{holding.name}</strong><small>{holding.source} · {holding.symbol} · {holding.category}</small></p></div>
+                {isLocal && <Link className="holding-row-overlay" href={`/accounts/${encodeURIComponent(holding.sourceAccountId)}?holding=${encodeURIComponent(holding.id)}`} aria-label={`View ${holding.name} in ${holding.source}`} />}
+                <div className="asset-cell"><span className="asset-icon">{holding.category === "Bond" ? "B" : holding.category === "Fund" ? "F" : holding.category === "ETF" ? "E" : holding.category === "Portfolio cash" ? "€" : holding.category === "Stock" ? "S" : "?"}</span><p><strong>{holding.name}</strong><small>{holding.source} · {holding.symbol} · {holding.category}</small></p></div>
                 <div className="holding-status"><span className={`freshness ${holding.freshness}`}>{freshnessLabels[holding.freshness]}</span><small className="as-of">{holding.asOf}</small></div>
                 <div className="value-cell">
                   <strong>{eur.format(holding.eurValue)}</strong>
@@ -952,141 +776,6 @@ export function Dashboard() {
           </div>
         </section>
       </main>
-
-      {selectedHolding?.detail && (
-        <div className="holding-drawer-backdrop" role="presentation" onMouseDown={closeHoldingDrawer}>
-          <aside
-            ref={holdingDrawerRef}
-            className="holding-drawer"
-            role="dialog"
-            aria-modal={priceEditor ? undefined : true}
-            aria-hidden={Boolean(priceEditor)}
-            aria-labelledby="holding-drawer-title"
-            onMouseDown={(event) => event.stopPropagation()}
-          >
-            <header className="holding-drawer-header">
-              <div>
-                <p className="eyebrow">HOLDING DETAIL</p>
-                <h2 id="holding-drawer-title">{selectedHolding.name}</h2>
-                <p>{selectedHolding.source} · {selectedHolding.symbol} · {selectedHolding.category}</p>
-              </div>
-              <button type="button" className="drawer-close" aria-label="Close holding detail" onClick={closeHoldingDrawer}>×</button>
-            </header>
-
-            <section className="drawer-value-card">
-              <span>Current value</span>
-              <strong>{eur.format(selectedHolding.eurValue)}</strong>
-              <small>{selectedHolding.originalValue}</small>
-              {selectedHolding.totalReturn && (
-                <small className={selectedHolding.totalReturn.eurAmount >= 0 ? "drawer-total-return positive" : "drawer-total-return negative"}>
-                  Total return {signedEur(selectedHolding.totalReturn.eurAmount)}{returnPercent(selectedHolding.totalReturn.percent)}
-                </small>
-              )}
-            </section>
-
-            <dl className="holding-facts">
-              <div><dt>Quantity</dt><dd>{selectedHolding.detail.quantity}</dd></div>
-              <div><dt>Cost Basis</dt><dd>{selectedHolding.detail.costBasis} {selectedHolding.currency}</dd></div>
-              <div><dt>Current NAV / price</dt><dd>{selectedHolding.detail.currentPrice} {selectedHolding.currency}</dd></div>
-              <div><dt>NAV / price date</dt><dd>{selectedHolding.detail.currentPriceAsOf}</dd></div>
-              {selectedHolding.detail.averageCost && (
-                <div><dt>Average cost</dt><dd>{selectedHolding.detail.averageCost} {selectedHolding.currency}</dd></div>
-              )}
-              {selectedHolding.totalReturn && (
-                <div>
-                  <dt>Calculated total return</dt>
-                  <dd className={selectedHolding.totalReturn.originalAmount >= 0 ? "positive" : "negative"}>
-                    {formatSignedOriginalMoney(selectedHolding.totalReturn.originalAmount, selectedHolding.currency)}
-                    {returnPercent(selectedHolding.totalReturn.percent)}
-                  </dd>
-                </div>
-              )}
-              <div><dt>Reported at last holding update</dt><dd>{selectedHolding.detail.reportedPriorReturn} {selectedHolding.currency}</dd></div>
-            </dl>
-
-            <section className="drawer-performance">
-              <div className="drawer-section-heading">
-                <div><p className="eyebrow">MONITORED PERFORMANCE</p><h3>{periodData[drawerPeriod].label}</h3></div>
-                <div className="period-tabs drawer-period-tabs" role="group" aria-label="Select holding detail period">
-                  {(Object.keys(periodData) as Period[]).map((key) => (
-                    <button key={key} className={drawerPeriod === key ? "selected" : ""} type="button" onClick={() => setDrawerPeriod(key)} aria-pressed={drawerPeriod === key}>
-                      {periodData[key].label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              {selectedPerformance?.available && drawerSparkline ? (
-                <>
-                  <div className="drawer-change-summary">
-                    <Change value={selectedPerformance.change} percent={selectedPerformance.percent} />
-                    <small>Price {signedEur(selectedPerformance.priceChange ?? 0)} · FX {signedEur(selectedPerformance.fxChange ?? 0)}</small>
-                    <small>{selectedPerformance.coverage === "partial" ? "Partial range · " : ""}{selectedPerformance.baselineAsOf?.slice(0, 10)} → {selectedPerformance.currentAsOf?.slice(0, 10)}</small>
-                  </div>
-                  <Sparkline
-                    detail
-                    points={selectedPerformance.points}
-                    negative={selectedPerformance.change < 0}
-                    comparableModel={drawerSparkline}
-                    label={`${selectedHolding.name} ${drawerPeriod} detailed value trend`}
-                  />
-                </>
-              ) : (
-                <div className="drawer-awaiting">
-                  <strong>Awaiting baseline</strong>
-                  <span>
-                    {drawerPeriod === "today" && selectedHolding.history?.week.available
-                      ? "No recent daily price is available. Select 7 days to use the older baseline."
-                      : "Record another dated NAV / price for this period."}
-                  </span>
-                </div>
-              )}
-            </section>
-
-            <section className="price-history-section">
-              <div className="drawer-section-heading">
-                <div><p className="eyebrow">MARKET DATA</p><h3>Saved NAV / price history</h3></div>
-                <button type="button" className="drawer-update-price" onClick={(event) => openPriceEditor(selectedHolding, event.currentTarget)}>Update NAV / price</button>
-              </div>
-              {selectedHolding.detail.priceHistory.length > 0 ? (
-                <div className="price-history-list">
-                  {selectedHolding.detail.priceHistory.map((observation) => (
-                    <div key={`${observation.asOf}:${observation.source}`}>
-                      <span><strong>{observation.asOf}</strong><small>{observation.source}</small></span>
-                      <strong>{observation.price} {observation.currency}</strong>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="drawer-empty-copy">No saved price observations yet.</p>
-              )}
-            </section>
-          </aside>
-        </div>
-      )}
-
-      {priceEditor && (
-        <div className="price-editor-backdrop" role="presentation" onMouseDown={() => !savingManualPrice && closePriceEditor()}>
-          <form ref={priceEditorRef} className="price-editor" role="dialog" aria-modal="true" aria-labelledby="price-editor-title" onSubmit={saveManualPrice} onMouseDown={(event) => event.stopPropagation()}>
-            <div>
-              <p className="eyebrow">MARKET DATA ONLY</p>
-              <h2 id="price-editor-title">Update NAV / price</h2>
-              <p>{priceEditor.name} · {priceEditor.currency}</p>
-            </div>
-            <label className="field-label">NAV / price
-              <input required autoFocus inputMode="decimal" value={manualPrice} onChange={(event) => setManualPrice(event.target.value)} placeholder="e.g. 12.345" />
-            </label>
-            <label className="field-label">Price date
-              <input required type="date" value={manualPriceDate} max={portfolioCalendarDate()} onChange={(event) => setManualPriceDate(event.target.value)} />
-            </label>
-            <p className="price-editor-note">This records Market Data only. Quantity and Cost Basis will not change.</p>
-            {manualPriceError && <p className="error-message" role="alert">{manualPriceError}</p>}
-            <div className="price-editor-actions">
-              <button type="button" disabled={savingManualPrice} onClick={closePriceEditor}>Cancel</button>
-              <button type="submit" disabled={savingManualPrice}>{savingManualPrice ? "Saving…" : "Save price"}</button>
-            </div>
-          </form>
-        </div>
-      )}
 
     </>
   );

@@ -270,13 +270,13 @@ export function SourceAccountsPanel() {
             <div className="account-card-heading">
               <span className={`account-provider ${account.provider}`}>{account.provider === "trading212" ? "T212" : account.provider.slice(0, 1).toUpperCase()}</span>
               <div>
-                <strong>{account.label}</strong>
+                <Link className="account-open-link" href={`/accounts/${encodeURIComponent(account.id)}`}>{account.label}</Link>
                 <small>{account.accountType} · {account.updateMethod}</small>
               </div>
               <span className={`account-status ${account.status}`}>{statusLabels[account.status]}</span>
             </div>
             <dl className="account-metadata">
-              <div><dt>Holdings</dt><dd>{account.holdingCount}</dd></div>
+              <div><dt>Investment holdings</dt><dd>{account.holdingCount}</dd></div>
               <div><dt>Holding snapshot</dt><dd>{account.dataAsOf ? new Date(account.dataAsOf).toLocaleDateString("en-FI") : "Not confirmed"}</dd></div>
               <div><dt>Market data</dt><dd>{marketData
                 ? <><span className={`account-market-status ${marketData.status}`}>{marketStatusLabels[marketData.status]}</span>{marketData.asOf

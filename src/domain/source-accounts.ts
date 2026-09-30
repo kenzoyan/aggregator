@@ -23,6 +23,7 @@ const knownAccountTypes: Record<
 > = {
   alipay: { id: "alipay-main", provider: "alipay", updateMethod: "screenshot" },
   wechat: { id: "wechat-main", provider: "wechat", updateMethod: "screenshot" },
+  wechatwealth: { id: "wechat-main", provider: "wechat", updateMethod: "screenshot" },
   wechatwealthmanagement: {
     id: "wechat-main",
     provider: "wechat",

@@ -1,3 +1,4 @@
+import { cashHoldingId, investmentHoldingId } from "@/application/portfolio-holding-id";
 import type {
   OpeningSnapshotInput,
   PortfolioState,
@@ -9,6 +10,8 @@ import type {
   MissingValuationInputReadModel,
   SourceAccountAllocationReadModel,
 } from "@/application/portfolio-read-model";
+import { assetTypeLabels } from "@/domain/portfolio/types";
+import Decimal from "decimal.js";
 
 export type SourceAccountConnectionStatus = "current" | "stale" | "not-connected";
 
@@ -45,6 +48,78 @@ export interface SourceAccountsPageReadModel {
   accounts: SourceAccountView[];
   accountAllocation: SourceAccountAllocationReadModel[];
   marketDataStatuses: SourceAccountMarketDataStatus[];
+  holdings: SourceAccountHoldingReadModel[];
+}
+
+export interface SourceAccountHoldingReadModel {
+  id: string;
+  sourceAccountId: string;
+  instrumentId?: string;
+  name: string;
+  symbol: string;
+  category: HoldingReadModel["category"];
+  quantity: string;
+  currency: string;
+  originalValue?: string;
+  eurValue?: number;
+  freshness?: HoldingReadModel["freshness"];
+  asOf?: string;
+  missing?: "price" | "fx";
+}
+
+export function createSourceAccountHoldingsReadModel(input: {
+  state: PortfolioState;
+  holdings: readonly HoldingReadModel[];
+  missingInputs: readonly MissingValuationInputReadModel[];
+}): SourceAccountHoldingReadModel[] {
+  const valued = new Map(input.holdings.map((holding) => [holding.id, holding]));
+  return [
+    ...input.state.positions.map((position) => {
+      const id = investmentHoldingId(position);
+      const holding = valued.get(id);
+      const missing = input.missingInputs.find((item) =>
+        item.sourceAccountId === position.sourceAccountId &&
+        item.instrumentId === position.instrumentId
+      );
+      return {
+        id,
+        sourceAccountId: position.sourceAccountId,
+        instrumentId: position.instrumentId,
+        name: position.displayName ?? position.instrumentId,
+        symbol: position.instrumentCode ?? position.instrumentId,
+        category: position.assetType ? assetTypeLabels[position.assetType] : "Unclassified" as const,
+        quantity: position.quantity,
+        currency: position.currency,
+        ...(holding ? {
+          originalValue: holding.originalValue,
+          eurValue: holding.eurValue,
+          freshness: holding.freshness,
+          asOf: holding.detail?.currentPriceAsOf ?? holding.asOf,
+        } : { missing: missing?.kind ?? "price" as const }),
+      };
+    }),
+    ...input.state.cashBalances
+      .filter((cash) => !new Decimal(cash.amount).isZero())
+      .map((cash) => {
+        const id = cashHoldingId(cash);
+        const holding = valued.get(id);
+        return {
+          id,
+          sourceAccountId: cash.sourceAccountId,
+          name: "Portfolio Cash",
+          symbol: "CASH",
+          category: "Portfolio cash" as const,
+          quantity: cash.amount,
+          currency: cash.currency,
+          ...(holding ? {
+            originalValue: holding.originalValue,
+            eurValue: holding.eurValue,
+            freshness: holding.freshness,
+            asOf: holding.asOf,
+          } : { missing: "fx" as const }),
+        };
+      }),
+  ];
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;

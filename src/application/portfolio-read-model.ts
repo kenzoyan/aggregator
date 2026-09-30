@@ -56,6 +56,12 @@ export interface PeriodPerformanceReadModel {
   change: number;
   percent: number;
   points: number[];
+  holdingPoints?: Array<{
+    asOf: string;
+    priceAsOf: string;
+    unitPrice: string;
+    valueEur: number;
+  }>;
   priceChange?: number;
   fxChange?: number;
   baselineAsOf?: string;

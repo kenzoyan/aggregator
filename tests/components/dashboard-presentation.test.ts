@@ -49,6 +49,7 @@ describe("dashboard presentation", () => {
 
     expect(markup).toContain("Investment change");
     expect(markup).toContain('class="selected" aria-pressed="true">Investment change');
-    expect(markup).toContain('aria-pressed="false" disabled="">Total value');
+    expect(markup).toContain('class="selected" aria-pressed="true">7 days');
+    expect(markup).toContain('aria-pressed="false">Total value');
   });
 });

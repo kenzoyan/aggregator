@@ -85,6 +85,17 @@ describe("GET /api/accounts", () => {
       asOf: "2026-09-14",
       holdingCount: 1,
     }]);
+    expect(payload.holdings).toEqual([expect.objectContaining({
+      id: "alipay-main:synthetic-fund",
+      sourceAccountId: "alipay-main",
+      instrumentId: "synthetic-fund",
+      name: "Synthetic Fund",
+      symbol: "000001",
+      category: "Fund",
+      quantity: "10",
+      currency: "EUR",
+      eurValue: 110,
+    })]);
     expect(renameSourceAccount).not.toHaveBeenCalled();
   });
 

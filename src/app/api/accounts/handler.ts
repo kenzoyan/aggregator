@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import {
   createSourceAccountMarketDataStatuses,
+  createSourceAccountHoldingsReadModel,
   createSourceAccountStatusReadModel,
   type SourceAccountsPageReadModel,
 } from "@/application/source-account-status";
@@ -85,6 +86,11 @@ export function createAccountsHandlers(input: {
         portfolio.holdings,
         portfolio.missingInputs,
       ),
+      holdings: createSourceAccountHoldingsReadModel({
+        state: facts.state,
+        holdings: portfolio.holdings,
+        missingInputs: portfolio.missingInputs,
+      }),
     };
   }
 

@@ -42,6 +42,13 @@ describe("source accounts", () => {
     });
   });
 
+  it("recognizes WeChat Wealth as a WeChat account", () => {
+    expect(createSourceAccountDefinition({
+      id: "account-wechat-wealth",
+      accountType: "WeChat Wealth",
+    }).provider).toBe("wechat");
+  });
+
   it("restores stable ids for known account types", () => {
     expect(sourceAccountIdForType("WeChat Wealth Management", "account-random"))
       .toBe("wechat-main");
