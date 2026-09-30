@@ -7,13 +7,17 @@ import {
   createDemoPortfolioRecord,
   demoPortfolioStorageKey,
 } from "@/application/demo-portfolio";
-import type { ImportDraftReadModel } from "@/application/imports/import-draft-read-model";
+import {
+  createImportDraftConfirmationPayload,
+  type ImportDraftReadModel,
+} from "@/application/imports/import-draft-read-model";
 import {
   applyImportDraftEdit,
   type EditableHoldingField,
 } from "@/application/imports/import-review-editor";
 import type { SourceAccountView } from "@/application/source-account-status";
 import { ScreenshotPreviewTray } from "@/components/screenshot-preview-tray";
+import { resolveRequestedSourceAccountId } from "@/components/source-account-selection";
 import {
   maximumScreenshotCount,
   mergeScreenshotFiles,
@@ -27,7 +31,7 @@ type ImportDraftView = ImportDraftReadModel;
 
 type AccountOption = Pick<
   SourceAccountView,
-  "id" | "provider" | "label" | "updateMethod" | "connector"
+  "id" | "accountType" | "provider" | "label" | "updateMethod" | "connector"
 >;
 
 function reviewChangeLabel(reconciliation: ImportReconciliation): string {
@@ -64,11 +68,17 @@ export function AssetImportWorkflow() {
           throw new Error(payload.error ?? "Source accounts could not be loaded.");
         }
         setAccounts(payload.accounts);
-        const requested = new URLSearchParams(window.location.search).get("account");
+        const search = new URLSearchParams(window.location.search);
+        const requested = search.get("account");
+        const requestedByType = resolveRequestedSourceAccountId(
+          payload.accounts,
+          search.get("accountType"),
+        );
         setSourceAccountId((current) => {
           if (requested && payload.accounts!.some((account) => account.id === requested)) {
             return requested;
           }
+          if (requestedByType) return requestedByType;
           if (payload.accounts!.some((account) => account.id === current)) return current;
           return payload.accounts![0]?.id ?? "";
         });
@@ -284,11 +294,7 @@ export function AssetImportWorkflow() {
       const response = await fetch(`/api/imports/${draft.id}/confirm`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          confidence: draft.confidence,
-          warnings: draft.warnings,
-          portfolio: draft.portfolio,
-        }),
+        body: JSON.stringify(createImportDraftConfirmationPayload(draft)),
       });
       const payload = (await response.json()) as {
         draft?: ImportDraftView;

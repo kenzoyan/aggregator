@@ -15,11 +15,17 @@ export function ScreenshotPreviewTray({
   disabled,
   onRemove,
   addControl,
+  heading = "Reference screenshots",
+  helperText,
+  listLabel = "Selected screenshots",
 }: {
   files: readonly File[];
   disabled: boolean;
   onRemove: (file: File) => void;
   addControl?: ReactNode;
+  heading?: ReactNode;
+  helperText?: ReactNode;
+  listLabel?: string;
 }) {
   const [previews, setPreviews] = useState<ScreenshotPreview[]>([]);
   const [activeKey, setActiveKey] = useState<string>();
@@ -51,11 +57,11 @@ export function ScreenshotPreviewTray({
     <section className="screenshot-tray" aria-labelledby="screenshot-tray-heading">
       <div className="screenshot-tray-heading">
         <div>
-          <strong id="screenshot-tray-heading">Reference screenshots</strong>
-          <small>{files.length} of 6 · kept only for this page session</small>
+          <strong id="screenshot-tray-heading">{heading}</strong>
+          <small>{helperText ?? `${files.length} of 6 · kept only for this page session`}</small>
         </div>
       </div>
-      <ul className="screenshot-thumbnails" aria-label="Selected screenshots">
+      <ul className="screenshot-thumbnails" aria-label={listLabel}>
         {addControl && <li className="screenshot-add-item">{addControl}</li>}
         {previews.map((preview, index) => (
           <li key={preview.key}>

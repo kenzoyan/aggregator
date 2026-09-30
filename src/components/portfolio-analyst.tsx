@@ -31,6 +31,32 @@ import type {
 } from "@/application/portfolio-analyst-provider";
 import type { Period } from "@/application/portfolio-read-model";
 import {
+  createImportDraftConfirmationPayload,
+  type ImportDraftReadModel,
+} from "@/application/imports/import-draft-read-model";
+import {
+  applyImportDraftEdit,
+  type ImportDraftEdit,
+} from "@/application/imports/import-review-editor";
+import {
+  createAgentComposerSubmission,
+  readTextOnlyAgentQuestion,
+} from "@/components/agent-composer-submission";
+import {
+  createAgentImageAttachmentState,
+  lockAgentImageAttachments,
+  resetAgentImageAttachments,
+  unlockAgentImageAttachments,
+  type AgentImageAttachmentState,
+} from "@/components/agent-image-attachment-state";
+import { AgentImageAttachments } from "@/components/agent-image-attachments";
+import {
+  createAgentImportAnalysisForm,
+  resolveAgentImportSourceAccount,
+  type AgentImportAccountOption,
+} from "@/components/agent-import-analysis";
+import { AgentImportDraftReview } from "@/components/agent-import-draft-review";
+import {
   applyPortfolioAnalystStreamEvent,
   beginPendingPortfolioAnalystTurn,
   consumePortfolioAnalystStream,
@@ -44,7 +70,10 @@ interface AnalystConfiguration {
     model: string;
   }>;
   conversation?: PortfolioAnalystConversation;
+  importDraft?: ImportDraftReadModel;
 }
+
+type StartAccountImportAction = Extract<FactualUpdate, { kind: "start-account-import" }>;
 
 const providerNames: Record<PortfolioAnalystProviderId, string> = {
   openai: "OpenAI",
@@ -91,7 +120,17 @@ export function PortfolioAnalyst({ blocked = false }: { blocked?: boolean }) {
   const [pendingTurn, setPendingTurn] = useState<PendingPortfolioAnalystTurn>();
   const [question, setQuestion] = useState("");
   const [loading, setLoading] = useState(false);
+  const [importBusy, setImportBusy] = useState(false);
+  const [importOperation, setImportOperation] = useState<"analysis" | "confirmation">("analysis");
   const [error, setError] = useState<string>();
+  const [importTarget, setImportTarget] = useState<StartAccountImportAction>();
+  const [importAttachments, setImportAttachments] = useState<AgentImageAttachmentState<File>>(
+    () => createAgentImageAttachmentState<File>(),
+  );
+  const [importDraft, setImportDraft] = useState<ImportDraftReadModel>();
+  const [importSubmissionText, setImportSubmissionText] = useState("");
+  const [importSubmissionScreenshotCount, setImportSubmissionScreenshotCount] = useState(0);
+  const [importSubmissionTargetLabel, setImportSubmissionTargetLabel] = useState("");
   const [accountActionStatus, setAccountActionStatus] = useState<Record<
     string,
     "confirming" | "created" | "failed"
@@ -121,6 +160,10 @@ export function PortfolioAnalyst({ blocked = false }: { blocked?: boolean }) {
         });
         const latestReport = restored?.turns.at(-1)?.report;
         setConversation(restored);
+        setImportDraft(value.importDraft);
+        setImportSubmissionText(restored?.importActivity?.submissionText ?? "");
+        setImportSubmissionScreenshotCount(restored?.importActivity?.screenshotCount ?? 0);
+        setImportSubmissionTargetLabel(restored?.importActivity?.targetLabel ?? "");
         setProvider(settings.provider);
         setLanguage(settings.language);
         setIncludeHoldingNames(settings.includeHoldingNames);
@@ -140,7 +183,7 @@ export function PortfolioAnalyst({ blocked = false }: { blocked?: boolean }) {
   useEffect(() => {
     const view = conversationView.current;
     if (view) view.scrollTop = view.scrollHeight;
-  }, [conversation?.turns.length, pendingTurn?.answerText]);
+  }, [conversation?.turns.length, importDraft?.id, importDraft?.status, pendingTurn?.answerText]);
 
   useEffect(() => {
     function closeOnEscape(event: KeyboardEvent) {
@@ -173,8 +216,189 @@ export function PortfolioAnalyst({ blocked = false }: { blocked?: boolean }) {
     void runAnalyst(prompt);
   }
 
+  function startAccountImport(action: StartAccountImportAction) {
+    if (loading || importBusy) return;
+    setImportTarget(action);
+    setImportAttachments((current) => resetAgentImageAttachments(current));
+    setImportDraft(undefined);
+    setImportSubmissionText("");
+    setImportSubmissionScreenshotCount(0);
+    setImportSubmissionTargetLabel("");
+    setError(undefined);
+    window.requestAnimationFrame(() => composer.current?.focus());
+  }
+
+  function cancelAccountImport() {
+    if (importBusy) return;
+    setImportTarget(undefined);
+    setImportAttachments((current) => resetAgentImageAttachments(current));
+    setImportDraft(undefined);
+    setImportSubmissionText("");
+    setImportSubmissionScreenshotCount(0);
+    setImportSubmissionTargetLabel("");
+    setError(undefined);
+  }
+
+  async function analyzeAccountImport(
+    submission: NonNullable<ReturnType<typeof createAgentComposerSubmission<File>>>,
+  ) {
+    if (!importTarget || submission.screenshots.length === 0 || loading || importBusy) return;
+    setImportBusy(true);
+    setImportOperation("analysis");
+    setError(undefined);
+    setImportDraft(undefined);
+    setImportAttachments((current) => lockAgentImageAttachments(current));
+    const controller = new AbortController();
+    activeRequest.current = controller;
+    try {
+      const accountsResponse = await fetch("/api/accounts", {
+        cache: "no-store",
+        signal: controller.signal,
+      });
+      const accountsPayload = (await accountsResponse.json()) as {
+        accounts?: AgentImportAccountOption[];
+        error?: string;
+      };
+      if (!accountsResponse.ok || !accountsPayload.accounts) {
+        throw new Error(accountsPayload.error ?? "Source accounts could not be loaded.");
+      }
+      const account = resolveAgentImportSourceAccount(
+        accountsPayload.accounts,
+        importTarget.accountType,
+      );
+      if (!account) {
+        throw new Error("The selected screenshot account is no longer available.");
+      }
+      const response = await fetch("/api/imports/analyze", {
+        method: "POST",
+        body: createAgentImportAnalysisForm(account.id, submission.screenshots),
+        signal: controller.signal,
+      });
+      const payload = (await response.json()) as {
+        draft?: ImportDraftReadModel;
+        error?: string;
+      };
+      if (!response.ok || !payload.draft) {
+        throw new Error(payload.error ?? "Image analysis failed.");
+      }
+      if (!conversation) {
+        throw new Error("The Agent conversation is unavailable. Start the import again.");
+      }
+      const activityResponse = await fetch("/api/portfolio/analyst", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          conversationId: conversation.id,
+          draftId: payload.draft.id,
+          targetLabel: importTarget.label,
+          submissionText: submission.text,
+          screenshotCount: submission.screenshots.length,
+        }),
+        signal: controller.signal,
+      });
+      const activityPayload = (await activityResponse.json()) as {
+        conversation?: PortfolioAnalystConversation;
+        importDraft?: ImportDraftReadModel;
+        error?: string;
+      };
+      if (!activityResponse.ok || !activityPayload.conversation || !activityPayload.importDraft) {
+        throw new Error(activityPayload.error ?? "The import draft could not be saved to this conversation.");
+      }
+      setConversation(activityPayload.conversation);
+      setImportDraft(activityPayload.importDraft);
+      setImportSubmissionText(submission.text);
+      setImportSubmissionScreenshotCount(submission.screenshots.length);
+      setImportSubmissionTargetLabel(importTarget.label);
+      setQuestion("");
+    } catch (cause) {
+      if (!(cause instanceof DOMException && cause.name === "AbortError")) {
+        setError(cause instanceof Error ? cause.message : "Image analysis failed.");
+      }
+    } finally {
+      activeRequest.current = undefined;
+      setImportAttachments((current) => unlockAgentImageAttachments(current));
+      setImportBusy(false);
+    }
+  }
+
+  function submitComposer() {
+    const submission = createAgentComposerSubmission({
+      text: question,
+      screenshots: importAttachments.files,
+    });
+    if (!submission) return;
+    if (submission.screenshots.length > 0) {
+      void analyzeAccountImport(submission);
+      return;
+    }
+    void runAnalyst(submission.text);
+  }
+
+  function editImportDraft(edit: ImportDraftEdit) {
+    setImportDraft((current) => current ? applyImportDraftEdit(current, edit) : current);
+  }
+
+  function addImportHolding() {
+    const currency = importDraft?.portfolio.holdings[0]?.currency ||
+      importDraft?.portfolio.portfolioCash?.currency || "EUR";
+    editImportDraft({
+      type: "add-holding",
+      holding: {
+        lineId: crypto.randomUUID(),
+        instrumentId: "",
+        displayName: "",
+        quantity: "1",
+        currency,
+        costBasis: "",
+        reportedPriorReturn: "0",
+      },
+    });
+  }
+
+  async function confirmAccountImport() {
+    if (!importDraft || importDraft.status !== "draft" || loading || importBusy) return;
+    if (importDraft.portfolio.holdings.length === 0 && !importDraft.portfolio.portfolioCash) {
+      setError("Add at least one holding before confirmation.");
+      return;
+    }
+    setImportBusy(true);
+    setImportOperation("confirmation");
+    setError(undefined);
+    const controller = new AbortController();
+    activeRequest.current = controller;
+    try {
+      const response = await fetch(`/api/imports/${importDraft.id}/confirm`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(createImportDraftConfirmationPayload(importDraft)),
+        signal: controller.signal,
+      });
+      const payload = (await response.json()) as {
+        draft?: ImportDraftReadModel;
+        error?: string;
+      };
+      if (!response.ok || !payload.draft) {
+        throw new Error(payload.error ?? "Confirmation failed.");
+      }
+      setImportDraft(payload.draft);
+      setImportTarget(undefined);
+      setImportAttachments((current) => resetAgentImageAttachments(current));
+    } catch (cause) {
+      if (!(cause instanceof DOMException && cause.name === "AbortError")) {
+        setError(cause instanceof Error ? cause.message : "Confirmation failed.");
+      }
+    } finally {
+      activeRequest.current = undefined;
+      setImportBusy(false);
+    }
+  }
+
   async function runAnalyst(requestedQuestion?: string) {
-    const normalizedQuestion = (requestedQuestion ?? question).trim();
+    const submission = createAgentComposerSubmission({
+      text: requestedQuestion ?? question,
+      screenshots: [],
+    });
+    const normalizedQuestion = readTextOnlyAgentQuestion(submission);
     if (!selectedProvider?.configured || loading || !normalizedQuestion) return;
     setLoading(true);
     setError(undefined);
@@ -249,7 +473,7 @@ export function PortfolioAnalyst({ blocked = false }: { blocked?: boolean }) {
   }
 
   async function resetConversation() {
-    if (loading) return;
+    if (loading || importBusy) return;
     setError(undefined);
     try {
       if (conversation) {
@@ -266,6 +490,12 @@ export function PortfolioAnalyst({ blocked = false }: { blocked?: boolean }) {
       setConversation(undefined);
       setPendingTurn(undefined);
       setQuestion("");
+      setImportTarget(undefined);
+      setImportAttachments((current) => resetAgentImageAttachments(current));
+      setImportDraft(undefined);
+      setImportSubmissionText("");
+      setImportSubmissionScreenshotCount(0);
+      setImportSubmissionTargetLabel("");
       const fallbackProvider = configuration?.defaultProvider ?? "openai";
       const preferences = readPortfolioAnalystPreferences(
         window.localStorage,
@@ -407,6 +637,7 @@ export function PortfolioAnalyst({ blocked = false }: { blocked?: boolean }) {
                 report={turn.report}
                 actionStatus={accountActionStatus[turn.id]}
                 onConfirmCreateAccount={(action) => void confirmCreateAccount(turn.id, action)}
+                onStartAccountImport={startAccountImport}
               />
             </div>
           ))}
@@ -436,20 +667,57 @@ export function PortfolioAnalyst({ blocked = false }: { blocked?: boolean }) {
               ) : null}
             </div>
           )}
+          {importDraft && (
+            <AgentImportDraftReview
+              draft={importDraft}
+              targetLabel={importSubmissionTargetLabel || importTarget?.label || importTarget?.accountType || "Source account"}
+              screenshotCount={importSubmissionScreenshotCount}
+              submissionText={importSubmissionText}
+              language={language}
+              busy={importBusy}
+              onEdit={editImportDraft}
+              onAddHolding={addImportHolding}
+              onConfirm={() => void confirmAccountImport()}
+            />
+          )}
         </div>
         <div className="analyst-composer">
+          {importTarget && (
+            <div className="analyst-import-target" role="status">
+              <div>
+                <strong>{language === "zh-CN" ? `更新 ${importTarget.label}` : `Update ${importTarget.label}`}</strong>
+                <small>{language === "zh-CN" ? "添加截图后直接发送；会先创建可审核草稿。" : "Add screenshots and send them here. A reviewable draft will be created first."}</small>
+              </div>
+              <button type="button" disabled={importBusy} onClick={cancelAccountImport}>
+                {language === "zh-CN" ? "取消" : "Cancel"}
+              </button>
+            </div>
+          )}
+          {importTarget && (
+            <AgentImageAttachments
+              state={importAttachments}
+              language={language}
+              onChange={(next) => {
+                setImportAttachments(next);
+                setImportDraft(undefined);
+                setImportSubmissionText("");
+                setImportSubmissionScreenshotCount(0);
+                setImportSubmissionTargetLabel("");
+              }}
+            />
+          )}
           <textarea
             ref={composer}
             rows={3}
             maxLength={600}
-            disabled={loading || !selectedProvider?.configured}
+            disabled={loading || importBusy || !selectedProvider?.configured}
             value={question}
             placeholder={language === "zh-CN" ? "继续追问这次分析……" : "Ask a follow-up about this analysis…"}
             onChange={(event) => setQuestion(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === "Enter" && !event.shiftKey) {
                 event.preventDefault();
-                void runAnalyst();
+                submitComposer();
               }
             }}
           />
@@ -460,21 +728,27 @@ export function PortfolioAnalyst({ blocked = false }: { blocked?: boolean }) {
                 : "Information only, not investment advice · Sends current bounded facts and up to 3 local turns."}
             </small>
             {conversation && (
-              <button type="button" className="secondary" disabled={loading} onClick={() => void resetConversation()}>
+              <button type="button" className="secondary" disabled={loading || importBusy} onClick={() => void resetConversation()}>
                 {language === "zh-CN" ? "重置并删除" : "Reset & delete"}
               </button>
             )}
-            {loading ? (
+            {loading || importBusy ? (
               <button type="button" onClick={() => activeRequest.current?.abort()}>
-                {language === "zh-CN" ? "停止" : "Stop"}
+                {importBusy
+                  ? importOperation === "confirmation"
+                    ? (language === "zh-CN" ? "停止确认" : "Stop confirmation")
+                    : (language === "zh-CN" ? "停止识别" : "Stop analysis")
+                  : (language === "zh-CN" ? "停止" : "Stop")}
               </button>
             ) : (
               <button
                 type="button"
-                onClick={() => void runAnalyst()}
-                disabled={!selectedProvider?.configured || !question.trim()}
+                onClick={submitComposer}
+                disabled={!selectedProvider?.configured || (!question.trim() && importAttachments.files.length === 0)}
               >
-                {language === "zh-CN" ? "发送" : "Send"}
+                {importAttachments.files.length > 0
+                  ? (language === "zh-CN" ? "发送并识别" : "Send & analyze")
+                  : (language === "zh-CN" ? "发送" : "Send")}
               </button>
             )}
           </div>
@@ -517,12 +791,14 @@ function analystToolLabel(
     read_portfolio_overview: "组合概览",
     read_accounts: "账户列表",
     propose_create_account: "账户创建提议",
+    prepare_account_import: "资产导入准备",
   } : {
     read_period_drivers: "period performance",
     read_data_quality: "data quality",
     read_portfolio_overview: "portfolio overview",
     read_accounts: "source accounts",
     propose_create_account: "account creation proposal",
+    prepare_account_import: "asset import preparation",
   };
   return labels[name];
 }
@@ -595,12 +871,14 @@ export function AnalystReport({
   report,
   actionStatus,
   onConfirmCreateAccount,
+  onStartAccountImport,
 }: {
   report: PortfolioAnalystReport;
   actionStatus?: "confirming" | "created" | "failed";
   onConfirmCreateAccount?: (
     action: Extract<FactualUpdate, { kind: "create-account" }>,
   ) => void;
+  onStartAccountImport?: (action: StartAccountImportAction) => void;
 }) {
   const language = report.language;
   const evidence = new Map(report.evidence.map((fact) => [fact.key, fact]));
@@ -654,6 +932,28 @@ export function AnalystReport({
                   : (language === "zh-CN" ? "确认创建账户" : "Confirm account creation")}
             </button>
           )}
+        </section>
+      )}
+      {answer.proposedUpdate?.kind === "start-account-import" && (
+        <section className="analyst-account-confirmation analyst-import-handoff">
+          <span>{language === "zh-CN" ? "可以在对话中继续" : "Continue in this conversation"}</span>
+          <strong>{portfolioAnalystActionLabel(answer.proposedUpdate, language)}</strong>
+          <p>{language === "zh-CN"
+            ? "账户已由本地注册表验证。发送截图后会先生成草稿；确认前不会更新持仓。"
+            : "The account was verified locally. Screenshots create a draft first; holdings do not change before confirmation."}</p>
+          <div className="analyst-import-actions">
+            {onStartAccountImport && (
+              <button
+                type="button"
+                onClick={() => onStartAccountImport(answer.proposedUpdate as StartAccountImportAction)}
+              >
+                {language === "zh-CN" ? "在这里发送截图" : "Send screenshots here"}
+              </button>
+            )}
+            <Link href={`/imports?accountType=${encodeURIComponent(answer.proposedUpdate.accountType)}`}>
+              {language === "zh-CN" ? "改用 Import 页面" : "Use Import page instead"}
+            </Link>
+          </div>
         </section>
       )}
       <details className="analyst-facts-evidence">
@@ -737,6 +1037,7 @@ export function AnalystReport({
     </article>
   );
 }
+
 
 export function analystLimitationKey(
   limitation: PortfolioAnalystAnswer["limitations"][number],
