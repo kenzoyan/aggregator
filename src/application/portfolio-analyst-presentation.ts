@@ -38,6 +38,10 @@ export function portfolioAnalystActionLabel(
       return language === "zh-CN"
         ? `创建账户：${action.label}（${action.accountType}）`
         : `Create account: ${action.label} (${action.accountType})`;
+    case "start-account-import":
+      return language === "zh-CN"
+        ? `开始更新 ${action.label}`
+        : `Start updating ${action.label}`;
   }
 }
 
@@ -143,5 +147,11 @@ export function portfolioAnalystEvidenceValue(
           ? (language === "zh-CN" ? "该账户类型已存在" : "Account type already exists")
           : (language === "zh-CN" ? "该账户类型尚未创建" : "Account type is not yet registered"),
       ].join(" · ");
+    case "source-account-import-target":
+      return fact.found
+        ? [fact.displayName ?? fact.accountType, fact.updateMethod].filter(Boolean).join(" · ")
+        : language === "zh-CN"
+          ? `未找到 ${fact.requestedAccountType}`
+          : `${fact.requestedAccountType} was not found`;
   }
 }

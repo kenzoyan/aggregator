@@ -75,10 +75,11 @@ function systemPrompt(input: PortfolioAnalystAgentTurn): string {
     `Use ${input.defaultPeriod} when the question needs a performance period but does not specify one.`,
     `Answer language: ${input.language}.`,
     "Only tool output from this turn is current evidence. Historical answers resolve references only.",
+    "When the user asks to update or import assets for an existing account, read the account registry and return the exact matching start-account-import allowed action as proposedUpdate. Do not ask the user to upload screenshots into this chat; the action opens the existing Import workflow.",
     portfolioAnalystConversationalAnswerInstruction,
     "After the tool result, return only JSON matching this schema:",
     JSON.stringify(portfolioAnalystAnswerJsonSchema),
-    "Every factual claim must cite a current Evidence Key. Copy every limitation and never execute proposed actions; account creation is only a proposal for later user confirmation.",
+    "Every factual claim must cite a current Evidence Key. Copy every limitation and never execute proposed actions; account creation requires later user confirmation, and an import action only opens the existing review workflow.",
   ].join("\n");
 }
 
@@ -116,6 +117,9 @@ function createTools(
   const createAccountParameters = Type.Object({
     accountType: Type.String({ minLength: 1, maxLength: 80 }),
     label: Type.Optional(Type.String({ minLength: 1, maxLength: 80 })),
+  }, { additionalProperties: false });
+  const importAccountParameters = Type.Object({
+    accountType: Type.String({ minLength: 1, maxLength: 80 }),
   }, { additionalProperties: false });
   const periodTool: AgentTool<typeof periodParameters> = {
     name: "read_period_drivers",
@@ -232,7 +236,7 @@ function createTools(
   const accountsTool: AgentTool<typeof noParameters> = {
     name: "read_accounts",
     label: "Read source accounts",
-    description: "Read the current source-account registry, including account types, display names and import capabilities.",
+    description: "Read the current source-account registry, including account types, display names, import capabilities and server-validated handoffs for existing-account import requests.",
     parameters: noParameters,
     executionMode: "sequential",
     async execute(toolCallId) {
@@ -307,7 +311,53 @@ function createTools(
       };
     },
   };
-  return [periodTool, qualityTool, overviewTool, accountsTool, proposeCreateAccountTool];
+  const prepareAccountImportTool: AgentTool<typeof importAccountParameters> = {
+    name: "prepare_account_import",
+    label: "Prepare account import",
+    description: "Validate an existing source account and prepare a safe handoff to its import workflow. This does not upload files, create a draft or change holdings.",
+    parameters: importAccountParameters,
+    executionMode: "sequential",
+    async execute(toolCallId, params) {
+      const toolInput = { accountType: params.accountType };
+      const activity = {
+        toolCallId,
+        name: "prepare_account_import" as const,
+        input: toolInput,
+      };
+      input.onToolActivity?.({ stage: "started", ...activity });
+      input.onPhase?.("reading-current-facts");
+      const rawContext = input.tools.prepareAccountImport({
+        accountType: params.accountType,
+        language: input.language,
+        includeAccountNames: input.includeHoldingNames,
+      });
+      const context = collect(rawContext, completedAudit(
+        toolCallId,
+        "prepare_account_import",
+        toolInput,
+        rawContext,
+      ));
+      input.onToolActivity?.({
+        stage: "completed",
+        ...activity,
+        factsAsOf: context.factsAsOf,
+        evidenceCount: context.facts.length,
+      });
+      input.onPhase?.("generating-answer");
+      return {
+        content: [{ type: "text", text: JSON.stringify(context) }],
+        details: { factsAsOf: context.factsAsOf },
+      };
+    },
+  };
+  return [
+    periodTool,
+    qualityTool,
+    overviewTool,
+    accountsTool,
+    proposeCreateAccountTool,
+    prepareAccountImportTool,
+  ];
 }
 
 class PiModelControlledPortfolioAnalyst implements PortfolioAnalystAgentRuntime {

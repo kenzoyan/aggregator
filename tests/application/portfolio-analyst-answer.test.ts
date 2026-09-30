@@ -208,6 +208,12 @@ describe("portfolio analyst answer contract", () => {
         label: "Brokerage",
         reasonEvidenceKey: "quality.gap.1",
       },
+      {
+        kind: "start-account-import",
+        accountType: "WeChat Wealth Management",
+        label: "WeChat",
+        reasonEvidenceKey: "quality.gap.1",
+      },
     ];
 
     for (const action of actions) {

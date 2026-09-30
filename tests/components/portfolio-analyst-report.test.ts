@@ -223,4 +223,51 @@ describe("Portfolio Analyst report hierarchy", () => {
     expect(markup).toContain("创建账户：Brokerage（Nordea）");
     expect(markup).not.toContain("账户已创建");
   });
+
+  it("renders a safe import handoff for an existing account", () => {
+    const importReport: PortfolioAnalystReport = {
+      ...report,
+      job: "manage-accounts",
+      scope: {},
+      answer: {
+        ...report.answer,
+        limitations: [],
+        claims: [],
+        proposedUpdate: {
+          kind: "start-account-import",
+          accountType: "WeChat Wealth Management",
+          label: "WeChat",
+          reasonEvidenceKey: "account.import-target",
+        },
+        answer: {
+          text: "I found the account and prepared the import handoff.",
+          classification: "fact",
+          evidence: ["account.import-target"],
+        },
+      },
+      evidence: [{
+        key: "account.import-target",
+        kind: "source-account-import-target",
+        label: "Source account import target",
+        requestedAccountType: "WeChat",
+        normalizedAccountType: "wechat",
+        accountType: "WeChat Wealth Management",
+        displayName: "WeChat",
+        updateMethod: "screenshot",
+        found: true,
+        provenance: "source-account-registry",
+      }],
+      agentAudit: undefined,
+    };
+
+    const markup = renderToStaticMarkup(createElement(AnalystReport, {
+      report: importReport,
+      onStartAccountImport: () => undefined,
+    }));
+
+    expect(markup).toContain("开始更新 WeChat");
+    expect(markup).toContain("在这里发送截图");
+    expect(markup).toContain("/imports?accountType=WeChat%20Wealth%20Management");
+    expect(markup).toContain("确认前不会更新持仓");
+  });
 });

@@ -41,7 +41,12 @@ function accountContext(input: {
       provenance: "source-account-registry" as const,
     })),
     limitations: [],
-    allowedActions: [],
+    allowedActions: input.accounts.map((account, index) => ({
+      kind: "start-account-import" as const,
+      accountType: account.accountType,
+      label: input.includeAccountNames ? account.label : account.accountType,
+      reasonEvidenceKey: `account.${index + 1}`,
+    })),
   };
 }
 
@@ -79,6 +84,49 @@ function accountProposalContext(input: {
           label: displayName,
           reasonEvidenceKey,
         }],
+  };
+}
+
+function accountImportContext(input: {
+  accounts: readonly SourceAccountDefinition[];
+  accountType: string;
+  factsAsOf: string;
+  language: PortfolioAnalystLanguage;
+  includeAccountNames: boolean;
+}): PortfolioAnalystContextV1 {
+  const requestedAccountType = input.accountType.trim().replace(/\s+/g, " ");
+  const normalizedAccountType = normalizeSourceAccountType(requestedAccountType);
+  const account = input.accounts.find((candidate) =>
+    candidate.normalizedAccountType === normalizedAccountType
+  );
+  const reasonEvidenceKey = "account.import-target";
+  const displayName = account
+    ? (input.includeAccountNames ? account.label : account.accountType)
+    : undefined;
+  return {
+    ...accountContext({ ...input, includeAccountNames: input.includeAccountNames }),
+    facts: [{
+      key: reasonEvidenceKey,
+      kind: "source-account-import-target",
+      label: "Source account import target",
+      requestedAccountType,
+      normalizedAccountType,
+      found: Boolean(account),
+      ...(account ? {
+        accountType: account.accountType,
+        displayName,
+        updateMethod: account.updateMethod,
+      } : {}),
+      provenance: "source-account-registry",
+    }],
+    allowedActions: account && displayName
+      ? [{
+          kind: "start-account-import",
+          accountType: account.accountType,
+          label: displayName,
+          reasonEvidenceKey,
+        }]
+      : [],
   };
 }
 
@@ -182,6 +230,20 @@ export function createPortfolioAnalystTools(
       const context = accountProposalContext({
         accounts,
         factsAsOf: portfolio.insights.asOf,
+        ...input,
+      });
+      assertPortfolioAnalystContextSize(context);
+      return context;
+    },
+    prepareAccountImport(input: {
+      accountType: string;
+      language: PortfolioAnalystLanguage;
+      includeAccountNames?: boolean;
+    }): AnalystEvidenceBundleV1 {
+      const context = accountImportContext({
+        accounts,
+        factsAsOf: portfolio.insights.asOf,
+        includeAccountNames: input.includeAccountNames ?? true,
         ...input,
       });
       assertPortfolioAnalystContextSize(context);

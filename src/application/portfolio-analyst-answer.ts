@@ -52,6 +52,12 @@ const factualUpdateSchemas = {
     label: z.string().trim().min(1).max(80),
     reasonEvidenceKey: evidenceKeySchema,
   }).strict(),
+  "start-account-import": z.object({
+    kind: z.literal("start-account-import"),
+    accountType: z.string().trim().min(1).max(80),
+    label: z.string().trim().min(1).max(80),
+    reasonEvidenceKey: evidenceKeySchema,
+  }).strict(),
 } satisfies Record<FactualUpdate["kind"], z.ZodType>;
 
 type FactualUpdateSchema = typeof factualUpdateSchemas[
@@ -133,8 +139,8 @@ function sameFactualUpdate(
   if (candidate.kind === "refresh-fx") {
     return allowed.kind === "refresh-fx" && candidate.currency === allowed.currency;
   }
-  if (candidate.kind === "create-account") {
-    return allowed.kind === "create-account" &&
+  if (candidate.kind === "create-account" || candidate.kind === "start-account-import") {
+    return allowed.kind === candidate.kind &&
       candidate.accountType === allowed.accountType &&
       candidate.label === allowed.label;
   }

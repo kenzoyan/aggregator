@@ -23,7 +23,12 @@ describe("portfolio analyst account tools", () => {
       kind: "source-account",
       accountType: "Trading 212",
     })]);
-    expect(context.allowedActions).toEqual([]);
+    expect(context.allowedActions).toEqual([{
+      kind: "start-account-import",
+      accountType: "Trading 212",
+      label: "Trading 212",
+      reasonEvidenceKey: "account.1",
+    }]);
   });
 
   it("withholds custom account names when name sharing is disabled", () => {
@@ -32,6 +37,7 @@ describe("portfolio analyst account tools", () => {
 
     expect(context.facts[0]).not.toHaveProperty("displayName");
     expect(context.facts[0]).toMatchObject({ accountType: "Trading 212" });
+    expect(context.allowedActions[0]).toMatchObject({ label: "Trading 212" });
   });
 
   it("offers one exact create action for a missing normalized account type", () => {
@@ -64,6 +70,40 @@ describe("portfolio analyst account tools", () => {
       });
 
     expect(context.facts).toEqual([expect.objectContaining({ alreadyExists: true })]);
+    expect(context.allowedActions).toEqual([]);
+  });
+
+  it("offers an import handoff only for an existing normalized account type", () => {
+    const context = createPortfolioAnalystTools(portfolio, accounts)
+      .prepareAccountImport({
+        accountType: " trading-212 ",
+        language: "en",
+      });
+
+    expect(context.facts).toEqual([expect.objectContaining({
+      kind: "source-account-import-target",
+      requestedAccountType: "trading-212",
+      accountType: "Trading 212",
+      displayName: "Trading 212",
+      found: true,
+    })]);
+    expect(context.allowedActions).toEqual([{
+      kind: "start-account-import",
+      accountType: "Trading 212",
+      label: "Trading 212",
+      reasonEvidenceKey: "account.import-target",
+    }]);
+  });
+
+  it("does not offer an import handoff for an unknown account type", () => {
+    const context = createPortfolioAnalystTools(portfolio, accounts)
+      .prepareAccountImport({ accountType: "Nordea", language: "en" });
+
+    expect(context.facts).toEqual([expect.objectContaining({
+      kind: "source-account-import-target",
+      requestedAccountType: "Nordea",
+      found: false,
+    })]);
     expect(context.allowedActions).toEqual([]);
   });
 });

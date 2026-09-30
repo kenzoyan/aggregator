@@ -135,6 +135,7 @@ describe("Pi model-controlled Portfolio Analyst", () => {
       readPortfolioOverview: () => { throw new Error("wrong tool"); },
       readAccounts: () => { throw new Error("wrong tool"); },
       proposeCreateAccount: () => { throw new Error("wrong tool"); },
+      prepareAccountImport: () => { throw new Error("wrong tool"); },
     };
     const deltas: string[] = [];
     const activities: unknown[] = [];
@@ -156,7 +157,13 @@ describe("Pi model-controlled Portfolio Analyst", () => {
       "read_portfolio_overview",
       "read_accounts",
       "propose_create_account",
+      "prepare_account_import",
     ]);
+    expect(seenContexts[0]?.systemPrompt).toContain(
+      "When the user asks to update or import assets for an existing account",
+    );
+    expect(seenContexts[0]?.tools?.find((tool) => tool.name === "read_accounts")?.description)
+      .toContain("existing-account import requests");
     expect(seenContexts[1]?.messages.at(-1)).toMatchObject({
       role: "toolResult",
       toolName: "read_period_drivers",
@@ -245,6 +252,7 @@ describe("Pi model-controlled Portfolio Analyst", () => {
       readPortfolioOverview: () => { throw new Error("wrong tool"); },
       readAccounts: () => { throw new Error("wrong tool"); },
       proposeCreateAccount: () => { throw new Error("wrong tool"); },
+      prepareAccountImport: () => { throw new Error("wrong tool"); },
     };
 
     const result = await createPiModelControlledPortfolioAnalyst({ model, streamFn }).runTurn({
@@ -306,6 +314,7 @@ describe("Pi model-controlled Portfolio Analyst", () => {
       readPortfolioOverview: () => overviewContext,
       readAccounts: () => { throw new Error("wrong tool"); },
       proposeCreateAccount: () => { throw new Error("wrong tool"); },
+      prepareAccountImport: () => { throw new Error("wrong tool"); },
     };
 
     const result = await createPiModelControlledPortfolioAnalyst({ model, streamFn }).runTurn({
@@ -382,6 +391,7 @@ describe("Pi model-controlled Portfolio Analyst", () => {
       readPortfolioOverview: () => { throw new Error("wrong tool"); },
       readAccounts: () => { throw new Error("wrong tool"); },
       proposeCreateAccount: () => proposalContext,
+      prepareAccountImport: () => { throw new Error("wrong tool"); },
     };
 
     const result = await createPiModelControlledPortfolioAnalyst({ model, streamFn }).runTurn({
@@ -402,6 +412,88 @@ describe("Pi model-controlled Portfolio Analyst", () => {
     expect(result.audit.toolCalls[0]).toMatchObject({
       name: "propose_create_account",
       input: { accountType: "Nordea", label: "Brokerage" },
+      status: "completed",
+    });
+  });
+
+  it("lets the model prepare but not execute an account import", async () => {
+    let modelCall = 0;
+    const importContext: PortfolioAnalystContextV1 = {
+      ...context,
+      job: "manage-accounts",
+      scope: {},
+      facts: [{
+        key: "account.import-target",
+        kind: "source-account-import-target",
+        label: "Source account import target",
+        requestedAccountType: "WeChat",
+        normalizedAccountType: "wechat",
+        found: true,
+        accountType: "WeChat Wealth Management",
+        displayName: "WeChat",
+        updateMethod: "screenshot",
+        provenance: "source-account-registry",
+      }],
+      allowedActions: [{
+        kind: "start-account-import",
+        accountType: "WeChat Wealth Management",
+        label: "WeChat",
+        reasonEvidenceKey: "account.import-target",
+      }],
+    };
+    const streamFn: StreamFn = () => {
+      modelCall += 1;
+      if (modelCall === 1) {
+        return completedStream(assistant([{
+          type: "toolCall",
+          id: "account-import-call",
+          name: "prepare_account_import",
+          arguments: { accountType: "WeChat" },
+        }], "toolUse"));
+      }
+      return completedStream(assistant([{ type: "text", text: JSON.stringify({
+        factsAsOf: context.factsAsOf,
+        answer: {
+          text: "已找到 WeChat 账户，可以开始导入。",
+          classification: "fact",
+          evidence: ["call1.account.import-target"],
+        },
+        claims: [],
+        limitations: [],
+        proposedUpdate: {
+          kind: "start-account-import",
+          accountType: "WeChat Wealth Management",
+          label: "WeChat",
+          reasonEvidenceKey: "call1.account.import-target",
+        },
+      }) }], "stop"));
+    };
+    const tools: PortfolioAnalystTools = {
+      readPeriodDrivers: () => { throw new Error("wrong tool"); },
+      readDataQuality: () => { throw new Error("wrong tool"); },
+      readPortfolioOverview: () => { throw new Error("wrong tool"); },
+      readAccounts: () => { throw new Error("wrong tool"); },
+      proposeCreateAccount: () => { throw new Error("wrong tool"); },
+      prepareAccountImport: () => importContext,
+    };
+
+    const result = await createPiModelControlledPortfolioAnalyst({ model, streamFn }).runTurn({
+      question: "帮我更新 WeChat 资产。",
+      history: [],
+      tools,
+      language: "zh-CN",
+      includeHoldingNames: true,
+      defaultPeriod: "week",
+    });
+
+    expect(result.answer.proposedUpdate).toMatchObject({
+      kind: "start-account-import",
+      accountType: "WeChat Wealth Management",
+      label: "WeChat",
+    });
+    expect(result.audit.toolCalls[0]).toMatchObject({
+      name: "prepare_account_import",
+      input: { accountType: "WeChat" },
       status: "completed",
     });
   });

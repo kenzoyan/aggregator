@@ -13,6 +13,7 @@ export const portfolioAnalystToolNames = [
   "read_portfolio_overview",
   "read_accounts",
   "propose_create_account",
+  "prepare_account_import",
 ] as const;
 
 export type PortfolioAnalystToolName = typeof portfolioAnalystToolNames[number];

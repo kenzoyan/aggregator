@@ -197,6 +197,19 @@ export interface SourceAccountProposalFact {
   provenance: "source-account-registry";
 }
 
+export interface SourceAccountImportTargetFact {
+  key: string;
+  kind: "source-account-import-target";
+  label: "Source account import target";
+  requestedAccountType: string;
+  normalizedAccountType: string;
+  found: boolean;
+  accountType?: string;
+  displayName?: string;
+  updateMethod?: SourceAccountDefinition["updateMethod"];
+  provenance: "source-account-registry";
+}
+
 export type AnalystEvidenceFact =
   | PortfolioTotalFact
   | PeriodPerformanceFact
@@ -208,7 +221,8 @@ export type AnalystEvidenceFact =
   | PortfolioAllocationFact
   | PortfolioMoverFact
   | SourceAccountFact
-  | SourceAccountProposalFact;
+  | SourceAccountProposalFact
+  | SourceAccountImportTargetFact;
 
 export const analystLimitationCodes = [
   "period-unavailable",
@@ -227,6 +241,7 @@ export const factualUpdateKinds = [
   "configure-danske-route",
   "retry-market-data-refresh",
   "create-account",
+  "start-account-import",
 ] as const;
 
 export type FactualUpdate =
@@ -236,6 +251,12 @@ export type FactualUpdate =
   | { kind: "retry-market-data-refresh"; reasonEvidenceKey: string }
   | {
       kind: "create-account";
+      accountType: string;
+      label: string;
+      reasonEvidenceKey: string;
+    }
+  | {
+      kind: "start-account-import";
       accountType: string;
       label: string;
       reasonEvidenceKey: string;
@@ -281,6 +302,11 @@ export interface PortfolioAnalystTools {
     accountType: string;
     label?: string;
     language: PortfolioAnalystLanguage;
+  }): AnalystEvidenceBundleV1;
+  prepareAccountImport(input: {
+    accountType: string;
+    language: PortfolioAnalystLanguage;
+    includeAccountNames?: boolean;
   }): AnalystEvidenceBundleV1;
 }
 
