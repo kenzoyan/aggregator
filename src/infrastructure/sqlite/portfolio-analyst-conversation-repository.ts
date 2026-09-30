@@ -19,6 +19,11 @@ function decodePortfolioAnalystConversation(
   row: PortfolioAnalystConversationRow | undefined,
 ): PortfolioAnalystConversation | undefined {
   if (!row) return undefined;
+  const stored = JSON.parse(row.turns_json) as
+    | PortfolioAnalystConversation["turns"]
+    | Pick<PortfolioAnalystConversation, "turns" | "importActivity">;
+  const turns = Array.isArray(stored) ? stored : stored.turns;
+  const importActivity = Array.isArray(stored) ? undefined : stored.importActivity;
   return {
     version: "portfolio-analyst-conversation.v1",
     id: row.id,
@@ -27,7 +32,8 @@ function decodePortfolioAnalystConversation(
     includeHoldingNames: row.include_holding_names === 1,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
-    turns: JSON.parse(row.turns_json) as PortfolioAnalystConversation["turns"],
+    turns,
+    ...(importActivity ? { importActivity } : {}),
   };
 }
 
@@ -88,7 +94,12 @@ export function createPortfolioAnalystConversationRepository(
         conversation.includeHoldingNames ? 1 : 0,
         conversation.createdAt,
         conversation.updatedAt,
-        JSON.stringify(conversation.turns),
+        JSON.stringify({
+          turns: conversation.turns,
+          ...(conversation.importActivity
+            ? { importActivity: conversation.importActivity }
+            : {}),
+        }),
       );
     },
 

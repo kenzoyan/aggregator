@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
+  attachPortfolioAnalystImport,
   appendPortfolioAnalystTurn,
   createPortfolioAnalystConversation,
 } from "@/application/portfolio-analyst-conversation";
@@ -73,6 +74,34 @@ describe("portfolio analyst conversation persistence", () => {
     expect(database.readPortfolioAnalystConversation("conversation-1")).toEqual(conversation);
     database.deletePortfolioAnalystConversation("conversation-1");
     expect(database.readLatestPortfolioAnalystConversation()).toBeUndefined();
+    database.close();
+  }));
+
+  it("restores the structured import activity without storing screenshots", () => withDatabase((filename) => {
+    const database = createPortfolioDatabase(filename);
+    const conversation = attachPortfolioAnalystImport(createPortfolioAnalystConversation({
+      id: "conversation-import",
+      provider: "openai",
+      language: "zh-CN",
+      includeHoldingNames: true,
+      now: "2026-09-22T20:00:00.000Z",
+    }), {
+      draftId: "draft-wechat",
+      targetLabel: "WeChat",
+      submissionText: "帮我识别一下",
+      screenshotCount: 1,
+      createdAt: "2026-09-22T20:01:00.000Z",
+    });
+
+    database.savePortfolioAnalystConversation(conversation);
+
+    expect(database.readLatestPortfolioAnalystConversation()?.importActivity).toEqual({
+      draftId: "draft-wechat",
+      targetLabel: "WeChat",
+      submissionText: "帮我识别一下",
+      screenshotCount: 1,
+      createdAt: "2026-09-22T20:01:00.000Z",
+    });
     database.close();
   }));
 

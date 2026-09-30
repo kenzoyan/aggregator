@@ -12,6 +12,7 @@ import type {
   PortfolioInsightsReadModel,
   PortfolioOverviewReadModel,
 } from "@/application/portfolio-read-model";
+import { draftPortfolioFromOpeningSnapshot } from "@/domain/imports";
 
 function portfolio(): PortfolioOverviewReadModel & { insights: PortfolioInsightsReadModel } {
   const performance = {
@@ -139,6 +140,74 @@ function conversationStore(): PortfolioAnalystConversationStore {
 }
 
 describe("/api/portfolio/analyst", () => {
+  it("binds an import draft to the conversation and restores it on GET", async () => {
+    const store = conversationStore();
+    store.savePortfolioAnalystConversation({
+      version: "portfolio-analyst-conversation.v1",
+      id: "conversation-import",
+      provider: "openai",
+      language: "zh-CN",
+      includeHoldingNames: true,
+      createdAt: "2026-09-22T20:00:00.000Z",
+      updatedAt: "2026-09-22T20:00:00.000Z",
+      turns: [],
+    });
+    const storedDraft = {
+      id: "draft-wechat",
+      sourceAccountId: "wechat-main",
+      sourceKind: "screenshot" as const,
+      createdAt: "2026-09-22T20:01:00.000Z",
+      confidence: "high",
+      warnings: [],
+      portfolio: draftPortfolioFromOpeningSnapshot({
+        id: "snapshot-wechat",
+        sourceAccountId: "wechat-main",
+        asOf: "2026-09-22T00:00:00.000Z",
+        positions: [{
+          instrumentId: "SYNTH-FUND-1",
+          quantity: "1",
+          currency: "CNY",
+          costBasis: "1",
+        }],
+      }, "vision"),
+      status: "draft" as const,
+    };
+    const handlers = createPortfolioAnalystHandlers({
+      providers: { openai: provider() },
+      models: { openai: "gpt-synthetic", deepseek: "deepseek-synthetic" },
+      defaultProvider: "openai",
+    }, {
+      readCurrentPortfolio: portfolio,
+      conversations: store,
+      getImportDraft: (id) => id === storedDraft.id ? storedDraft : undefined,
+      now: () => "2026-09-22T20:02:00.000Z",
+    });
+
+    const patched = await handlers.PATCH(new Request("http://localhost/api/portfolio/analyst", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        conversationId: "conversation-import",
+        draftId: "draft-wechat",
+        targetLabel: "WeChat",
+        submissionText: "帮我识别一下",
+        screenshotCount: 1,
+      }),
+    }));
+
+    expect(patched.status).toBe(200);
+    await expect(handlers.GET().then((response) => response.json())).resolves.toMatchObject({
+      conversation: {
+        importActivity: {
+          draftId: "draft-wechat",
+          targetLabel: "WeChat",
+          screenshotCount: 1,
+        },
+      },
+      importDraft: { id: "draft-wechat", status: "draft" },
+    });
+  });
+
   it("uses the model-controlled runtime tool choice and persists its safe audit", async () => {
     const store = conversationStore();
     const events: unknown[] = [];

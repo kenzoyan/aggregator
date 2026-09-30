@@ -7,8 +7,11 @@ import {
 } from "@/domain/imports";
 import {
   applyImportDraftReview,
+  createImportDraftConfirmationPayload,
   createImportDraftReadModel,
 } from "@/application/imports/import-draft-read-model";
+import { applyImportDraftEdit } from "@/application/imports/import-review-editor";
+import { createImportConfirmHandler } from "@/app/api/imports/[id]/confirm/handler";
 import type { OpeningSnapshotInput } from "@/domain/portfolio/types";
 import {
   createPortfolioDatabase,
@@ -54,6 +57,76 @@ function confirm(
 }
 
 describe("screenshot import confirmation workflow", () => {
+  it("applies a corrected screenshot date and edited code to the current account", async () => {
+    const database = createPortfolioDatabase(":memory:");
+    const current = draft({
+      id: "draft-current-wechat",
+      sourceAccountId: "wechat-main",
+      sourceKind: "screenshot",
+      createdAt: "2026-08-20T10:00:00.000Z",
+      snapshot: {
+        id: "snapshot-current-wechat",
+        sourceAccountId: "wechat-main",
+        asOf: "2026-08-20T00:00:00.000Z",
+        positions: [{
+          instrumentId: "existing-fund",
+          quantity: "1",
+          currency: "CNY",
+          costBasis: "100",
+        }],
+      },
+    });
+    database.saveImportDraft(current);
+    confirm(database, current, "2026-08-20T10:01:00.000Z");
+
+    const update = draft({
+      id: "draft-corrected-wechat",
+      sourceAccountId: "wechat-main",
+      sourceKind: "screenshot",
+      createdAt: "2026-08-20T20:30:00.000Z",
+      snapshot: {
+        id: "snapshot-corrected-wechat",
+        sourceAccountId: "wechat-main",
+        asOf: "2024-01-01T00:00:00.000Z",
+        positions: [{
+          instrumentId: "misread fund name",
+          displayName: "Synthetic New Fund",
+          quantity: "2",
+          currency: "CNY",
+          costBasis: "200",
+        }],
+      },
+    });
+    database.saveImportDraft(update);
+    let editable = createImportDraftReadModel(database.getImportDraft(update.id)!);
+    editable = applyImportDraftEdit(editable, {
+      type: "update-as-of",
+      value: "2026-08-20",
+    });
+    editable = applyImportDraftEdit(editable, {
+      type: "update-holding",
+      index: 0,
+      field: "instrumentCode",
+      value: "SYNTH-FUND-1",
+    });
+    const response = await createImportConfirmHandler({
+      database,
+      newId: () => "confirmed-corrected-wechat",
+      now: () => "2026-08-20T20:31:00.000Z",
+    })(new Request("http://localhost/api/imports/draft-corrected-wechat/confirm", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(createImportDraftConfirmationPayload(editable)),
+    }), update.id);
+
+    expect(response.status).toBe(200);
+    expect(database.readPortfolioFacts().state.positions).toMatchObject([
+      { instrumentId: "SYNTH-FUND-1", instrumentCode: "SYNTH-FUND-1" },
+      { instrumentId: "existing-fund" },
+    ]);
+    database.close();
+  });
+
   it("allows the demo review flow without adding synthetic holdings to the portfolio", () => {
     const database = createPortfolioDatabase(":memory:");
     const importDraft = draft({

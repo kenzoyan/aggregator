@@ -11,6 +11,67 @@ import {
 } from "@/domain/imports";
 
 describe("POST /api/imports/:id/confirm", () => {
+  it("does not claim an older screenshot replaced newer confirmed holdings", async () => {
+    const stored: StoredImportDraft = {
+      id: "draft-stale-screenshot",
+      sourceAccountId: "wechat-main",
+      sourceKind: "screenshot",
+      createdAt: "2026-08-20T20:30:00.000Z",
+      confidence: "high",
+      warnings: ["The screenshot year was not visible."],
+      portfolio: draftPortfolioFromOpeningSnapshot({
+        id: "snapshot-stale-screenshot",
+        sourceAccountId: "wechat-main",
+        asOf: "2024-01-01T00:00:00.000Z",
+        positions: [{
+          instrumentId: "SYNTH-FUND-1",
+          instrumentCode: "SYNTH-FUND-1",
+          displayName: "Synthetic WeChat Fund",
+          quantity: "2",
+          currency: "CNY",
+          costBasis: "200",
+          reportedPriorReturn: "10",
+          observedPrice: "105",
+          reportedMarketValue: "210",
+        }],
+      }, "vision"),
+      status: "draft",
+    };
+    const confirmImport = vi.fn();
+    const response = await createImportConfirmHandler({
+      database: {
+        getImportDraft: () => stored,
+        confirmImport,
+        readPortfolioFacts: () => ({
+          openingSnapshots: [{
+            id: "snapshot-current",
+            sourceAccountId: "wechat-main",
+            asOf: "2026-08-20T00:00:00.000Z",
+            positions: [],
+          }],
+          events: [],
+          confirmedImports: [],
+          confirmedSnapshots: [],
+          state: { positions: [], cashBalances: [], appliedEventIds: [] },
+        }),
+      },
+      newId: () => "confirmed-stale-screenshot",
+      now: () => "2026-08-20T20:31:00.000Z",
+    })(new Request("http://localhost/api/imports/draft-stale-screenshot/confirm", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(createImportDraftReadModel(stored)),
+    }), stored.id);
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({
+      fieldErrors: {
+        "portfolio.asOf": "Choose 2026-08-20 or a later date.",
+      },
+    });
+    expect(confirmImport).not.toHaveBeenCalled();
+  });
+
   it("returns the existing not-found response without attempting confirmation", async () => {
     const confirmImport = vi.fn();
     const response = await createImportConfirmHandler({

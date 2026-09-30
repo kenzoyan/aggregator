@@ -55,6 +55,16 @@ export interface ImportDraftReadModel extends EditableImportDraftReview {
   reconciliation?: ImportReconciliation;
 }
 
+export function createImportDraftConfirmationPayload(
+  draft: ImportDraftReadModel,
+): EditableImportDraftReview {
+  return {
+    confidence: draft.confidence,
+    warnings: [...draft.warnings],
+    portfolio: draft.portfolio,
+  };
+}
+
 function editableHolding(holding: DraftHolding): EditableDraftHolding {
   return {
     lineId: holding.lineId,

@@ -11,6 +11,7 @@ import type {
 export type { EditableHoldingField } from "@/application/imports/import-review-holding-editor";
 
 export type ImportDraftEdit =
+  | { type: "update-as-of"; value: string }
   | { type: "add-holding"; holding: EditableDraftHolding }
   | { type: "remove-holding"; index: number }
   | {
@@ -26,6 +27,16 @@ export function applyImportDraftEdit(
   edit: ImportDraftEdit,
 ): ImportDraftReadModel {
   if (draft.status !== "draft") return draft;
+
+  if (edit.type === "update-as-of") {
+    return {
+      ...draft,
+      portfolio: {
+        ...draft.portfolio,
+        asOf: edit.value ? `${edit.value}T00:00:00.000Z` : "",
+      },
+    };
+  }
 
   if (edit.type === "add-holding") {
     const reconciliation = applyImportReconciliationEdit(draft.reconciliation, edit);

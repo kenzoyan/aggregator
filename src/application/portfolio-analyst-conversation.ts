@@ -18,6 +18,14 @@ export interface PortfolioAnalystConversationTurn {
   report: PortfolioAnalystReport;
 }
 
+export interface PortfolioAnalystImportActivity {
+  draftId: string;
+  targetLabel: string;
+  submissionText: string;
+  screenshotCount: number;
+  createdAt: string;
+}
+
 export interface PortfolioAnalystConversation {
   version: "portfolio-analyst-conversation.v1";
   id: string;
@@ -27,6 +35,18 @@ export interface PortfolioAnalystConversation {
   createdAt: string;
   updatedAt: string;
   turns: PortfolioAnalystConversationTurn[];
+  importActivity?: PortfolioAnalystImportActivity;
+}
+
+export function attachPortfolioAnalystImport(
+  conversation: PortfolioAnalystConversation,
+  activity: PortfolioAnalystImportActivity,
+): PortfolioAnalystConversation {
+  return {
+    ...conversation,
+    updatedAt: activity.createdAt,
+    importActivity: activity,
+  };
 }
 
 export interface PortfolioAnalystConversationStore {

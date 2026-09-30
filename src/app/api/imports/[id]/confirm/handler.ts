@@ -18,7 +18,7 @@ import { getPortfolioDatabase } from "@/server/portfolio-db";
 type ImportConfirmDatabase = Pick<
   PortfolioDatabase,
   "getImportDraft" | "confirmImport"
->;
+> & Partial<Pick<PortfolioDatabase, "readPortfolioFacts">>;
 
 export function createImportConfirmHandler(input: {
   database: ImportConfirmDatabase;
@@ -34,6 +34,23 @@ export function createImportConfirmHandler(input: {
         return NextResponse.json({ error: "Import draft not found." }, { status: 404 });
       }
       const editableReview = validateImportConfirmationReview(existing, shapedReview);
+      const latestAccountSnapshot = input.database.readPortfolioFacts?.().openingSnapshots
+        .filter((snapshot) => snapshot.sourceAccountId === existing.sourceAccountId)
+        .toSorted((left, right) => right.asOf.localeCompare(left.asOf))[0];
+      const reviewedDate = editableReview.portfolio.asOf.slice(0, 10);
+      const latestDate = latestAccountSnapshot?.asOf.slice(0, 10);
+      if (
+        existing.sourceKind !== "demo" &&
+        latestDate &&
+        reviewedDate < latestDate
+      ) {
+        return NextResponse.json({
+          error: `Valuation date must be ${latestDate} or later because this account already has newer confirmed holdings.`,
+          fieldErrors: {
+            "portfolio.asOf": `Choose ${latestDate} or a later date.`,
+          },
+        }, { status: 409 });
+      }
       const review = applyImportDraftReview(existing, editableReview);
       const confirmed = input.database.confirmImport({
         draftId: id,

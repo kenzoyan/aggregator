@@ -5,11 +5,15 @@ import { z } from "zod";
 import type { PortfolioAnalystAnswer } from "@/application/portfolio-analyst-answer";
 import type { PortfolioAnalystAgentAudit } from "@/application/portfolio-analyst-agent";
 import {
+  attachPortfolioAnalystImport,
   appendPortfolioAnalystTurn,
   createPortfolioAnalystConversation,
   createPortfolioAnalystHistory,
   type PortfolioAnalystConversationStore,
 } from "@/application/portfolio-analyst-conversation";
+import {
+  createImportDraftReadModel,
+} from "@/application/imports/import-draft-read-model";
 import {
   PortfolioAnalystContextError,
   type AnalystEvidenceFact,
@@ -24,6 +28,7 @@ import {
 } from "@/application/portfolio-analyst-provider";
 import type { PortfolioAnalystSessionFactory } from "@/application/portfolio-analyst-session";
 import type { SourceAccountDefinition } from "@/domain/source-accounts";
+import type { StoredImportDraft } from "@/domain/imports";
 import {
   portfolioAnalystStreamContentType,
   type PortfolioAnalystStreamEvent,
@@ -62,6 +67,13 @@ const agentRequestSchema = z.object({
   question: z.string().trim().min(1).max(600),
 }).strict();
 const requestSchema = z.union([agentRequestSchema, legacyRequestSchema]);
+const importActivitySchema = z.object({
+  conversationId: z.string().trim().min(1).max(80),
+  draftId: z.string().trim().min(1).max(100),
+  targetLabel: z.string().trim().min(1).max(120),
+  submissionText: z.string().trim().max(600),
+  screenshotCount: z.number().int().min(1).max(6),
+}).strict();
 type AnalystApiRequest = z.infer<typeof requestSchema>;
 
 const providerNames = { openai: "OpenAI", deepseek: "DeepSeek" } as const;
@@ -115,12 +127,16 @@ export function createPortfolioAnalystHandlers(
     now?: () => string;
     createId?: () => string;
     conversations?: PortfolioAnalystConversationStore;
+    getImportDraft?: (id: string) => StoredImportDraft | undefined;
     sessionFactory?: PortfolioAnalystSessionFactory;
   },
 ) {
   return {
     async GET() {
       const conversation = options.conversations?.readLatestPortfolioAnalystConversation();
+      const importDraft = conversation?.importActivity
+        ? options.getImportDraft?.(conversation.importActivity.draftId)
+        : undefined;
       return json({
         defaultProvider: registry.defaultProvider,
         providers: portfolioAnalystProviderIds.map((id) => ({
@@ -129,6 +145,46 @@ export function createPortfolioAnalystHandlers(
           model: registry.models[id],
         })),
         ...(conversation ? { conversation } : {}),
+        ...(importDraft ? { importDraft: createImportDraftReadModel(importDraft) } : {}),
+      });
+    },
+
+    async PATCH(request: Request) {
+      let body: z.infer<typeof importActivitySchema>;
+      try {
+        body = importActivitySchema.parse(await request.json());
+      } catch {
+        return json(
+          { error: "Import activity request is invalid.", code: "invalid-request" },
+          { status: 400 },
+        );
+      }
+      const conversation = options.conversations
+        ?.readPortfolioAnalystConversation(body.conversationId);
+      if (!conversation) {
+        return json(
+          { error: "Analyst conversation was not found.", code: "conversation-not-found" },
+          { status: 404 },
+        );
+      }
+      const draft = options.getImportDraft?.(body.draftId);
+      if (!draft) {
+        return json(
+          { error: "Import draft was not found.", code: "import-draft-not-found" },
+          { status: 404 },
+        );
+      }
+      const nextConversation = attachPortfolioAnalystImport(conversation, {
+        draftId: body.draftId,
+        targetLabel: body.targetLabel,
+        submissionText: body.submissionText,
+        screenshotCount: body.screenshotCount,
+        createdAt: options.now?.() ?? new Date().toISOString(),
+      });
+      options.conversations?.savePortfolioAnalystConversation(nextConversation);
+      return json({
+        conversation: nextConversation,
+        importDraft: createImportDraftReadModel(draft),
       });
     },
 
@@ -332,6 +388,7 @@ function getProductionHandlers() {
         ),
         readSourceAccounts: () => database.readSourceAccounts(),
         conversations: database,
+        getImportDraft: (id) => database.getImportDraft(id),
       },
     );
   }
@@ -401,4 +458,8 @@ export async function POST(request: Request) {
 
 export async function DELETE(request: Request) {
   return getProductionHandlers().DELETE(request);
+}
+
+export async function PATCH(request: Request) {
+  return getProductionHandlers().PATCH(request);
 }

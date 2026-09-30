@@ -69,6 +69,15 @@ function edit(input: ImportDraftEdit) {
 }
 
 describe("Import review editing", () => {
+  it("lets the owner correct the valuation date before confirmation", () => {
+    const updated = edit({
+      type: "update-as-of",
+      value: "2026-09-22",
+    });
+
+    expect(updated.portfolio.asOf).toBe("2026-09-22T00:00:00.000Z");
+  });
+
   it("ignores edits for confirmed drafts and missing holding indexes", () => {
     const confirmed = { ...editableDraft(), status: "confirmed" as const };
 
