@@ -1,8 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  createPortfolioChartPresentation,
-} from "@/application/portfolio-chart-presentation";
+import { shouldShowPortfolioValueTrend } from "@/application/portfolio-chart-presentation";
 import type { PortfolioValuePointReadModel } from "@/application/portfolio-read-model";
 
 const timeline: PortfolioValuePointReadModel[] = [
@@ -48,43 +46,12 @@ const timeline: PortfolioValuePointReadModel[] = [
 
 describe("portfolio chart presentation", () => {
   it("does not draw a total-value trend for Today", () => {
-    expect(createPortfolioChartPresentation("today", timeline).showValueTrend).toBe(false);
-    expect(createPortfolioChartPresentation("week", timeline).showValueTrend).toBe(true);
+    expect(shouldShowPortfolioValueTrend("today", timeline)).toBe(false);
+    expect(shouldShowPortfolioValueTrend("week", timeline)).toBe(true);
   });
 
-  it("keeps material activity and removes rounding-sized estimated events", () => {
-    const presentation = createPortfolioChartPresentation("week", timeline);
-
-    expect(presentation.portfolioActivities).toEqual([{
-      asOf: "2026-09-06",
-      portfolioActivityEur: 2_655,
-    }]);
-    expect(presentation.activityGroups).toHaveLength(2);
-    expect(presentation.activityGroups[0]).toMatchObject({
-      asOf: "2026-09-06",
-      portfolioActivityEur: 2_655,
-      holdingActivities: [{ name: "Fund A" }],
-    });
-    expect(presentation.markerDates).toEqual(["2026-09-06", "2026-09-11"]);
-  });
-
-  it("limits a busy value chart to the four most recent activity dates", () => {
-    const busyTimeline = Array.from({ length: 6 }, (_, index) => ({
-      ...timeline[0]!,
-      asOf: `2026-09-${String(index + 1).padStart(2, "0")}`,
-      holdingActivities: [{
-        holdingId: `account:fund-${index}`,
-        name: `Fund ${index}`,
-        kind: "added" as const,
-        quantityDelta: "1",
-      }],
-    }));
-
-    expect(createPortfolioChartPresentation("week", busyTimeline).markerDates).toEqual([
-      "2026-09-03",
-      "2026-09-04",
-      "2026-09-05",
-      "2026-09-06",
-    ]);
+  it("requires two dated valuations for a total-value trend", () => {
+    expect(shouldShowPortfolioValueTrend("week", timeline.slice(0, 1))).toBe(false);
+    expect(shouldShowPortfolioValueTrend("month", timeline.slice(0, 2))).toBe(true);
   });
 });

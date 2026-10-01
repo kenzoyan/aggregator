@@ -18,10 +18,7 @@ import {
   demoHoldings,
   periodData,
 } from "@/application/demo-dashboard";
-import {
-  createPortfolioChartPresentation,
-  minimumVisiblePortfolioActivityEur,
-} from "@/application/portfolio-chart-presentation";
+import { shouldShowPortfolioValueTrend } from "@/application/portfolio-chart-presentation";
 import type {
   FxOverviewReadModel,
   HoldingReadModel,
@@ -98,8 +95,6 @@ function Sparkline({
   detail = false,
   label = "Portfolio value trend",
   comparableModel,
-  valueTimeline,
-  activityMarkerDates,
 }: {
   points?: number[];
   negative: boolean;
@@ -107,13 +102,11 @@ function Sparkline({
   detail?: boolean;
   label?: string;
   comparableModel?: ComparableSparklineModel;
-  valueTimeline?: PortfolioValuePointReadModel[];
-  activityMarkerDates?: ReadonlySet<string>;
 }) {
   const gradientId = `chart-fill-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
-  const chartPoints = valueTimeline?.map((point) => point.valueEur) ?? points ?? [];
+  const chartPoints = points ?? [];
   const geometry = useMemo(() => {
-    if (comparableModel) return { path: comparableModel.path, coordinates: [] };
+    if (comparableModel) return comparableModel.path;
     const max = Math.max(...chartPoints);
     const min = Math.min(...chartPoints);
     const range = max - min || 1;
@@ -122,12 +115,9 @@ function Sparkline({
         const y = 56 - ((point - min) / range) * 44;
         return { x, y };
       });
-    return {
-      coordinates,
-      path: coordinates
-        .map(({ x, y }, index) => `${index === 0 ? "M" : "L"}${x.toFixed(2)},${y.toFixed(2)}`)
-        .join(" "),
-    };
+    return coordinates
+      .map(({ x, y }, index) => `${index === 0 ? "M" : "L"}${x.toFixed(2)},${y.toFixed(2)}`)
+      .join(" ");
   }, [chartPoints, comparableModel]);
   const zeroY = comparableModel?.zeroY;
   const fillBottom = zeroY ?? 64;
@@ -143,27 +133,8 @@ function Sparkline({
       {zeroY !== undefined && (
         <line className="sparkline-baseline" x1="0" x2="100" y1={zeroY} y2={zeroY} />
       )}
-      <path d={`${geometry.path} L100,${fillBottom} L0,${fillBottom} Z`} fill={`url(#${gradientId})`} />
-      <path d={geometry.path} fill="none" stroke={negative ? "#d95763" : "#078d68"} strokeWidth="2.2" vectorEffect="non-scaling-stroke" />
-      {valueTimeline?.map((point, index) => {
-        const coordinate = geometry.coordinates[index];
-        if (!coordinate || !activityMarkerDates?.has(point.asOf)) return null;
-        const holdingSummary = point.holdingActivities
-          .map((activity) => `${activity.name} ${activity.kind}`)
-          .join(", ");
-        const title = [
-          formatChartDate(point.asOf),
-          holdingSummary,
-          Math.abs(point.portfolioActivityEur) >= minimumVisiblePortfolioActivityEur
-            ? `estimated portfolio activity ${signedEur(point.portfolioActivityEur)}`
-            : "",
-        ].filter(Boolean).join(" · ");
-        return (
-          <line key={index} className="value-activity-marker" x1={coordinate.x} x2={coordinate.x} y1={coordinate.y} y2="62">
-            <title>{title}</title>
-          </line>
-        );
-      })}
+      <path d={`${geometry} L100,${fillBottom} L0,${fillBottom} Z`} fill={`url(#${gradientId})`} />
+      <path d={geometry} fill="none" stroke={negative ? "#d95763" : "#078d68"} strokeWidth="2.2" vectorEffect="non-scaling-stroke" />
     </svg>
   );
 }
@@ -423,13 +394,7 @@ export function Dashboard() {
           timeline: demoValueTimeline,
         }
       : undefined;
-  const chartPresentation = createPortfolioChartPresentation(
-    period,
-    valueHistory?.timeline ?? [],
-    valueHistory?.activityAvailable ?? false,
-  );
-  const activityGroups = chartPresentation.activityGroups;
-  const activityMarkerDates = new Set(chartPresentation.markerDates);
+  const showValueTrend = shouldShowPortfolioValueTrend(period, valueHistory?.timeline ?? []);
   const persistedMarketMessage = latestMarketResult
     ? latestMarketResult.failed > 0
       ? `Last check failed: ${formatRefreshFailures(latestMarketResult.failures)}; previous prices kept`
@@ -537,16 +502,6 @@ export function Dashboard() {
                   <small className={valueHistory.percent >= 0 ? "positive" : "negative"}>
                     {valueHistory.percent >= 0 ? "+" : "−"}{Math.abs(valueHistory.percent).toFixed(2)}%
                   </small>
-                  {valueHistory.activityAvailable && (
-                    <small className="value-history-breakdown">
-                      Investment {signedEur(valueHistory.investmentChange)} · Portfolio activity {signedEur(valueHistory.portfolioActivity)}
-                    </small>
-                  )}
-                  <small className="value-history-note">
-                    {valueHistory.activityAvailable
-                      ? "Portfolio activity may include deposits, withdrawals and holding changes"
-                      : "Activity breakdown unavailable when the period includes an exited holding or an incomplete performance trail"}
-                  </small>
                 </div>
               ) : chartMode === "value" ? (
                 <div><span>{current.label} value movement</span><strong className="pending-change">Waiting for another valuation</strong><small>Total value history starts with two dated records</small></div>
@@ -592,51 +547,12 @@ export function Dashboard() {
                   : "Prices still use confirmed imports"
                 : usingReviewedDemo ? "Stored only in this browser" : demoEnabled ? "Some funds await NAV" : "No demo data mixed in"}</span>
             </div>
-            {chartMode === "value" && valueHistory?.available && chartPresentation.showValueTrend ? (
-              <>
-                <PortfolioValueChart
-                  negative={valueHistory.change < 0}
-                  label={`${periodData[period].label} total portfolio value trend`}
-                  timeline={valueHistory.timeline}
-                  activityMarkerDates={activityMarkerDates}
-                />
-                {activityGroups.length > 0 && (
-                  <section className="portfolio-activity-list" aria-label="Portfolio activity during this period">
-                    <div>
-                      <strong>Portfolio activity</strong>
-                      <small>Holding changes are ledger facts; capital activity is estimated from otherwise unexplained value movement</small>
-                    </div>
-                    <ul>
-                      {activityGroups.map((group) => (
-                        <li key={group.asOf}>
-                          <span>{formatChartDate(group.asOf)}</span>
-                          {group.holdingActivities.length > 0 ? (
-                            <>
-                              <strong>{group.holdingActivities.length === 1
-                                ? group.holdingActivities[0]!.name
-                                : `${group.holdingActivities.length} holding changes`}</strong>
-                              {group.holdingActivities.map((activity) => (
-                                <small key={activity.holdingId}>{activity.name} · {activity.kind === "added"
-                                  ? "added"
-                                  : activity.kind === "increased"
-                                    ? "increased"
-                                    : activity.kind === "reduced"
-                                      ? "reduced"
-                                      : "exited"} {activity.quantityDelta.startsWith("-") ? "" : "+"}{activity.quantityDelta} units</small>
-                              ))}
-                            </>
-                          ) : group.portfolioActivityEur !== undefined ? (
-                            <strong className={group.portfolioActivityEur > 0 ? "positive" : "negative"}>{signedEur(group.portfolioActivityEur)}</strong>
-                          ) : null}
-                          {group.portfolioActivityEur !== undefined && (
-                            <small className="activity-estimate">Estimated capital activity {signedEur(group.portfolioActivityEur)}</small>
-                          )}
-                        </li>
-                      ))}
-                    </ul>
-                  </section>
-                )}
-              </>
+            {chartMode === "value" && valueHistory?.available && showValueTrend ? (
+              <PortfolioValueChart
+                negative={valueHistory.change < 0}
+                label={`${periodData[period].label} total portfolio value trend`}
+                timeline={valueHistory.timeline}
+              />
             ) : chartMode === "value" && period === "today" ? null : chartMode === "value" ? (
               <div className="sparkline-empty">Value trend appears after another dated valuation</div>
             ) : period === "today" ? null : !dailyHistoryAvailable ? (

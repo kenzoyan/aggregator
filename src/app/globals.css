@@ -114,9 +114,6 @@ h2 { margin-bottom: 0; font-family: Georgia, "Times New Roman", serif; font-size
 .period-summary small { font-weight: 750; }
 .market-note { color: var(--muted) !important; text-align: right; line-height: 1.5; }
 .sparkline { width: calc(100% + 60px); height: 130px; margin: 4px -30px -20px; display: block; }
-.value-activity-marker { stroke: #2c69d1; stroke-width: 1.4; stroke-dasharray: 2 2; vector-effect: non-scaling-stroke; }
-.value-history-note { color: #7a8796; font-size: 9px !important; font-weight: 650 !important; }
-.value-history-breakdown { color: #3f536b; font-size: 10px !important; font-weight: 800 !important; }
 .investment-breakdown { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 2px; }
 .investment-breakdown span { display: inline-flex; align-items: baseline; gap: 6px; padding: 5px 8px; border: 1px solid #e0e7ee; border-radius: 8px; background: #f7f9fb; color: #6e7d8e !important; font-size: 9px !important; font-weight: 750; }
 .investment-breakdown strong { font-size: 11px; letter-spacing: -.01em; }
@@ -137,16 +134,6 @@ h2 { margin-bottom: 0; font-family: Georgia, "Times New Roman", serif; font-size
 .daily-change-plot button.positive .daily-bar-zone i { bottom: 50%; background: #13a779; }
 .daily-change-plot button.negative .daily-bar-zone i { top: 50%; background: #df6470; border-radius: 2px 2px 4px 4px; }
 .daily-change-plot button.neutral .daily-bar-zone i { top: calc(50% - .5px); background: #9aa7b5; }
-.portfolio-activity-list { position: relative; display: grid; grid-template-columns: minmax(210px, .7fr) minmax(0, 1.3fr); align-items: start; gap: 16px; margin: 25px 0 2px; padding-top: 14px; border-top: 1px solid #e7ebef; }
-.portfolio-activity-list > div { display: grid; gap: 3px; }
-.portfolio-activity-list > div strong { font-size: 11px; }
-.portfolio-activity-list > div small { color: var(--muted); font-size: 8px; line-height: 1.45; }
-.portfolio-activity-list ul { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; margin: 0; padding: 0; list-style: none; }
-.portfolio-activity-list li { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; padding: 8px 10px; border-radius: 9px; background: #f7f9fb; }
-.portfolio-activity-list li span { color: var(--muted); font-size: 9px; font-weight: 750; }
-.portfolio-activity-list li strong { font-size: 10px; }
-.portfolio-activity-list li small { grid-column: 1 / -1; color: #7b8999; font-size: 8px; }
-.portfolio-activity-list li small.activity-estimate { color: #536b86; font-weight: 750; }
 .sparkline-empty { min-height: 114px; margin: 4px 0 -4px; display: grid; place-items: center; color: var(--muted); font-size: 0.78rem; text-align: center; }
 .positive { color: var(--green); }
 .negative { color: var(--red); }
@@ -753,8 +740,6 @@ h2 { margin-bottom: 0; font-family: Georgia, "Times New Roman", serif; font-size
   .period-summary { margin-top: 20px; }
   .sparkline { width: calc(100% + 40px); margin-inline: -20px; }
   .daily-change-plot button { min-width: 52px; }
-  .portfolio-activity-list { grid-template-columns: 1fr; }
-  .portfolio-activity-list ul { grid-template-columns: 1fr; }
   .data-status-bar { align-items: flex-start; flex-direction: column; margin-bottom: 30px; }
   .portfolio-insights { margin-bottom: 30px; padding: 19px; border-radius: 19px; }
   .portfolio-insights-heading { align-items: flex-start; flex-direction: column; gap: 9px; }
@@ -839,8 +824,6 @@ h2 { margin-bottom: 0; font-family: Georgia, "Times New Roman", serif; font-size
 .chart-tooltip { display: grid; gap: 3px; min-width: 132px; padding: 10px 12px; border: 1px solid #d8d4ca; border-radius: 9px; background: rgba(255,254,250,.96); box-shadow: 0 10px 30px rgba(35,42,38,.12); backdrop-filter: blur(10px); }
 .chart-tooltip span, .chart-tooltip small { color: var(--muted); font-size: 11px; }
 .chart-tooltip strong { font-family: var(--font-geist-mono), monospace; font-size: 13px; font-variant-numeric: tabular-nums; }
-.portfolio-activity-list { border-color: #e5e1d7; }
-.portfolio-activity-list li { border: 1px solid #e5e1d7; border-radius: 8px; background: #f7f5ef; }
 
 .data-status-bar { gap: 10px 24px; margin: 14px 2px 38px; padding: 0; border: 0; background: transparent; color: #5f6964; font-size: 11px; }
 .status-indicator { width: 5px; height: 5px; margin-right: 8px; }

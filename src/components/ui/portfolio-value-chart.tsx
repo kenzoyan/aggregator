@@ -4,7 +4,6 @@ import {
   Area,
   AreaChart,
   CartesianGrid,
-  ReferenceDot,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -33,12 +32,10 @@ function formatDate(value: string) {
 
 export function PortfolioValueChart({
   timeline,
-  activityMarkerDates,
   negative,
   label,
 }: {
   timeline: readonly PortfolioValuePointReadModel[];
-  activityMarkerDates: ReadonlySet<string>;
   negative: boolean;
   label: string;
 }) {
@@ -95,9 +92,6 @@ export function PortfolioValueChart({
                 <div className="chart-tooltip">
                   <span>{point.label}</span>
                   <strong>{exactEur.format(point.valueEur)}</strong>
-                  {point.holdingActivities.length > 0 && (
-                    <small>{point.holdingActivities.length} holding change{point.holdingActivities.length === 1 ? "" : "s"}</small>
-                  )}
                 </div>
               );
             }}
@@ -110,19 +104,6 @@ export function PortfolioValueChart({
             strokeWidth={2.4}
             type="monotone"
           />
-          {data
-            .filter((point) => activityMarkerDates.has(point.asOf))
-            .map((point) => (
-              <ReferenceDot
-                key={point.asOf}
-                fill="var(--surface)"
-                r={4}
-                stroke="var(--accent)"
-                strokeWidth={2}
-                x={point.label}
-                y={point.valueEur}
-              />
-            ))}
         </AreaChart>
       </ResponsiveContainer>
       <figcaption>Hover or focus the chart to inspect a dated valuation.</figcaption>
