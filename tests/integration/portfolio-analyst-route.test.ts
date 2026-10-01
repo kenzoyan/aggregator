@@ -140,6 +140,38 @@ function conversationStore(): PortfolioAnalystConversationStore {
 }
 
 describe("/api/portfolio/analyst", () => {
+  it("loads configuration when a hot-reload repository returns the previous conversation shape", async () => {
+    const store = conversationStore();
+    store.savePortfolioAnalystConversation({
+      version: "portfolio-analyst-conversation.v1",
+      id: "legacy-live-conversation",
+      provider: "openai",
+      language: "zh-CN",
+      includeHoldingNames: true,
+      createdAt: "2026-09-22T20:00:00.000Z",
+      updatedAt: "2026-09-22T20:00:00.000Z",
+      turns: [],
+      importActivity: {
+        draftId: "old-draft",
+        targetLabel: "WeChat",
+        submissionText: "识别截图",
+        screenshotCount: 1,
+        createdAt: "2026-09-22T20:01:00.000Z",
+      },
+    } as unknown as PortfolioAnalystConversation);
+    const handlers = createPortfolioAnalystHandlers({
+      providers: {},
+      models: { openai: "synthetic", deepseek: "synthetic" },
+      defaultProvider: "openai",
+    }, { readCurrentPortfolio: portfolio, conversations: store });
+
+    const response = await handlers.GET();
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      conversation: { importActivities: [{ draftId: "old-draft" }] },
+    });
+  });
+
   it("binds an import draft to the conversation and restores it on GET", async () => {
     const store = conversationStore();
     store.savePortfolioAnalystConversation({
@@ -151,6 +183,7 @@ describe("/api/portfolio/analyst", () => {
       createdAt: "2026-09-22T20:00:00.000Z",
       updatedAt: "2026-09-22T20:00:00.000Z",
       turns: [],
+      importActivities: [],
     });
     const storedDraft = {
       id: "draft-wechat",
@@ -198,19 +231,20 @@ describe("/api/portfolio/analyst", () => {
     expect(patched.status).toBe(200);
     await expect(handlers.GET().then((response) => response.json())).resolves.toMatchObject({
       conversation: {
-        importActivity: {
+        importActivities: [{
           draftId: "draft-wechat",
           targetLabel: "WeChat",
           screenshotCount: 1,
-        },
+        }],
       },
-      importDraft: { id: "draft-wechat", status: "draft" },
+      importDrafts: [{ id: "draft-wechat", status: "draft" }],
     });
   });
 
   it("uses the model-controlled runtime tool choice and persists its safe audit", async () => {
     const store = conversationStore();
     const events: unknown[] = [];
+    let runtimeQuestion = "";
     const handlers = createPortfolioAnalystHandlers({
       providers: { openai: provider() },
       models: { openai: "gpt-synthetic", deepseek: "deepseek-synthetic" },
@@ -218,6 +252,7 @@ describe("/api/portfolio/analyst", () => {
       agentRuntimes: {
         openai: {
           async runTurn(input) {
+            runtimeQuestion = input.question;
             input.onToolActivity?.({
               stage: "started",
               toolCallId: "tool-1",
@@ -272,10 +307,14 @@ describe("/api/portfolio/analyst", () => {
       language: "en",
       includeHoldingNames: false,
       question: "Is my data current?",
+      screenshotCount: 1,
     }), (event) => events.push(event));
 
     expect(response.status).toBe(200);
+    expect(runtimeQuestion).toContain("image contents are not visible");
+    expect(runtimeQuestion).toContain("prepare_account_import");
     const saved = store.readLatestPortfolioAnalystConversation();
+    expect(saved?.turns[0]?.question).toBe("Is my data current?");
     expect(saved?.turns[0]?.report).toMatchObject({
       job: "diagnose-data-quality",
       agentAudit: {
@@ -530,6 +569,7 @@ describe("/api/portfolio/analyst", () => {
       createdAt: "2026-09-09T10:00:00.000Z",
       updatedAt: "2026-09-09T10:00:00.000Z",
       turns: [],
+      importActivities: [],
     });
     const handlers = createPortfolioAnalystHandlers({
       providers: { openai: provider() },

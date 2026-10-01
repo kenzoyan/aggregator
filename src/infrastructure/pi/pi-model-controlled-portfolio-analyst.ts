@@ -13,6 +13,7 @@ import {
   projectPartialPortfolioAnalystAnswer,
   validatePortfolioAnalystAnswer,
 } from "@/application/portfolio-analyst-answer";
+import { createAccountHoldingsFallback } from "@/application/portfolio-analyst-account-fallback";
 import type {
   PortfolioAnalystAgentRuntime,
   PortfolioAnalystAgentTurn,
@@ -75,7 +76,8 @@ function systemPrompt(input: PortfolioAnalystAgentTurn): string {
     `Use ${input.defaultPeriod} when the question needs a performance period but does not specify one.`,
     `Answer language: ${input.language}.`,
     "Only tool output from this turn is current evidence. Historical answers resolve references only.",
-    "When the user asks to update or import assets for an existing account, read the account registry and return the exact matching start-account-import allowed action as proposedUpdate. Do not ask the user to upload screenshots into this chat; the action opens the existing Import workflow.",
+    "When the user asks to update or import assets for an existing account, read the account registry and return the exact matching start-account-import allowed action as proposedUpdate. Screenshot handling and confirmation are performed by the application; never claim that this text turn changed holdings.",
+    "When the user asks what a specific account currently holds or refers to a recently imported account, use read_account_holdings. Use read_accounts first if the account reference needs resolving. A portfolio overview does not contain individual account holdings. If the target account cannot be identified, ask for its name rather than inventing holdings.",
     portfolioAnalystConversationalAnswerInstruction,
     "After the tool result, return only JSON matching this schema:",
     JSON.stringify(portfolioAnalystAnswerJsonSchema),
@@ -270,6 +272,44 @@ function createTools(
       };
     },
   };
+  const accountHoldingsTool: AgentTool<typeof importAccountParameters> = {
+    name: "read_account_holdings",
+    label: "Read account holdings",
+    description: "Read the current confirmed holdings and value for one registered source account. Accepts its account type or display label. Use for questions about a specific account, including the most recently imported account.",
+    parameters: importAccountParameters,
+    executionMode: "sequential",
+    async execute(toolCallId, params) {
+      const activity = {
+        toolCallId,
+        name: "read_account_holdings" as const,
+        input: { accountType: params.accountType },
+      };
+      input.onToolActivity?.({ stage: "started", ...activity });
+      input.onPhase?.("reading-current-facts");
+      const rawContext = input.tools.readAccountHoldings({
+        accountType: params.accountType,
+        language: input.language,
+        includeHoldingNames: input.includeHoldingNames,
+      });
+      const context = collect(rawContext, completedAudit(
+        toolCallId,
+        "read_account_holdings",
+        activity.input,
+        rawContext,
+      ));
+      input.onToolActivity?.({
+        stage: "completed",
+        ...activity,
+        factsAsOf: context.factsAsOf,
+        evidenceCount: context.facts.length,
+      });
+      input.onPhase?.("generating-answer");
+      return {
+        content: [{ type: "text", text: JSON.stringify(context) }],
+        details: { factsAsOf: context.factsAsOf },
+      };
+    },
+  };
   const proposeCreateAccountTool: AgentTool<typeof createAccountParameters> = {
     name: "propose_create_account",
     label: "Propose source account",
@@ -355,6 +395,7 @@ function createTools(
     qualityTool,
     overviewTool,
     accountsTool,
+    accountHoldingsTool,
     proposeCreateAccountTool,
     prepareAccountImportTool,
   ];
@@ -461,11 +502,19 @@ class PiModelControlledPortfolioAnalyst implements PortfolioAnalystAgentRuntime 
       const latest = [...agent.state.messages]
         .reverse()
         .find((message) => message.role === "assistant");
-      const candidate = portfolioAnalystAnswerCandidateSchema.parse(
-        JSON.parse(messageText(latest)),
-      );
+      let candidate;
+      try {
+        candidate = portfolioAnalystAnswerCandidateSchema.parse(
+          JSON.parse(messageText(latest)),
+        );
+        candidate = validatePortfolioAnalystAnswer({ context: selectedContext, candidate });
+      } catch (error) {
+        const fallback = createAccountHoldingsFallback(selectedContext);
+        if (!fallback) throw error;
+        candidate = validatePortfolioAnalystAnswer({ context: selectedContext, candidate: fallback });
+      }
       return {
-        answer: validatePortfolioAnalystAnswer({ context: selectedContext, candidate }),
+        answer: candidate,
         context: selectedContext,
         audit: {
           runtime: "pi-agent-core" as const,

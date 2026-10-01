@@ -17,7 +17,7 @@ import type { PortfolioDatabase } from "@/infrastructure/sqlite/portfolio-reposi
 
 type ImportPortfolioRepository = Pick<
   PortfolioDatabase,
-  "saveImportDraft" | "getImportDraft" | "confirmImport" | "readPortfolioFacts"
+  "saveImportDraft" | "getImportDraft" | "saveImportDraftReview" | "confirmImport" | "readPortfolioFacts"
 >;
 
 interface ImportDraftRow {
@@ -152,6 +152,28 @@ export function createImportPortfolioRepository(
     },
 
     getImportDraft,
+
+    saveImportDraftReview(id, review) {
+      const existing = getImportDraft(id);
+      if (!existing || existing.status !== "draft") {
+        throw new Error(`Import Draft ${id} is not editable`);
+      }
+      const updated = updateReviewedDraft.run(
+        review.confidence,
+        JSON.stringify(review.warnings),
+        JSON.stringify({
+          ...review.portfolio,
+          ...(existing.portfolio.reconciliation
+            ? { reconciliation: existing.portfolio.reconciliation }
+            : {}),
+        }),
+        id,
+      );
+      if (updated.changes !== 1) {
+        throw new Error(`Import Draft ${id} is not editable`);
+      }
+      return getImportDraft(id)!;
+    },
 
     confirmImport(command) {
       const existing = getImportDraft(command.draftId);

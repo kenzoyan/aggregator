@@ -362,6 +362,7 @@ h2 { margin-bottom: 0; font-family: Georgia, "Times New Roman", serif; font-size
 .analyst-import-field-grid label { display: grid; gap: 3px; color: #71857d; font-size: 7px; font-weight: 750; }
 .analyst-import-field-grid input, .analyst-import-field-grid select { min-width: 0; width: 100%; padding: 6px; border: 1px solid #cbdad3; border-radius: 6px; background: white; color: #2e463d; font: inherit; font-size: 8px; }
 .analyst-import-review-actions { display: flex; justify-content: flex-end; gap: 7px; }
+.analyst-import-save-status { align-self: center; margin-right: auto; color: #668076; font-size: 9px; }
 .analyst-import-review-actions button { min-height: 32px; padding: 7px 10px; border: 0; border-radius: 8px; background: var(--green); color: white; cursor: pointer; font-size: 8px; font-weight: 800; }
 .analyst-import-review-actions button.secondary { border: 1px solid #cbdad3; background: white; color: #52675f; }
 .analyst-import-review-actions button:disabled { cursor: not-allowed; opacity: .5; }
@@ -374,6 +375,17 @@ h2 { margin-bottom: 0; font-family: Georgia, "Times New Roman", serif; font-size
 .analyst-composer-actions button { min-height: 33px; padding: 8px 16px; border: 0; border-radius: 9px; background: var(--green); color: white; cursor: pointer; font-size: 9px; font-weight: 800; white-space: nowrap; }
 .analyst-composer-actions button.secondary { border: 1px solid #cbdad3; background: white; color: #52675f; }
 .analyst-composer-actions button:disabled { cursor: not-allowed; opacity: .45; }
+.analyst-composer .agent-image-attachments { display: flex; align-items: flex-start; flex-wrap: wrap; gap: 8px; }
+.analyst-composer .agent-image-attachment-trigger { min-height: 32px; border-style: solid; background: #fff; }
+.analyst-composer .agent-image-attachment-trigger > strong { font-size: 9px; }
+.analyst-composer .agent-image-attachments .screenshot-tray { flex: 1 1 180px; min-width: 0; padding: 4px 8px; border: 1px solid #dce6e1; border-radius: 9px; background: white; }
+.analyst-composer .agent-image-attachments .screenshot-tray-heading { display: none; }
+.analyst-composer .agent-image-attachments .screenshot-thumbnails { display: flex; gap: 7px; margin: 0; }
+.analyst-composer .agent-image-attachments .screenshot-thumbnails > li { width: 42px; height: 42px; }
+.analyst-composer .agent-image-attachments .screenshot-thumbnail { width: 42px; height: 42px; }
+.analyst-composer .analyst-import-target { padding: 5px 8px; justify-content: flex-start; font-size: 9px; }
+.analyst-composer .analyst-account-picker { display: flex; align-items: center; gap: 8px; color: #52675f; font-size: 10px; }
+.analyst-composer .analyst-account-picker select { min-width: 160px; padding: 6px; border: 1px solid #cbdad3; border-radius: 7px; background: white; font: inherit; }
 
 @media (min-width: 1181px) {
   .main-content { transition: margin-left .22s ease; }

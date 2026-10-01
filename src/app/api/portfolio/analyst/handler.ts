@@ -9,6 +9,7 @@ import {
   appendPortfolioAnalystTurn,
   createPortfolioAnalystConversation,
   createPortfolioAnalystHistory,
+  normalizePortfolioAnalystConversation,
   type PortfolioAnalystConversationStore,
 } from "@/application/portfolio-analyst-conversation";
 import {
@@ -65,6 +66,7 @@ const agentRequestSchema = z.object({
   mode: z.literal("agent"),
   defaultPeriod: z.enum(["today", "week", "month"]),
   question: z.string().trim().min(1).max(600),
+  screenshotCount: z.number().int().min(1).max(6).optional(),
 }).strict();
 const requestSchema = z.union([agentRequestSchema, legacyRequestSchema]);
 const importActivitySchema = z.object({
@@ -97,6 +99,12 @@ function requestQuestion(body: AnalystApiRequest): string {
 function requestDefaultPeriod(body: AnalystApiRequest) {
   if ("mode" in body) return body.defaultPeriod;
   return body.job === "explain-period-drivers" ? body.period : "week";
+}
+
+function runtimeQuestion(body: AnalystApiRequest): string {
+  const question = requestQuestion(body);
+  if (!("mode" in body) || !body.screenshotCount) return question;
+  return `The user attached ${body.screenshotCount} screenshot(s). Their image contents are not visible in this text turn. Read the registered accounts and use prepare_account_import when the user's text clearly identifies one. Do not claim to have read or extracted the images; the application will analyze them after account selection. User request: ${question}`;
 }
 
 function json(body: unknown, init?: ResponseInit) {
@@ -133,10 +141,12 @@ export function createPortfolioAnalystHandlers(
 ) {
   return {
     async GET() {
-      const conversation = options.conversations?.readLatestPortfolioAnalystConversation();
-      const importDraft = conversation?.importActivity
-        ? options.getImportDraft?.(conversation.importActivity.draftId)
-        : undefined;
+      const stored = options.conversations?.readLatestPortfolioAnalystConversation();
+      const conversation = stored && normalizePortfolioAnalystConversation(stored);
+      const importDrafts = conversation?.importActivities.flatMap((activity) => {
+        const draft = options.getImportDraft?.(activity.draftId);
+        return draft ? [createImportDraftReadModel(draft)] : [];
+      }) ?? [];
       return json({
         defaultProvider: registry.defaultProvider,
         providers: portfolioAnalystProviderIds.map((id) => ({
@@ -145,7 +155,7 @@ export function createPortfolioAnalystHandlers(
           model: registry.models[id],
         })),
         ...(conversation ? { conversation } : {}),
-        ...(importDraft ? { importDraft: createImportDraftReadModel(importDraft) } : {}),
+        ...(importDrafts.length ? { importDrafts } : {}),
       });
     },
 
@@ -159,8 +169,9 @@ export function createPortfolioAnalystHandlers(
           { status: 400 },
         );
       }
-      const conversation = options.conversations
+      const stored = options.conversations
         ?.readPortfolioAnalystConversation(body.conversationId);
+      const conversation = stored && normalizePortfolioAnalystConversation(stored);
       if (!conversation) {
         return json(
           { error: "Analyst conversation was not found.", code: "conversation-not-found" },
@@ -174,9 +185,18 @@ export function createPortfolioAnalystHandlers(
           { status: 404 },
         );
       }
+      if (draft.sourceKind !== "screenshot") {
+        return json(
+          { error: "Only screenshot drafts can be attached to Agent chat.", code: "invalid-import-kind" },
+          { status: 400 },
+        );
+      }
+      const targetLabel = options.readSourceAccounts?.().find(
+        (account) => account.id === draft.sourceAccountId,
+      )?.label ?? body.targetLabel;
       const nextConversation = attachPortfolioAnalystImport(conversation, {
         draftId: body.draftId,
-        targetLabel: body.targetLabel,
+        targetLabel,
         submissionText: body.submissionText,
         screenshotCount: body.screenshotCount,
         createdAt: options.now?.() ?? new Date().toISOString(),
@@ -229,9 +249,10 @@ export function createPortfolioAnalystHandlers(
         );
       }
 
-      let conversation = body.conversationId
+      const stored = body.conversationId
         ? options.conversations?.readPortfolioAnalystConversation(body.conversationId)
         : undefined;
+      let conversation = stored && normalizePortfolioAnalystConversation(stored);
       if (body.conversationId && !conversation) {
         return json(
           { error: "Analyst conversation was not found.", code: "conversation-not-found" },
@@ -274,7 +295,7 @@ export function createPortfolioAnalystHandlers(
         if (agentRuntime) {
           emit?.({ type: "status", phase: "selecting-tool" });
           const result = await agentRuntime.runTurn({
-            question: requestQuestion(body),
+            question: runtimeQuestion(body),
             history: createPortfolioAnalystHistory(conversation),
             tools,
             language: body.language,
@@ -305,7 +326,7 @@ export function createPortfolioAnalystHandlers(
             .create(provider)
             .runTurn({
               context,
-              question: requestQuestion(body),
+              question: runtimeQuestion(body),
               history: createPortfolioAnalystHistory(conversation),
               signal: request.signal,
               onAnswerTextDelta: (delta) => emit?.({ type: "answer-delta", delta }),

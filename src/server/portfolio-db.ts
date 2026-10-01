@@ -16,6 +16,7 @@ type CachedPortfolioDatabase = Pick<PortfolioDatabase, "close"> &
     | "readLatestMarketIntelligenceBrief"
     | "saveMarketIntelligenceBrief"
     | "deleteSourceAccount"
+    | "saveImportDraftReview"
   >>;
 
 export function ensureCurrentPortfolioDatabase<
@@ -29,7 +30,8 @@ export function ensureCurrentPortfolioDatabase<
     database &&
     typeof database.readLatestMarketIntelligenceBrief === "function" &&
     typeof database.saveMarketIntelligenceBrief === "function" &&
-    typeof database.deleteSourceAccount === "function"
+    typeof database.deleteSourceAccount === "function" &&
+    typeof database.saveImportDraftReview === "function"
   ) {
     return database;
   }

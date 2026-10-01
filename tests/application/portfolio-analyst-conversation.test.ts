@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  attachPortfolioAnalystImport,
   appendPortfolioAnalystTurn,
   createPortfolioAnalystConversation,
   createPortfolioAnalystHistory,
@@ -41,6 +42,27 @@ function report(index: number): PortfolioAnalystReport {
 }
 
 describe("portfolio analyst conversation", () => {
+  it("supplies the recent import target as a reference for follow-up questions", () => {
+    const base = createPortfolioAnalystConversation({
+      id: "recent-import",
+      provider: "openai",
+      language: "zh-CN",
+      includeHoldingNames: true,
+      now: "2026-09-22T10:00:00.000Z",
+    });
+    const conversation = attachPortfolioAnalystImport(base, {
+      draftId: "synthetic-draft",
+      targetLabel: "Synthetic WeChat",
+      submissionText: "识别截图",
+      screenshotCount: 1,
+      createdAt: "2026-09-22T10:01:00.000Z",
+    });
+    expect(createPortfolioAnalystHistory(conversation).at(-1)?.text)
+      .toContain("Synthetic WeChat");
+    expect(createPortfolioAnalystHistory({ ...conversation, includeHoldingNames: false }))
+      .toEqual([]);
+  });
+
   it("keeps settings immutable and appends bounded turns", () => {
     let conversation = createPortfolioAnalystConversation({
       id: "conversation-1",

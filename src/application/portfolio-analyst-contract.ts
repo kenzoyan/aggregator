@@ -186,6 +186,36 @@ export interface SourceAccountFact {
   provenance: "source-account-registry";
 }
 
+export interface AccountHoldingsSummaryFact {
+  key: string;
+  kind: "account-holdings-summary";
+  label: "Account holdings summary";
+  requestedAccount: string;
+  found: boolean;
+  accountType?: string;
+  displayName?: string;
+  holdingCount: number;
+  shownHoldingCount: number;
+  totalValueEur: number;
+  provenance: "portfolio-read-model";
+}
+
+export interface AccountHoldingFact {
+  key: string;
+  kind: "account-holding";
+  label: "Account holding";
+  name?: string;
+  symbol?: string;
+  category: HoldingReadModel["category"];
+  quantity?: string;
+  currency: string;
+  originalValue: string;
+  valueEur: number;
+  freshness: HoldingReadModel["freshness"];
+  asOf: string;
+  provenance: "portfolio-read-model";
+}
+
 export interface SourceAccountProposalFact {
   key: string;
   kind: "source-account-proposal";
@@ -221,6 +251,8 @@ export type AnalystEvidenceFact =
   | PortfolioAllocationFact
   | PortfolioMoverFact
   | SourceAccountFact
+  | AccountHoldingsSummaryFact
+  | AccountHoldingFact
   | SourceAccountProposalFact
   | SourceAccountImportTargetFact;
 
@@ -297,6 +329,11 @@ export interface PortfolioAnalystTools {
   readAccounts(input: {
     language: PortfolioAnalystLanguage;
     includeAccountNames: boolean;
+  }): AnalystEvidenceBundleV1;
+  readAccountHoldings(input: {
+    accountType: string;
+    language: PortfolioAnalystLanguage;
+    includeHoldingNames: boolean;
   }): AnalystEvidenceBundleV1;
   proposeCreateAccount(input: {
     accountType: string;

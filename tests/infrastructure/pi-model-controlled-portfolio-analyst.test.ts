@@ -113,6 +113,77 @@ function completedStream(message: AssistantMessage) {
 }
 
 describe("Pi model-controlled Portfolio Analyst", () => {
+  it("returns a cited account summary when a model answer is malformed after reading account holdings", async () => {
+    const accountContext: PortfolioAnalystContextV1 = {
+      ...context,
+      job: "manage-accounts",
+      scope: {},
+      facts: [{
+        key: "account.holdings.summary",
+        kind: "account-holdings-summary",
+        label: "Account holdings summary",
+        requestedAccount: "Synthetic Account",
+        found: true,
+        accountType: "Synthetic Account",
+        displayName: "Synthetic Account",
+        holdingCount: 1,
+        shownHoldingCount: 1,
+        totalValueEur: 120,
+        provenance: "portfolio-read-model",
+      }, {
+        key: "account.holding.1",
+        kind: "account-holding",
+        label: "Account holding",
+        name: "Synthetic Fund",
+        category: "Fund",
+        quantity: "2",
+        currency: "EUR",
+        originalValue: "EUR 120",
+        valueEur: 120,
+        freshness: "fresh",
+        asOf: "2026-09-09",
+        provenance: "portfolio-read-model",
+      }],
+    };
+    let calls = 0;
+    const streamFn: StreamFn = () => {
+      calls += 1;
+      return calls === 1
+        ? completedStream(assistant([{
+            type: "toolCall",
+            id: "account-call",
+            name: "read_account_holdings",
+            arguments: { accountType: "Synthetic Account" },
+          }], "toolUse"))
+        : completedStream(assistant([{ type: "text", text: "{}" }], "stop"));
+    };
+    const tools: PortfolioAnalystTools = {
+      readPeriodDrivers: () => { throw new Error("wrong tool"); },
+      readDataQuality: () => { throw new Error("wrong tool"); },
+      readPortfolioOverview: () => { throw new Error("wrong tool"); },
+      readAccounts: () => { throw new Error("wrong tool"); },
+      readAccountHoldings: () => accountContext,
+      proposeCreateAccount: () => { throw new Error("wrong tool"); },
+      prepareAccountImport: () => { throw new Error("wrong tool"); },
+    };
+
+    const result = await createPiModelControlledPortfolioAnalyst({ model, streamFn }).runTurn({
+      question: "这个账户有什么资产？",
+      history: [],
+      tools,
+      language: "zh-CN",
+      includeHoldingNames: true,
+      defaultPeriod: "week",
+    });
+
+    expect(result.answer.answer.text).toContain("Synthetic Fund");
+    expect(result.answer.answer.evidence).toEqual([
+      "call1.account.holdings.summary",
+      "call1.account.holding.1",
+    ]);
+    expect(result.audit.toolCalls[0]?.name).toBe("read_account_holdings");
+  });
+
   it("lets the model choose an allowlisted read tool, then validates and audits the answer", async () => {
     const seenContexts: Context[] = [];
     const streamFn: StreamFn = (_model, piContext) => {
@@ -134,6 +205,7 @@ describe("Pi model-controlled Portfolio Analyst", () => {
       readDataQuality: () => { throw new Error("wrong tool"); },
       readPortfolioOverview: () => { throw new Error("wrong tool"); },
       readAccounts: () => { throw new Error("wrong tool"); },
+      readAccountHoldings: () => { throw new Error("wrong tool"); },
       proposeCreateAccount: () => { throw new Error("wrong tool"); },
       prepareAccountImport: () => { throw new Error("wrong tool"); },
     };
@@ -156,6 +228,7 @@ describe("Pi model-controlled Portfolio Analyst", () => {
       "read_data_quality",
       "read_portfolio_overview",
       "read_accounts",
+      "read_account_holdings",
       "propose_create_account",
       "prepare_account_import",
     ]);
@@ -251,6 +324,7 @@ describe("Pi model-controlled Portfolio Analyst", () => {
       },
       readPortfolioOverview: () => { throw new Error("wrong tool"); },
       readAccounts: () => { throw new Error("wrong tool"); },
+      readAccountHoldings: () => { throw new Error("wrong tool"); },
       proposeCreateAccount: () => { throw new Error("wrong tool"); },
       prepareAccountImport: () => { throw new Error("wrong tool"); },
     };
@@ -313,6 +387,7 @@ describe("Pi model-controlled Portfolio Analyst", () => {
       readDataQuality: () => { throw new Error("wrong tool"); },
       readPortfolioOverview: () => overviewContext,
       readAccounts: () => { throw new Error("wrong tool"); },
+      readAccountHoldings: () => { throw new Error("wrong tool"); },
       proposeCreateAccount: () => { throw new Error("wrong tool"); },
       prepareAccountImport: () => { throw new Error("wrong tool"); },
     };
@@ -390,6 +465,7 @@ describe("Pi model-controlled Portfolio Analyst", () => {
       readDataQuality: () => { throw new Error("wrong tool"); },
       readPortfolioOverview: () => { throw new Error("wrong tool"); },
       readAccounts: () => { throw new Error("wrong tool"); },
+      readAccountHoldings: () => { throw new Error("wrong tool"); },
       proposeCreateAccount: () => proposalContext,
       prepareAccountImport: () => { throw new Error("wrong tool"); },
     };
@@ -473,6 +549,7 @@ describe("Pi model-controlled Portfolio Analyst", () => {
       readDataQuality: () => { throw new Error("wrong tool"); },
       readPortfolioOverview: () => { throw new Error("wrong tool"); },
       readAccounts: () => { throw new Error("wrong tool"); },
+      readAccountHoldings: () => { throw new Error("wrong tool"); },
       proposeCreateAccount: () => { throw new Error("wrong tool"); },
       prepareAccountImport: () => importContext,
     };

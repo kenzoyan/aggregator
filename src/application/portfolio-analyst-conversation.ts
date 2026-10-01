@@ -35,17 +35,34 @@ export interface PortfolioAnalystConversation {
   createdAt: string;
   updatedAt: string;
   turns: PortfolioAnalystConversationTurn[];
-  importActivity?: PortfolioAnalystImportActivity;
+  importActivities: PortfolioAnalystImportActivity[];
+}
+
+export function normalizePortfolioAnalystConversation(
+  conversation: PortfolioAnalystConversation,
+): PortfolioAnalystConversation {
+  const legacy = conversation as PortfolioAnalystConversation & {
+    importActivity?: PortfolioAnalystImportActivity;
+  };
+  const { importActivity, ...current } = legacy;
+  return {
+    ...current,
+    importActivities: conversation.importActivities ?? (importActivity ? [importActivity] : []),
+  };
 }
 
 export function attachPortfolioAnalystImport(
   conversation: PortfolioAnalystConversation,
   activity: PortfolioAnalystImportActivity,
 ): PortfolioAnalystConversation {
+  const current = normalizePortfolioAnalystConversation(conversation);
   return {
-    ...conversation,
+    ...current,
     updatedAt: activity.createdAt,
-    importActivity: activity,
+    importActivities: [
+      ...current.importActivities.filter((item) => item.draftId !== activity.draftId),
+      activity,
+    ].slice(-MAX_PORTFOLIO_ANALYST_TURNS),
   };
 }
 
@@ -92,6 +109,7 @@ export function createPortfolioAnalystConversation(input: {
     createdAt: input.now,
     updatedAt: input.now,
     turns: [],
+    importActivities: [],
   };
 }
 
@@ -100,7 +118,7 @@ export function appendPortfolioAnalystTurn(
   turn: PortfolioAnalystConversationTurn,
 ): PortfolioAnalystConversation {
   return {
-    ...conversation,
+    ...normalizePortfolioAnalystConversation(conversation),
     updatedAt: turn.createdAt,
     turns: [...conversation.turns, turn].slice(-MAX_PORTFOLIO_ANALYST_TURNS),
   };
@@ -109,7 +127,7 @@ export function appendPortfolioAnalystTurn(
 export function createPortfolioAnalystHistory(
   conversation: PortfolioAnalystConversation,
 ): PortfolioAnalystHistoryMessage[] {
-  return conversation.turns.slice(-MAX_MODEL_HISTORY_TURNS).flatMap((turn) => [
+  const history: PortfolioAnalystHistoryMessage[] = conversation.turns.slice(-MAX_MODEL_HISTORY_TURNS).flatMap((turn) => [
     { role: "user" as const, text: turn.question },
     {
       role: "assistant" as const,
@@ -117,4 +135,18 @@ export function createPortfolioAnalystHistory(
       factsAsOf: turn.report.factsAsOf,
     },
   ]);
+  const recentImport = conversation.importActivities.at(-1);
+  const latestTurnAt = conversation.turns.at(-1)?.createdAt;
+  if (
+    conversation.includeHoldingNames &&
+    recentImport &&
+    (!latestTurnAt || recentImport.createdAt > latestTurnAt)
+  ) {
+    history.push({
+      role: "assistant",
+      text: `Recent local import activity targeted source account ${JSON.stringify(recentImport.targetLabel)}. This is reference metadata, not current holdings evidence.`,
+      factsAsOf: recentImport.createdAt,
+    });
+  }
+  return history;
 }

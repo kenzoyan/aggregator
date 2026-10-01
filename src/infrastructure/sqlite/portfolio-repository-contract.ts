@@ -54,6 +54,7 @@ export interface ConfirmImportCommand {
 export interface PortfolioDatabase extends PortfolioAnalystConversationStore {
   saveImportDraft(draft: ImportDraftInput): void;
   getImportDraft(id: string): StoredImportDraft | undefined;
+  saveImportDraftReview(id: string, review: ImportDraftReview): StoredImportDraft;
   confirmImport(command: ConfirmImportCommand): StoredImportDraft;
   readPortfolioFacts(): PortfolioFacts;
   readMarketData(): MarketDataHistory;

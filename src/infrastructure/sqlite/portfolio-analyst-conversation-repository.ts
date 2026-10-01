@@ -21,9 +21,13 @@ function decodePortfolioAnalystConversation(
   if (!row) return undefined;
   const stored = JSON.parse(row.turns_json) as
     | PortfolioAnalystConversation["turns"]
-    | Pick<PortfolioAnalystConversation, "turns" | "importActivity">;
+    | (Pick<PortfolioAnalystConversation, "turns"> & {
+        importActivity?: PortfolioAnalystConversation["importActivities"][number];
+        importActivities?: PortfolioAnalystConversation["importActivities"];
+      });
   const turns = Array.isArray(stored) ? stored : stored.turns;
-  const importActivity = Array.isArray(stored) ? undefined : stored.importActivity;
+  const importActivities = Array.isArray(stored) ? []
+    : stored.importActivities ?? (stored.importActivity ? [stored.importActivity] : []);
   return {
     version: "portfolio-analyst-conversation.v1",
     id: row.id,
@@ -33,7 +37,7 @@ function decodePortfolioAnalystConversation(
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     turns,
-    ...(importActivity ? { importActivity } : {}),
+    importActivities,
   };
 }
 
@@ -96,9 +100,7 @@ export function createPortfolioAnalystConversationRepository(
         conversation.updatedAt,
         JSON.stringify({
           turns: conversation.turns,
-          ...(conversation.importActivity
-            ? { importActivity: conversation.importActivity }
-            : {}),
+          importActivities: conversation.importActivities,
         }),
       );
     },

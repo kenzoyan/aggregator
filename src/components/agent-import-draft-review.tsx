@@ -10,6 +10,7 @@ export function AgentImportDraftReview({
   submissionText,
   language,
   busy,
+  saveStatus,
   onEdit,
   onAddHolding,
   onConfirm,
@@ -20,6 +21,7 @@ export function AgentImportDraftReview({
   submissionText: string;
   language: PortfolioAnalystLanguage;
   busy: boolean;
+  saveStatus?: "saving" | "saved" | "error";
   onEdit: (edit: ImportDraftEdit) => void;
   onAddHolding: () => void;
   onConfirm: () => void;
@@ -27,12 +29,6 @@ export function AgentImportDraftReview({
   const confirmed = draft.status === "confirmed";
   return (
     <div className="analyst-turn analyst-import-turn">
-      <div className="analyst-user-message">
-        <span>You</span>
-        <p>{submissionText || (language === "zh-CN"
-          ? `已发送 ${screenshotCount} 张截图`
-          : `Sent ${screenshotCount} screenshot${screenshotCount === 1 ? "" : "s"}`)}</p>
-      </div>
       <article className="portfolio-analyst-result analyst-import-draft-summary">
         <div className="analyst-primary-answer analyst-assistant-message">
           <span>Portfolio Agent</span>
@@ -43,6 +39,9 @@ export function AgentImportDraftReview({
             : (language === "zh-CN"
                 ? `我已经为 ${targetLabel} 创建了草稿。请检查并修改识别结果；确认前不会更新你的投资组合。`
                 : `I created a draft for ${targetLabel}. Review and edit the extraction; your portfolio will not change before confirmation.`)}</p>
+          <small>{language === "zh-CN" ? `已识别 ${screenshotCount} 张截图` : `${screenshotCount} screenshot${screenshotCount === 1 ? "" : "s"} analyzed`}
+            {submissionText ? ` · ${submissionText}` : ""}
+          </small>
         </div>
         <div className="analyst-import-draft-heading">
           <strong>{confirmed
@@ -148,12 +147,21 @@ export function AgentImportDraftReview({
         )}
         {!confirmed && (
           <div className="analyst-import-review-actions">
+            <span className="analyst-import-save-status" role="status">
+              {saveStatus === "saving"
+                ? (language === "zh-CN" ? "正在保存草稿……" : "Saving draft…")
+                : saveStatus === "error"
+                  ? (language === "zh-CN" ? "草稿保存失败，请再次修改或重试" : "Draft save failed; edit again to retry")
+                  : saveStatus === "saved"
+                    ? (language === "zh-CN" ? "草稿已保存" : "Draft saved")
+                    : ""}
+            </span>
             <button type="button" className="secondary" disabled={busy} onClick={onAddHolding}>
               {language === "zh-CN" ? "+ 添加持仓" : "+ Add holding"}
             </button>
             <button
               type="button"
-              disabled={busy || (draft.portfolio.holdings.length === 0 && !draft.portfolio.portfolioCash)}
+              disabled={busy || saveStatus === "saving" || saveStatus === "error" || (draft.portfolio.holdings.length === 0 && !draft.portfolio.portfolioCash)}
               onClick={onConfirm}
             >
               {busy

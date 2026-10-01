@@ -10,6 +10,7 @@ describe("portfolio database singleton", () => {
       readLatestMarketIntelligenceBrief: vi.fn(),
       saveMarketIntelligenceBrief: vi.fn(),
       deleteSourceAccount: vi.fn(),
+      saveImportDraftReview: vi.fn(),
     };
     const create = vi.fn(() => replacement);
 
@@ -28,11 +29,31 @@ describe("portfolio database singleton", () => {
       readLatestMarketIntelligenceBrief: vi.fn(),
       saveMarketIntelligenceBrief: vi.fn(),
       deleteSourceAccount: vi.fn(),
+      saveImportDraftReview: vi.fn(),
     };
     const create = vi.fn();
 
     expect(ensureCurrentPortfolioDatabase(current, create)).toBe(current);
     expect(current.close).not.toHaveBeenCalled();
     expect(create).not.toHaveBeenCalled();
+  });
+
+  it("replaces an otherwise current hot-reload instance missing draft review persistence", () => {
+    const close = vi.fn();
+    const replacement = {
+      close: vi.fn(),
+      readLatestMarketIntelligenceBrief: vi.fn(),
+      saveMarketIntelligenceBrief: vi.fn(),
+      deleteSourceAccount: vi.fn(),
+      saveImportDraftReview: vi.fn(),
+    };
+    const current = {
+      close,
+      readLatestMarketIntelligenceBrief: vi.fn(),
+      saveMarketIntelligenceBrief: vi.fn(),
+      deleteSourceAccount: vi.fn(),
+    };
+    expect(ensureCurrentPortfolioDatabase(current, () => replacement)).toBe(replacement);
+    expect(close).toHaveBeenCalledOnce();
   });
 });

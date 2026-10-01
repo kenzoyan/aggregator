@@ -95,14 +95,52 @@ describe("portfolio analyst conversation persistence", () => {
 
     database.savePortfolioAnalystConversation(conversation);
 
-    expect(database.readLatestPortfolioAnalystConversation()?.importActivity).toEqual({
+    expect(database.readLatestPortfolioAnalystConversation()?.importActivities).toEqual([{
       draftId: "draft-wechat",
       targetLabel: "WeChat",
       submissionText: "帮我识别一下",
       screenshotCount: 1,
       createdAt: "2026-09-22T20:01:00.000Z",
+    }]);
+    const second = attachPortfolioAnalystImport(conversation, {
+      draftId: "draft-alipay",
+      targetLabel: "Alipay",
+      submissionText: "更新支付宝",
+      screenshotCount: 2,
+      createdAt: "2026-09-22T20:02:00.000Z",
     });
+    database.savePortfolioAnalystConversation(second);
+    expect(database.readLatestPortfolioAnalystConversation()?.importActivities.map((item) => item.draftId))
+      .toEqual(["draft-wechat", "draft-alipay"]);
     database.close();
+  }));
+
+  it("reads the previous single-activity conversation format", () => withDatabase((filename) => {
+    const database = createPortfolioDatabase(filename);
+    database.savePortfolioAnalystConversation(createPortfolioAnalystConversation({
+      id: "legacy-import",
+      provider: "openai",
+      language: "en",
+      includeHoldingNames: true,
+      now: "2026-09-22T10:00:00.000Z",
+    }));
+    database.close();
+    const raw = new DatabaseSync(filename);
+    raw.prepare("UPDATE portfolio_analyst_conversations SET turns_json = ? WHERE id = ?").run(
+      JSON.stringify({ turns: [], importActivity: {
+        draftId: "old-draft",
+        targetLabel: "WeChat",
+        submissionText: "Import this",
+        screenshotCount: 1,
+        createdAt: "2026-09-22T10:01:00.000Z",
+      } }),
+      "legacy-import",
+    );
+    raw.close();
+    const reopened = createPortfolioDatabase(filename);
+    expect(reopened.readLatestPortfolioAnalystConversation()?.importActivities.map((item) => item.draftId))
+      .toEqual(["old-draft"]);
+    reopened.close();
   }));
 
   it("upgrades a schema-v5 database with no conversation table", () => withDatabase((filename) => {

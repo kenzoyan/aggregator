@@ -13,7 +13,57 @@ const accounts = [createSourceAccountDefinition({
   accountType: "Trading 212",
 })];
 
+const accountPortfolio = {
+  ...portfolio,
+  holdings: [{
+    id: "synthetic-holding",
+    sourceAccountId: "trading212-main",
+    name: "Synthetic Fund",
+    analystDisplayName: "Synthetic Fund",
+    symbol: "SYNTH-1",
+    category: "Fund",
+    currency: "EUR",
+    originalValue: "EUR 120",
+    eurValue: 120,
+    freshness: "fresh",
+    asOf: "2026-09-16",
+    detail: { quantity: "2" },
+  }, {
+    id: "other-holding",
+    sourceAccountId: "other-account",
+    name: "Other Fund",
+    symbol: "OTHER",
+    category: "Fund",
+    currency: "EUR",
+    originalValue: "EUR 99",
+    eurValue: 99,
+    freshness: "fresh",
+    asOf: "2026-09-16",
+  }],
+} as AnalystPortfolioReadModel;
+
 describe("portfolio analyst account tools", () => {
+  it("reads only one account's confirmed holdings as bounded current evidence", () => {
+    const context = createPortfolioAnalystTools(accountPortfolio, accounts)
+      .readAccountHoldings({ accountType: "Trading 212", language: "en", includeHoldingNames: true });
+
+    expect(context.facts).toEqual([
+      expect.objectContaining({ kind: "account-holdings-summary", found: true, holdingCount: 1, totalValueEur: 120 }),
+      expect.objectContaining({ kind: "account-holding", name: "Synthetic Fund", quantity: "2", valueEur: 120 }),
+    ]);
+    expect(context.allowedActions).toEqual([]);
+  });
+
+  it("resolves account labels but withholds holding names when sharing is disabled", () => {
+    const labeledAccounts = [{ ...accounts[0]!, label: "Primary Brokerage" }];
+    const context = createPortfolioAnalystTools(accountPortfolio, labeledAccounts)
+      .readAccountHoldings({ accountType: "Primary Brokerage", language: "en", includeHoldingNames: false });
+    expect(context.facts[0]).toMatchObject({ found: true, holdingCount: 1 });
+    expect(context.facts[1]).not.toHaveProperty("name");
+    expect(context.facts[1]).not.toHaveProperty("symbol");
+    expect(context.facts[0]).not.toHaveProperty("displayName");
+  });
+
   it("reads the current account registry as bounded evidence", () => {
     const context = createPortfolioAnalystTools(portfolio, accounts)
       .readAccounts({ language: "en", includeAccountNames: true });

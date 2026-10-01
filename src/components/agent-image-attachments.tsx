@@ -44,42 +44,25 @@ export function AgentImageAttachments({
     event.currentTarget.value = "";
   }
 
-  const addControl = !state.locked && state.files.length < maximumScreenshotCount ? (
-    <label className="screenshot-add-tile" htmlFor={inputId}>
-      <span aria-hidden="true">＋</span>
-      <strong>{copy.add}</strong>
-      <input
-        id={inputId}
-        type="file"
-        accept={acceptedImageTypes}
-        multiple
-        disabled={state.locked}
-        onChange={selectFiles}
-      />
-    </label>
-  ) : undefined;
-
   return (
     <div className="agent-image-attachments">
-      {state.files.length === 0 ? (
-        <label className="agent-image-attachment-trigger" htmlFor={inputId}>
-          <span aria-hidden="true">＋</span>
-          <strong>{copy.add}</strong>
-          <input
-            id={inputId}
-            type="file"
-            accept={acceptedImageTypes}
-            multiple
-            disabled={state.locked}
-            onChange={selectFiles}
-          />
-        </label>
-      ) : (
+      <label className="agent-image-attachment-trigger" htmlFor={inputId}>
+        <span aria-hidden="true">＋</span>
+        <strong>{copy.add}</strong>
+        <input
+          id={inputId}
+          type="file"
+          accept={acceptedImageTypes}
+          multiple
+          disabled={state.locked || state.files.length >= maximumScreenshotCount}
+          onChange={selectFiles}
+        />
+      </label>
+      {state.files.length > 0 && (
         <ScreenshotPreviewTray
           files={state.files}
           disabled={state.locked}
           onRemove={(file) => onChange(removeAgentImageAttachment(state, file))}
-          addControl={addControl}
           heading={copy.heading}
           helperText={copy.helper}
           listLabel={copy.selected}

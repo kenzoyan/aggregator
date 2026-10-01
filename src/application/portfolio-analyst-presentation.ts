@@ -139,6 +139,23 @@ export function portfolioAnalystEvidenceValue(
       ].join(" · ");
     case "source-account":
       return `${fact.displayName ?? fact.accountType} · ${fact.provider} · ${fact.updateMethod}`;
+    case "account-holdings-summary":
+      return fact.found
+        ? `${fact.displayName ?? fact.accountType} · ${fact.holdingCount} ${language === "zh-CN" ? "项资产" : "holdings"} · ${eur.format(fact.totalValueEur)}${fact.shownHoldingCount < fact.holdingCount ? ` · ${language === "zh-CN" ? "仅显示前" : "showing first"} ${fact.shownHoldingCount}` : ""}`
+        : language === "zh-CN"
+          ? `未找到账户：${fact.requestedAccount}`
+          : `Account not found: ${fact.requestedAccount}`;
+    case "account-holding":
+      return [
+        fact.name ?? (language === "zh-CN" ? "未发送持仓名称" : "Holding name withheld"),
+        fact.symbol,
+        fact.category,
+        fact.quantity ? `${language === "zh-CN" ? "数量" : "Quantity"} ${fact.quantity}` : undefined,
+        fact.originalValue,
+        eur.format(fact.valueEur),
+        fact.freshness,
+        fact.asOf,
+      ].filter(Boolean).join(" · ");
     case "source-account-proposal":
       return [
         fact.displayName,

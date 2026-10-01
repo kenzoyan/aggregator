@@ -12,6 +12,7 @@ export const portfolioAnalystToolNames = [
   "read_data_quality",
   "read_portfolio_overview",
   "read_accounts",
+  "read_account_holdings",
   "propose_create_account",
   "prepare_account_import",
 ] as const;

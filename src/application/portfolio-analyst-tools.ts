@@ -13,6 +13,74 @@ import {
   type SourceAccountDefinition,
 } from "@/domain/source-accounts";
 
+const MAX_ACCOUNT_HOLDINGS = 30;
+
+function accountHoldingsContext(input: {
+  portfolio: AnalystPortfolioReadModel;
+  accounts: readonly SourceAccountDefinition[];
+  accountType: string;
+  language: PortfolioAnalystLanguage;
+  includeHoldingNames: boolean;
+}): PortfolioAnalystContextV1 {
+  const requestedAccount = input.accountType.trim();
+  const normalized = normalizeSourceAccountType(requestedAccount);
+  const account = input.accounts.find((candidate) =>
+    candidate.normalizedAccountType === normalized ||
+    normalizeSourceAccountType(candidate.label) === normalized
+  );
+  const holdings = account
+    ? input.portfolio.holdings.filter((holding) => holding.sourceAccountId === account.id)
+    : [];
+  return {
+    version: "portfolio-analyst-context.v1",
+    job: "manage-accounts",
+    language: input.language,
+    factsAsOf: input.portfolio.insights.asOf,
+    scope: {},
+    definitions: {
+      baseCurrency: "EUR",
+      holdingCurrencyMeaning: "instrument-quoted-currency",
+      portfolioActivityMeaning: "estimated-unexplained-value-movement",
+    },
+    facts: [
+      {
+        key: "account.holdings.summary",
+        kind: "account-holdings-summary",
+        label: "Account holdings summary",
+        requestedAccount,
+        found: Boolean(account),
+        ...(account ? {
+          accountType: account.accountType,
+          ...(input.includeHoldingNames ? { displayName: account.label } : {}),
+        } : {}),
+        holdingCount: holdings.length,
+        shownHoldingCount: Math.min(holdings.length, MAX_ACCOUNT_HOLDINGS),
+        totalValueEur: holdings.reduce((sum, holding) => sum + holding.eurValue, 0),
+        provenance: "portfolio-read-model",
+      },
+      ...holdings.slice(0, MAX_ACCOUNT_HOLDINGS).map((holding, index) => ({
+        key: `account.holding.${index + 1}`,
+        kind: "account-holding" as const,
+        label: "Account holding" as const,
+        ...(input.includeHoldingNames ? {
+          name: holding.analystDisplayName ?? holding.name,
+          ...(holding.symbol ? { symbol: holding.symbol } : {}),
+        } : {}),
+        category: holding.category,
+        ...(holding.detail?.quantity ? { quantity: holding.detail.quantity } : {}),
+        currency: holding.currency,
+        originalValue: holding.originalValue,
+        valueEur: holding.eurValue,
+        freshness: holding.freshness,
+        asOf: holding.asOf,
+        provenance: "portfolio-read-model" as const,
+      })),
+    ],
+    limitations: [],
+    allowedActions: [],
+  };
+}
+
 function accountContext(input: {
   accounts: readonly SourceAccountDefinition[];
   factsAsOf: string;
@@ -219,6 +287,15 @@ export function createPortfolioAnalystTools(
         language: input.language,
         includeAccountNames: input.includeAccountNames,
       });
+      assertPortfolioAnalystContextSize(context);
+      return context;
+    },
+    readAccountHoldings(input: {
+      accountType: string;
+      language: PortfolioAnalystLanguage;
+      includeHoldingNames: boolean;
+    }): AnalystEvidenceBundleV1 {
+      const context = accountHoldingsContext({ portfolio, accounts, ...input });
       assertPortfolioAnalystContextSize(context);
       return context;
     },
