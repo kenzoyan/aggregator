@@ -8,21 +8,51 @@ import {
   portfolioAnalystLimitationLabel,
 } from "@/application/portfolio-analyst-presentation";
 
-export const MAX_PORTFOLIO_ANALYST_TURNS = 12;
 const MAX_MODEL_HISTORY_TURNS = 3;
 
-export interface PortfolioAnalystConversationTurn {
+export interface PortfolioAnalystImageAttachment {
+  id: string;
+  mimeType: "image/jpeg" | "image/png" | "image/webp";
+  byteLength: number;
+}
+
+export interface PortfolioAnalystImageAnswer {
+  status?: "pending" | "complete" | "failed";
+  text: string;
+  uncertainties: string[];
+  provider: "openai";
+  model: string;
+  generatedAt: string;
+}
+
+interface PortfolioAnalystConversationTurnBase {
   id: string;
   question: string;
+  userText?: string;
+  attachments?: PortfolioAnalystImageAttachment[];
   createdAt: string;
-  report: PortfolioAnalystReport;
 }
+
+export type PortfolioAnalystConversationTurn = PortfolioAnalystConversationTurnBase & (
+  | { report: PortfolioAnalystReport; imageAnswer?: never; importImage?: never }
+  | { report?: never; imageAnswer: PortfolioAnalystImageAnswer; importImage?: never }
+  | { report?: never; imageAnswer?: never; importImage: { sourceTurnId: string } }
+);
 
 export interface PortfolioAnalystImportActivity {
   draftId: string;
   targetLabel: string;
   submissionText: string;
   screenshotCount: number;
+  createdAt: string;
+  cancelledAt?: string;
+  followUps?: PortfolioAnalystImportFollowUp[];
+}
+
+export interface PortfolioAnalystImportFollowUp {
+  id: string;
+  userText: string;
+  assistantText: string;
   createdAt: string;
 }
 
@@ -56,13 +86,60 @@ export function attachPortfolioAnalystImport(
   activity: PortfolioAnalystImportActivity,
 ): PortfolioAnalystConversation {
   const current = normalizePortfolioAnalystConversation(conversation);
+  const earlier = current.importActivities.find((item) => item.draftId === activity.draftId);
   return {
     ...current,
     updatedAt: activity.createdAt,
     importActivities: [
       ...current.importActivities.filter((item) => item.draftId !== activity.draftId),
-      activity,
-    ].slice(-MAX_PORTFOLIO_ANALYST_TURNS),
+      { ...activity, ...(earlier?.followUps?.length ? { followUps: earlier.followUps } : {}) },
+    ],
+  };
+}
+
+export function appendPortfolioAnalystImportFollowUp(
+  conversation: PortfolioAnalystConversation,
+  draftId: string,
+  followUp: PortfolioAnalystImportFollowUp,
+): PortfolioAnalystConversation {
+  if (!conversation.importActivities.some((activity) => activity.draftId === draftId)) {
+    throw new Error("The import draft is not part of this conversation.");
+  }
+  return {
+    ...normalizePortfolioAnalystConversation(conversation),
+    updatedAt: followUp.createdAt,
+    importActivities: conversation.importActivities.map((activity) => activity.draftId === draftId
+      ? { ...activity, followUps: activity.followUps?.some((item) => item.id === followUp.id)
+        ? activity.followUps
+        : [...(activity.followUps ?? []), followUp] }
+      : activity),
+  };
+}
+
+export function cancelPortfolioAnalystImport(
+  conversation: PortfolioAnalystConversation,
+  draftId: string,
+  input: { id: string; userText: string; cancelledAt: string },
+): PortfolioAnalystConversation {
+  const current = normalizePortfolioAnalystConversation(conversation);
+  if (!current.importActivities.some((activity) => activity.draftId === draftId)) {
+    throw new Error("The import draft is not part of this conversation.");
+  }
+  const assistantText = current.language === "zh-CN"
+    ? "已取消这次导入并删除未确认的草稿。你的持仓没有变化。"
+    : "I cancelled this import and removed its unconfirmed draft. Your holdings were not changed.";
+  return {
+    ...current,
+    updatedAt: input.cancelledAt,
+    importActivities: current.importActivities.map((activity) => activity.draftId === draftId
+      ? {
+          ...activity,
+          cancelledAt: input.cancelledAt,
+          followUps: [...(activity.followUps ?? []), {
+            id: input.id, userText: input.userText, assistantText, createdAt: input.cancelledAt,
+          }],
+        }
+      : activity),
   };
 }
 
@@ -120,21 +197,52 @@ export function appendPortfolioAnalystTurn(
   return {
     ...normalizePortfolioAnalystConversation(conversation),
     updatedAt: turn.createdAt,
-    turns: [...conversation.turns, turn].slice(-MAX_PORTFOLIO_ANALYST_TURNS),
+    turns: [...conversation.turns, turn],
+  };
+}
+
+export function appendPortfolioAnalystImportImageTurn(
+  conversation: PortfolioAnalystConversation,
+  input: {
+    sourceTurnId: string;
+    id: string;
+    createdAt: string;
+    userText: string;
+    attachments: PortfolioAnalystImageAttachment[];
+  },
+): PortfolioAnalystConversation {
+  const source = conversation.turns.find((item) => item.id === input.sourceTurnId);
+  if (!source?.report || conversation.turns.some((item) => item.importImage?.sourceTurnId === input.sourceTurnId)) {
+    throw new Error("The import message cannot accept images.");
+  }
+  return {
+    ...normalizePortfolioAnalystConversation(conversation),
+    updatedAt: input.createdAt,
+    turns: [...conversation.turns, {
+      id: input.id,
+      question: input.userText,
+      userText: input.userText,
+      attachments: input.attachments,
+      createdAt: input.createdAt,
+      importImage: { sourceTurnId: input.sourceTurnId },
+    }],
   };
 }
 
 export function createPortfolioAnalystHistory(
   conversation: PortfolioAnalystConversation,
 ): PortfolioAnalystHistoryMessage[] {
-  const history: PortfolioAnalystHistoryMessage[] = conversation.turns.slice(-MAX_MODEL_HISTORY_TURNS).flatMap((turn) => [
+  const history: PortfolioAnalystHistoryMessage[] = conversation.turns
+    .filter((turn) => !turn.importImage && (!turn.imageAnswer || !turn.imageAnswer.status || turn.imageAnswer.status === "complete"))
+    .slice(-MAX_MODEL_HISTORY_TURNS)
+    .flatMap((turn) => [
     { role: "user" as const, text: turn.question },
     {
       role: "assistant" as const,
-      text: historicalAssistantText(turn.report),
-      factsAsOf: turn.report.factsAsOf,
+      text: turn.report ? historicalAssistantText(turn.report) : turn.imageAnswer?.text ?? "",
+      factsAsOf: turn.report?.factsAsOf ?? turn.imageAnswer?.generatedAt ?? turn.createdAt,
     },
-  ]);
+    ]);
   const recentImport = conversation.importActivities.at(-1);
   const latestTurnAt = conversation.turns.at(-1)?.createdAt;
   if (

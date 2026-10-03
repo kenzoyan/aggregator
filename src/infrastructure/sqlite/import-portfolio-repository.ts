@@ -17,7 +17,7 @@ import type { PortfolioDatabase } from "@/infrastructure/sqlite/portfolio-reposi
 
 type ImportPortfolioRepository = Pick<
   PortfolioDatabase,
-  "saveImportDraft" | "getImportDraft" | "saveImportDraftReview" | "confirmImport" | "readPortfolioFacts"
+  "saveImportDraft" | "getImportDraft" | "discardImportDraft" | "saveImportDraftReview" | "confirmImport" | "readPortfolioFacts"
 >;
 
 interface ImportDraftRow {
@@ -65,6 +65,9 @@ export function createImportPortfolioRepository(
   `);
   const selectDraft = database.prepare(
     "SELECT * FROM import_drafts WHERE id = ?",
+  );
+  const deleteUnconfirmedDraft = database.prepare(
+    "DELETE FROM import_drafts WHERE id = ? AND status = 'draft'",
   );
   const updateReviewedDraft = database.prepare(`
     UPDATE import_drafts
@@ -152,6 +155,10 @@ export function createImportPortfolioRepository(
     },
 
     getImportDraft,
+
+    discardImportDraft(id) {
+      return deleteUnconfirmedDraft.run(id).changes === 1;
+    },
 
     saveImportDraftReview(id, review) {
       const existing = getImportDraft(id);

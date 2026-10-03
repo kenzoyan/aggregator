@@ -284,6 +284,14 @@ export function AssetImportWorkflow() {
       setError("Analyze the updated screenshot set before confirming this import.");
       return;
     }
+    if (!draft.portfolio.asOf) {
+      setError("Choose a valuation date including the year before confirming this import.");
+      return;
+    }
+    if (draft.sourceKind === "screenshot" && draft.portfolio.holdings.some((holding) => holding.observedPrice && !holding.priceAsOf)) {
+      setError("Choose a NAV / price date including the year for each priced screenshot holding.");
+      return;
+    }
     if (draft.portfolio.holdings.length === 0 && !draft.portfolio.portfolioCash) {
       setError("Add at least one holding before confirmation.");
       return;
@@ -498,8 +506,20 @@ export function AssetImportWorkflow() {
             <form onSubmit={confirm}>
               <div className="review-meta">
                 <span className={`confidence ${draft.confidence}`}>Confidence: {draft.confidence}</span>
-                <span>{draft.portfolio.asOf.slice(0, 10)}</span>
+                <label className="review-date">Valuation date
+                  <input
+                    type="date"
+                    value={draft.portfolio.asOf.slice(0, 10)}
+                    onChange={(event) => setDraft((current) => current
+                      ? applyImportDraftEdit(current, { type: "update-as-of", value: event.target.value })
+                      : current)}
+                  />
+                </label>
               </div>
+              {!draft.portfolio.asOf && <p className="review-date-help">Choose the correct date, including year, before confirming.</p>}
+              {draft.sourceKind === "screenshot" && draft.portfolio.holdings.some((holding) => holding.observedPrice && !holding.priceAsOf) && (
+                <p className="review-date-help">Enter a NAV / price date including the year for each priced holding.</p>
+              )}
               {draft.warnings.length > 0 && (
                 <div className="warning-list">
                   {draft.warnings.map((warning, index) => <p key={`${warning}-${index}`}>◷ {warning}</p>)}
@@ -657,7 +677,7 @@ export function AssetImportWorkflow() {
                   ))}
               </div>
               <button className="add-holding-button" type="button" disabled={busy} onClick={addPosition}>+ Add holding</button>
-              <button className="primary-button confirm-button" disabled={busy || screenshotsChangedSinceAnalysis || (draft.portfolio.holdings.length === 0 && !draft.portfolio.portfolioCash)} type="submit">
+              <button className="primary-button confirm-button" disabled={busy || screenshotsChangedSinceAnalysis || !draft.portfolio.asOf || (draft.sourceKind === "screenshot" && draft.portfolio.holdings.some((holding) => holding.observedPrice && !holding.priceAsOf)) || (draft.portfolio.holdings.length === 0 && !draft.portfolio.portfolioCash)} type="submit">
                 {busy
                   ? "Saving…"
                   : draft.reconciliation

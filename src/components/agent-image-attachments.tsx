@@ -26,14 +26,14 @@ export function AgentImageAttachments({
     add: "添加截图",
     heading: "待发送截图",
     selected: "已选择的截图",
-    helper: `${state.files.length} / ${maximumScreenshotCount} · 仅保留在当前页面`,
+    helper: `${state.files.length} / ${maximumScreenshotCount} · 发送后保存在本地对话中`,
     duplicates: `${state.duplicateCount} 张重复截图已忽略。`,
     overflow: `一次最多发送 ${maximumScreenshotCount} 张截图。`,
   } : {
     add: "Add screenshots",
     heading: "Screenshots to send",
     selected: "Selected screenshots",
-    helper: `${state.files.length} of ${maximumScreenshotCount} · kept only for this page session`,
+    helper: `${state.files.length} of ${maximumScreenshotCount} · saved locally with your message after sending`,
     duplicates: `${state.duplicateCount} duplicate screenshot${state.duplicateCount === 1 ? " was" : "s were"} ignored.`,
     overflow: `Send up to ${maximumScreenshotCount} screenshots at a time.`,
   };
@@ -48,10 +48,11 @@ export function AgentImageAttachments({
     <div className="agent-image-attachments">
       <label className="agent-image-attachment-trigger" htmlFor={inputId}>
         <span aria-hidden="true">＋</span>
-        <strong>{copy.add}</strong>
+        <strong className="agent-image-attachment-label">{copy.add}</strong>
         <input
           id={inputId}
           type="file"
+          aria-label={copy.add}
           accept={acceptedImageTypes}
           multiple
           disabled={state.locked || state.files.length >= maximumScreenshotCount}

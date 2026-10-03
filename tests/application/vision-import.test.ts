@@ -5,11 +5,13 @@ import {
   prepareScreenshotImport,
   type ScreenshotExtraction,
 } from "@/application/imports/vision-extractor";
+import { createImportDraftReadModel } from "@/application/imports/import-draft-read-model";
 import { materializeOpeningSnapshot } from "@/domain/imports";
 
 const extracted: ScreenshotExtraction = {
   accountName: "Synthetic Provider",
   asOf: "2026-07-19T12:00:00.000Z",
+  asOfYearVisible: true,
   currency: "CNY",
   totalValue: "9999.99",
   reportedPriorReturn: "321.09",
@@ -30,6 +32,7 @@ const extracted: ScreenshotExtraction = {
       averageCost: null,
       observedPrice: null,
       priceAsOf: null,
+      priceAsOfYearVisible: false,
       confidence: "high",
     },
   ],
@@ -87,6 +90,70 @@ describe("screenshot import seam", () => {
     expect(draft.portfolio.holdings[0]?.costBasis).toMatchObject({
       status: "inferred",
       value: "4000",
+    });
+  });
+
+  it("does not turn a month-day screenshot into a guessed valuation or price year", () => {
+    const draft = prepareScreenshotImport({
+      draftId: "draft-uncertain-date",
+      snapshotId: "snapshot-uncertain-date",
+      sourceAccountId: "alipay-main",
+      createdAt: "2026-10-01T12:00:00.000Z",
+      extraction: {
+        ...extracted,
+        asOf: "2024-09-22T00:00:00.000Z",
+        asOfYearVisible: false,
+        positions: [{
+          ...extracted.positions[0]!,
+          observedPrice: "0.625",
+          priceAsOf: "2024-09-22T00:00:00.000Z",
+          priceAsOfYearVisible: false,
+        }],
+      },
+    });
+
+    expect(draft.portfolio.asOf).toEqual({ status: "unknown" });
+    expect(draft.portfolio.holdings[0]?.priceAsOf).toEqual({ status: "unknown" });
+    expect(createImportDraftReadModel({ ...draft, status: "draft" }).portfolio.asOf).toBe("");
+    expect(draft.warnings).toEqual(expect.arrayContaining([
+      expect.stringContaining("choose the correct date, including year"),
+      expect.stringContaining("check the NAV / price date"),
+    ]));
+    expect(() => materializeOpeningSnapshot(draft.sourceAccountId, draft.portfolio))
+      .toThrow("Portfolio asOf is still unknown");
+  });
+
+  it("keeps a price date when a complementary screenshot supplies its visible year", () => {
+    const draft = prepareScreenshotImport({
+      draftId: "draft-complementary-dates",
+      snapshotId: "snapshot-complementary-dates",
+      sourceAccountId: "alipay-main",
+      createdAt: "2026-10-01T12:00:00.000Z",
+      extraction: {
+        ...extracted,
+        positions: [
+          {
+            ...extracted.positions[0]!,
+            instrumentCode: "XX0000000001",
+            observedPrice: "0.625",
+            priceAsOf: "2026-09-22T00:00:00.000Z",
+            priceAsOfYearVisible: false,
+          },
+          {
+            ...extracted.positions[0]!,
+            instrumentCode: "XX0000000001",
+            observedPrice: "0.625",
+            priceAsOf: "2026-09-22T00:00:00.000Z",
+            priceAsOfYearVisible: true,
+          },
+        ],
+      },
+    });
+
+    expect(draft.portfolio.holdings).toHaveLength(1);
+    expect(draft.portfolio.holdings[0]?.priceAsOf).toMatchObject({
+      status: "known",
+      value: "2026-09-22T00:00:00.000Z",
     });
   });
 

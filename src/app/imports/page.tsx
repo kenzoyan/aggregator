@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import { AssetImportWorkflow } from "@/components/screenshot-import";
 
 export const metadata: Metadata = {
-  title: "Import assets · Invest Assets Monitor",
+  title: "Import assets · Aggrigator",
 };
 
 export default function ImportsPage() {

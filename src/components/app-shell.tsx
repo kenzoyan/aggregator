@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
@@ -89,9 +90,9 @@ export function AppShell({ children }: { children: ReactNode }) {
   return (
     <div className={cn("app-shell", sidebarExpanded ? "sidebar-expanded" : "sidebar-collapsed")}>
       <aside className="sidebar" aria-hidden={navigationBlocked || undefined} inert={navigationBlocked || undefined}>
-        <Link className="brand" href="/" aria-label="Invest Monitor overview">
-          <span className="brand-mark" aria-hidden="true">I</span>
-          <span className="brand-copy"><strong>Invest</strong><small>Private monitor</small></span>
+        <Link className="brand" href="/" aria-label="Aggrigator overview">
+          <Image className="brand-mark" src="/brand/aggrigator-icon-192.png" alt="" width={38} height={38} />
+          <span className="brand-copy"><strong>Aggrigator</strong><small>All your investments, together</small></span>
         </Link>
         <nav aria-label="Main navigation">
           {items.map((item) => {

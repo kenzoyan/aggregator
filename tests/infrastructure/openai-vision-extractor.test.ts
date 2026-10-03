@@ -8,6 +8,7 @@ import { VisionExtractionError } from "@/application/imports/vision-extractor";
 const extraction = {
   accountName: "Alipay",
   asOf: "2026-09-05T00:00:00.000Z",
+  asOfYearVisible: true,
   currency: "CNY",
   totalValue: "110",
   reportedPriorReturn: "10",
@@ -27,6 +28,7 @@ const extraction = {
     averageCost: "10",
     observedPrice: "11",
     priceAsOf: "2026-09-05T00:00:00.000Z",
+    priceAsOfYearVisible: true,
     confidence: "high" as const,
   }],
 };
@@ -94,6 +96,9 @@ describe("OpenAI vision import extractor", () => {
         },
       },
     });
+    expect(body.text.format.schema.required).toContain("asOfYearVisible");
+    expect(body.text.format.schema.properties.positions.items.required)
+      .toContain("priceAsOfYearVisible");
   });
 
   it("rejects output with neither holdings nor an explicit cash balance", async () => {

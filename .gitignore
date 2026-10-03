@@ -28,6 +28,7 @@ test-results/
 /imports/
 /exports/
 /data/imports/
+/data/agent-images/
 /data/*.jpg
 /data/*.jpeg
 /data/*.png

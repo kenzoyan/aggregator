@@ -1,6 +1,9 @@
-# Invest Assets Monitor
-
-**A private, local-first workspace for seeing investments from different accounts in one EUR view.**
+<div align="center">
+  <h1>Aggrigator</h1>
+  <p>All your investments, together.</p>
+  <img src="./public/brand/aggrigator-mascot.png" alt="Aggrigator mascot: a smiling alligator holding a bundle of money" width="240" />
+  <p><strong>A private, local-first workspace for seeing investments from different accounts in one EUR view.</strong></p>
+</div>
 
 Track holdings, prices, FX effects and portfolio history without giving the app trading permissions. Import changes enter a review draft; only your explicit confirmation updates the portfolio.
 
@@ -64,7 +67,7 @@ flowchart LR
 
 The dashboard checks prices at most once per `Europe/Helsinki` day when a non-empty portfolio loads. **Refresh prices** triggers an explicit retry. If a provider fails, the last successful local price remains available. A manual dated NAV or price can be entered for an existing holding.
 
-Portfolio Agent answers use fresh, bounded facts and validate evidence before a completed answer is saved. Account creation and screenshot imports still require owner confirmation. Screenshot bytes are temporary and are not stored in conversation history. External market watch searches approved official sources only when requested.
+Portfolio Agent answers use fresh, bounded facts and validate evidence before a completed answer is saved. Account creation and screenshot imports still require owner confirmation. Screenshots sent in Agent chat are saved in the ignored private `data/agent-images/` directory and referenced by the local conversation so they remain visible after reload. Screenshots submitted through the separate Import page are still temporary. External market watch searches approved official sources only when requested.
 
 ## 🧭 Navigate the app
 
@@ -107,7 +110,7 @@ Portfolio records live in the ignored `data/invest-assets-monitor.sqlite` databa
 ## 🔒 Privacy and boundaries
 
 - The repository contains application source, tests and build documentation. Personal financial data, raw screenshots, API keys, local databases and working notes stay outside Git.
-- Screenshot imports require review and explicit confirmation before they change holdings. Images sent to OpenAI are not persisted as original screenshots by the app.
+- Screenshot imports require review and explicit confirmation before they change holdings. Agent chat saves local originals for conversation history; image bytes are sent to OpenAI when you ask about a screenshot or request screenshot extraction.
 - The Portfolio Agent is informational. It cannot trade or autonomously change confirmed holdings.
 - Cloud AI features are optional. Check the configured provider and privacy settings before sending personal portfolio information.
 

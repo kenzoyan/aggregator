@@ -35,7 +35,7 @@ export function PortfolioSettings() {
   useEffect(() => {
     fetch("/api/portfolio/analyst", { cache: "no-store" })
       .then(async (response) => {
-        if (!response.ok) throw new Error("Agent configuration could not be loaded.");
+        if (!response.ok) throw new Error("Assistant settings could not be loaded.");
         return response.json() as Promise<AnalystConfiguration>;
       })
       .then((value) => {
@@ -56,7 +56,7 @@ export function PortfolioSettings() {
         if (next !== restored) savePortfolioAnalystPreferences(window.localStorage, next);
       })
       .catch((reason) => {
-        setError(reason instanceof Error ? reason.message : "Agent configuration could not be loaded.");
+        setError(reason instanceof Error ? reason.message : "Assistant settings could not be loaded.");
         setPreferences(defaultPortfolioAnalystPreferences("openai"));
       });
   }, []);
@@ -82,7 +82,7 @@ export function PortfolioSettings() {
         <div>
           <p className="eyebrow">APPLICATION SETTINGS</p>
           <h1>Settings</h1>
-          <p>Set defaults for Portfolio Agent and control which portfolio details may be sent to its AI provider.</p>
+          <p>Set defaults for your assistant and control which portfolio details may be sent to its AI provider.</p>
         </div>
       </header>
 
@@ -95,7 +95,7 @@ export function PortfolioSettings() {
             <div className="settings-card-heading">
               <div>
                 <p className="eyebrow">GENERAL</p>
-                <h2 id="settings-general-heading">Agent defaults</h2>
+                <h2 id="settings-general-heading">Assistant defaults</h2>
                 <p>These values are used when a new conversation starts.</p>
               </div>
               {saved && <span className="settings-saved" role="status">Saved on this device</span>}
@@ -117,15 +117,15 @@ export function PortfolioSettings() {
               </label>
               <label>
                 <span>Answer language</span>
-                <small>The Agent uses this language for new conversations.</small>
+                <small>Your assistant uses this language for the next message. Earlier replies stay as written.</small>
                 <select
                   value={preferences.language}
                   onChange={(event) => updatePreferences({
                     language: event.target.value as PortfolioAnalystPreferences["language"],
                   })}
                 >
-                  <option value="zh-CN">简体中文</option>
                   <option value="en">English</option>
+                  <option value="zh-CN">Chinese (Simplified)</option>
                 </select>
               </label>
             </div>
@@ -134,7 +134,7 @@ export function PortfolioSettings() {
           <section className="settings-card" aria-labelledby="settings-provider-heading">
             <div className="settings-card-heading">
               <div>
-                <p className="eyebrow">PORTFOLIO AGENT</p>
+                <p className="eyebrow">YOUR ASSISTANT</p>
                 <h2 id="settings-provider-heading">AI provider</h2>
                 <p>The selected provider receives the bounded facts needed to answer a question.</p>
               </div>
@@ -174,20 +174,20 @@ export function PortfolioSettings() {
                 onChange={(event) => updatePreferences({ includeHoldingNames: event.target.checked })}
               />
               <span>
-                <strong>Allow Portfolio Agent to include relevant holding names</strong>
+                <strong>Allow relevant holding names in assistant replies</strong>
                 <small>Each tool includes only names needed for the current question. The number can vary by tool; account IDs, raw imports and internal records are not sent.</small>
               </span>
             </label>
             <div className="settings-privacy-facts">
               <div><strong>When enabled</strong><span>Relevant names can make explanations easier to understand.</span></div>
-              <div><strong>When disabled</strong><span>The Agent receives anonymous amounts, percentages and data-quality facts.</span></div>
+              <div><strong>When disabled</strong><span>The AI provider receives anonymous amounts, percentages and data-quality facts.</span></div>
             </div>
           </section>
 
           {activeConversation && (
             <aside className="settings-conversation-note">
-              <strong>An existing conversation is using its original settings.</strong>
-              <p>Your changes apply after you reset that conversation and start a new one.</p>
+              <strong>Your conversation history stays available.</strong>
+              <p>Language changes apply to the next reply. Provider and holding-name privacy changes still require a conversation reset.</p>
             </aside>
           )}
         </div>

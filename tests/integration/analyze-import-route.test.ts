@@ -18,6 +18,7 @@ import {
 const extraction: ScreenshotExtraction = {
   accountName: "Alipay",
   asOf: "2026-07-22T00:00:00.000Z",
+  asOfYearVisible: true,
   currency: "CNY",
   totalValue: "110",
   reportedPriorReturn: "10",
@@ -37,6 +38,7 @@ const extraction: ScreenshotExtraction = {
     averageCost: "10",
     observedPrice: "11",
     priceAsOf: "2026-07-22T00:00:00.000Z",
+    priceAsOfYearVisible: true,
     confidence: "high",
   }],
 };
@@ -278,6 +280,7 @@ describe("POST /api/imports/analyze", () => {
     await expect(response.json()).resolves.toMatchObject({
       draft: {
         sourceAccountId: "wechat-main",
+        confidence: "low",
         warnings: expect.arrayContaining([
           "Image analysis labeled this account as Alipay, which may not match the selected WeChat Wealth Management account. Verify the source account before confirming.",
         ]),

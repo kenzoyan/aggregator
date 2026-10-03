@@ -12,7 +12,7 @@ import type {
   PortfolioInsightsReadModel,
   PortfolioOverviewReadModel,
 } from "@/application/portfolio-read-model";
-import { draftPortfolioFromOpeningSnapshot } from "@/domain/imports";
+import { draftPortfolioFromOpeningSnapshot, knownDraftValue, unknownDraftValue, type StoredImportDraft } from "@/domain/imports";
 
 function portfolio(): PortfolioOverviewReadModel & { insights: PortfolioInsightsReadModel } {
   const performance = {
@@ -185,7 +185,7 @@ describe("/api/portfolio/analyst", () => {
       turns: [],
       importActivities: [],
     });
-    const storedDraft = {
+    const storedDraft: StoredImportDraft = {
       id: "draft-wechat",
       sourceAccountId: "wechat-main",
       sourceKind: "screenshot" as const,
@@ -239,6 +239,89 @@ describe("/api/portfolio/analyst", () => {
       },
       importDrafts: [{ id: "draft-wechat", status: "draft" }],
     });
+
+    const followUp = {
+      mode: "import-date-follow-up", id: "11111111-1111-4111-8111-111111111111",
+      conversationId: "conversation-import", draftId: "draft-wechat",
+      userText: "2026-09-22", field: "valuation-date", value: "2026-09-22",
+    };
+    const reply = () => handlers.PATCH(new Request("http://localhost/api/portfolio/analyst", {
+      method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(followUp),
+    }));
+    expect((await reply()).status).toBe(200);
+    expect((await reply()).status).toBe(200);
+    const restored = await handlers.GET().then((response) => response.json());
+    expect(restored.conversation.importActivities[0].followUps).toHaveLength(1);
+    expect(restored.conversation.importActivities[0].followUps[0]).toMatchObject({
+      userText: "2026-09-22", assistantText: expect.stringContaining("已记录估值日期"),
+    });
+    const wrongDate = await handlers.PATCH(new Request("http://localhost/api/portfolio/analyst", {
+      method: "PATCH", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ...followUp, id: "22222222-2222-4222-8222-222222222222", value: "2026-09-23" }),
+    }));
+    expect(wrongDate.status).toBe(409);
+
+    storedDraft.portfolio.asOf = unknownDraftValue();
+    const ambiguousDate = await handlers.PATCH(new Request("http://localhost/api/portfolio/analyst", {
+      method: "PATCH", headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        mode: "import-clarification", id: "33333333-3333-4333-8333-333333333333",
+        conversationId: "conversation-import", draftId: "draft-wechat",
+        userText: "03 10 2026", reason: "date",
+      }),
+    }));
+    expect(ambiguousDate.status).toBe(200);
+    const ambiguousPayload = await ambiguousDate.json();
+    expect(ambiguousPayload.conversation.importActivities[0].followUps.at(-1)).toMatchObject({
+      userText: "03 10 2026", assistantText: expect.stringContaining("2026-03-10"),
+    });
+    expect(ambiguousPayload.conversation.importActivities[0].followUps.at(-1).assistantText).toContain("2026-10-03");
+    expect(ambiguousPayload.importDraft.portfolio.asOf).toBe("");
+
+    const holding = storedDraft.portfolio.holdings[0]!;
+    holding.instrumentCode = knownDraftValue("TEST123456", "manual");
+    const savedCode = await handlers.PATCH(new Request("http://localhost/api/portfolio/analyst", {
+      method: "PATCH", headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        mode: "import-code-follow-up", id: "44444444-4444-4444-8444-444444444444",
+        conversationId: "conversation-import", draftId: "draft-wechat",
+        userText: "and code/isin is TEST123456", holdingLineId: holding.lineId, value: "TEST123456",
+      }),
+    }));
+    expect(savedCode.status).toBe(200);
+    const codePayload = await savedCode.json();
+    expect(codePayload.importDraft.portfolio.holdings[0].instrumentCode).toBe("TEST123456");
+    expect(codePayload.conversation.importActivities[0].followUps.at(-1)).toMatchObject({
+      userText: "and code/isin is TEST123456", assistantText: expect.stringContaining("TEST123456"),
+    });
+    await expect(handlers.GET().then((response) => response.json())).resolves.toMatchObject({
+      importDrafts: [{ portfolio: { holdings: [{ instrumentCode: "TEST123456" }] } }],
+    });
+
+    const confirmReply = () => handlers.PATCH(new Request("http://localhost/api/portfolio/analyst", {
+      method: "PATCH", headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        mode: "import-confirm-follow-up", id: "55555555-5555-4555-8555-555555555555",
+        conversationId: "conversation-import", draftId: "draft-wechat",
+        userText: "yes looks good, save it",
+      }),
+    }));
+    expect((await confirmReply()).status).toBe(409);
+    storedDraft.status = "confirmed";
+    storedDraft.confirmedAt = "2026-09-22T20:03:00.000Z";
+    const confirmed = await confirmReply();
+    expect(confirmed.status).toBe(200);
+    const confirmedPayload = await confirmed.json();
+    expect(confirmedPayload.conversation.importActivities[0].followUps.at(-1)).toMatchObject({
+      id: "55555555-5555-4555-8555-555555555555",
+      userText: "yes looks good, save it",
+      assistantText: expect.stringContaining("资产已更新"),
+    });
+    expect(confirmedPayload.conversation.turns).toHaveLength(0);
+    expect((await confirmReply()).status).toBe(200);
+    const refreshed = await handlers.GET().then((response) => response.json());
+    expect(refreshed.conversation.importActivities[0].followUps).toHaveLength(4);
+    expect(refreshed.importDrafts[0].status).toBe("confirmed");
   });
 
   it("uses the model-controlled runtime tool choice and persists its safe audit", async () => {
@@ -497,6 +580,7 @@ describe("/api/portfolio/analyst", () => {
   it("persists a conversation and supplies bounded history to a follow-up", async () => {
     const store = conversationStore();
     const receivedHistory: unknown[] = [];
+    const deletedImageIds: string[] = [];
     const fake = provider(async (context, turn) => {
       receivedHistory.push(turn?.history);
       return provider().generate(context);
@@ -509,6 +593,7 @@ describe("/api/portfolio/analyst", () => {
     }, {
       readCurrentPortfolio: portfolio,
       conversations: store,
+      deleteImage: async (attachment) => { deletedImageIds.push(attachment.id); },
       createId: () => ids.shift()!,
       now: () => "2026-09-09T10:05:00.000Z",
     });
@@ -549,6 +634,16 @@ describe("/api/portfolio/analyst", () => {
     await expect(handlers.GET().then((response) => response.json())).resolves.toMatchObject({
       conversation: { id: "conversation-1", turns: [{}, {}] },
     });
+    const saved = store.readPortfolioAnalystConversation("conversation-1")!;
+    store.savePortfolioAnalystConversation({
+      ...saved,
+      turns: saved.turns.map((turn, index) => index === 0
+        ? { ...turn, attachments: [{
+            id: "11111111-1111-4111-8111-111111111111" as const,
+            mimeType: "image/png" as const, byteLength: 3,
+          }] }
+        : turn),
+    });
 
     const deleted = await handlers.DELETE(new Request("http://localhost/api/portfolio/analyst", {
       method: "DELETE",
@@ -556,6 +651,7 @@ describe("/api/portfolio/analyst", () => {
     }));
     expect(deleted.status).toBe(200);
     expect(store.readLatestPortfolioAnalystConversation()).toBeUndefined();
+    expect(deletedImageIds).toEqual(["11111111-1111-4111-8111-111111111111"]);
   });
 
   it("requires a reset before conversation privacy settings become stricter", async () => {
@@ -589,6 +685,39 @@ describe("/api/portfolio/analyst", () => {
     await expect(response.json()).resolves.toMatchObject({
       code: "conversation-settings-mismatch",
     });
+  });
+
+  it("continues an existing conversation in English without deleting its history", async () => {
+    const store = conversationStore();
+    const handlers = createPortfolioAnalystHandlers({
+      providers: { openai: provider() },
+      models: { openai: "gpt-synthetic", deepseek: "deepseek-synthetic" },
+      defaultProvider: "openai",
+    }, { readCurrentPortfolio: portfolio, conversations: store });
+    const first = await handlers.POST(request({
+      provider: "openai",
+      job: "diagnose-data-quality",
+      language: "zh-CN",
+      includeHoldingNames: true,
+      question: "组合数据是否最新？",
+    }));
+    expect(first.status).toBe(200);
+    const firstPayload = await first.json() as { conversation: PortfolioAnalystConversation };
+
+    const response = await handlers.POST(request({
+      provider: "openai",
+      conversationId: firstPayload.conversation.id,
+      job: "diagnose-data-quality",
+      language: "en",
+      includeHoldingNames: true,
+      question: "How current is my portfolio?",
+    }));
+    expect(response.status).toBe(200);
+    expect(store.readPortfolioAnalystConversation(firstPayload.conversation.id))
+      .toMatchObject({ language: "en", turns: [
+        { question: "组合数据是否最新？", report: { language: "zh-CN" } },
+        { question: "How current is my portfolio?", report: { language: "en" } },
+      ] });
   });
 
   it("emits an optimistic lifecycle and provider text deltas before completion", async () => {

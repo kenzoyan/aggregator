@@ -8,9 +8,9 @@ import { AppShell } from "@/components/app-shell";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Invest Assets Monitor",
-  description: "Private, local-first investment portfolio monitoring.",
-  applicationName: "Invest Monitor",
+  title: "Aggrigator",
+  description: "All your investments, together. A private portfolio overview in euros.",
+  applicationName: "Aggrigator",
 };
 
 export const viewport: Viewport = {

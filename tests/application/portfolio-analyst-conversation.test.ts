@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  appendPortfolioAnalystImportFollowUp,
   attachPortfolioAnalystImport,
+  appendPortfolioAnalystImportImageTurn,
   appendPortfolioAnalystTurn,
   createPortfolioAnalystConversation,
   createPortfolioAnalystHistory,
@@ -63,7 +65,29 @@ describe("portfolio analyst conversation", () => {
       .toEqual([]);
   });
 
-  it("keeps settings immutable and appends bounded turns", () => {
+  it("keeps date replies when import activity is retried", () => {
+    const base = createPortfolioAnalystConversation({
+      id: "conversation-import", provider: "openai", language: "en",
+      includeHoldingNames: true, now: "2026-09-22T10:00:00.000Z",
+    });
+    const activity = {
+      draftId: "draft-1", targetLabel: "WeChat", submissionText: "", screenshotCount: 1,
+      createdAt: "2026-09-22T10:01:00.000Z",
+    };
+    const followUp = {
+      id: "reply-1", userText: "2026-09-22", assistantText: "Saved the date.",
+      createdAt: "2026-09-22T10:02:00.000Z",
+    };
+    const withReply = appendPortfolioAnalystImportFollowUp(
+      attachPortfolioAnalystImport(base, activity), activity.draftId, followUp,
+    );
+    expect(appendPortfolioAnalystImportFollowUp(withReply, activity.draftId, followUp)
+      .importActivities[0]?.followUps).toHaveLength(1);
+    expect(attachPortfolioAnalystImport(withReply, activity).importActivities[0]?.followUps)
+      .toEqual([followUp]);
+  });
+
+  it("keeps settings immutable and retains the full visible conversation", () => {
     let conversation = createPortfolioAnalystConversation({
       id: "conversation-1",
       provider: "openai",
@@ -81,9 +105,36 @@ describe("portfolio analyst conversation", () => {
       });
     }
 
-    expect(conversation.turns).toHaveLength(12);
-    expect(conversation.turns[0]?.question).toBe("问题 3");
+    expect(conversation.turns).toHaveLength(14);
+    expect(conversation.turns[0]?.question).toBe("问题 1");
     expect(conversation.includeHoldingNames).toBe(false);
+  });
+
+  it("adds a separate screenshot message without changing the preceding assistant turn", () => {
+    const base = createPortfolioAnalystConversation({
+      id: "conversation-images", provider: "openai", language: "en",
+      includeHoldingNames: true, now: "2026-09-09T10:00:00.000Z",
+    });
+    const withTurn = appendPortfolioAnalystTurn(base, {
+      id: "turn-1", question: "Analyze the screenshots", createdAt: base.createdAt,
+      report: report(1),
+    });
+    const attached = appendPortfolioAnalystImportImageTurn(withTurn, {
+      sourceTurnId: "turn-1", id: "import-image-1", createdAt: "2026-09-09T10:01:00.000Z",
+      userText: "", attachments: [{
+        id: "11111111-1111-4111-8111-111111111111", mimeType: "image/png", byteLength: 12,
+      }],
+    });
+    expect(attached.turns).toHaveLength(2);
+    expect(attached.turns[0]).toEqual(withTurn.turns[0]);
+    expect(attached.turns[1]).toMatchObject({
+      id: "import-image-1", importImage: { sourceTurnId: "turn-1" }, attachments: [{ mimeType: "image/png" }],
+    });
+    expect(createPortfolioAnalystHistory(attached).some((message) => message.text === "")).toBe(false);
+    expect(() => appendPortfolioAnalystImportImageTurn(attached, {
+      sourceTurnId: "turn-1", id: "import-image-2", createdAt: "2026-09-09T10:02:00.000Z",
+      userText: "again", attachments: [],
+    })).toThrow("The import message cannot accept images.");
   });
 
   it("projects bounded conversational history without old evidence payloads", () => {

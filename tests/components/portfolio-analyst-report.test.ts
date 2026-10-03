@@ -68,42 +68,40 @@ const report = {
 } as PortfolioAnalystReport;
 
 describe("Portfolio Analyst report hierarchy", () => {
-  it("keeps the completed answer conversational and moves supporting facts below it", () => {
-    const markup = renderToStaticMarkup(createElement(AnalystReport, { report }));
+  it("keeps the chat answer conversational and puts evidence in the right panel", () => {
+    const markup = renderToStaticMarkup(createElement(AnalystReport, { report, onShowSources: () => undefined }));
+    const sources = renderToStaticMarkup(createElement(AnalystReport, { report, sourcesOnly: true }));
     const messageStart = markup.indexOf("analyst-primary-answer");
     const messageEnd = markup.indexOf("</div>", messageStart);
     const primaryAnswer = markup.indexOf("主答案应该先被看到。");
-    const disclosure = markup.indexOf('class="analyst-facts-evidence"');
-    const supportingFact = markup.indexOf("第一条补充事实。");
 
     expect(primaryAnswer).toBeGreaterThan(-1);
     expect(markup.slice(messageStart, messageEnd)).not.toContain("analyst-classification");
     expect(markup.slice(messageStart, messageEnd)).not.toContain("依据：");
     expect(markup.slice(messageStart, messageEnd)).toContain("analyst-assistant-message");
-    expect(markup).not.toContain('<details class="analyst-supporting-facts"');
-    expect(disclosure).toBeGreaterThan(primaryAnswer);
-    expect(supportingFact).toBeGreaterThan(disclosure);
-    expect(markup.indexOf("已知限制")).toBeGreaterThan(disclosure);
-    expect(markup.indexOf("建议的事实更新")).toBeGreaterThan(disclosure);
-    expect(markup).toContain("回答信息");
-    expect(markup).toContain("OpenAI · gpt-synthetic");
-    expect(markup).toContain("基于本地事实");
+    expect(markup).not.toContain("第一条补充事实。");
+    expect(markup).not.toContain("查看来源与详情");
+    expect(markup).toContain("在右侧查看这条回答的来源");
+    expect(markup.indexOf("请注意")).toBeGreaterThan(primaryAnswer);
+    expect(sources).toContain("第一条补充事实。");
+    expect(sources).toContain("限制的依据");
+    expect(sources).toContain("建议的事实更新");
+    expect(sources).toContain("回答信息");
+    expect(sources).toContain("OpenAI · gpt-synthetic");
+    expect(sources).not.toContain("主答案应该先被看到。");
+    expect(markup).toContain("12:00");
+    expect(markup).not.toContain("基于本地事实");
     expect(markup).not.toContain("AI-generated factual explanation");
   });
 
-  it("shows agent activity before the answer and keeps facts in one disclosure below", () => {
-    const markup = renderToStaticMarkup(createElement(AnalystReport, { report }));
+  it("keeps activity and evidence together in the sources panel", () => {
+    const markup = renderToStaticMarkup(createElement(AnalystReport, { report, sourcesOnly: true }));
     const activity = markup.indexOf('class="analyst-agent-activity"');
-    const answer = markup.indexOf("主答案应该先被看到。");
-    const disclosure = markup.indexOf('class="analyst-facts-evidence"');
     const evidence = markup.indexOf("回答依据");
 
     expect(activity).toBeGreaterThan(-1);
-    expect(answer).toBeGreaterThan(activity);
-    expect(disclosure).toBeGreaterThan(-1);
-    expect(disclosure).toBeGreaterThan(answer);
-    expect(markup.slice(disclosure, disclosure + 100)).not.toContain("open=");
-    expect(evidence).toBeGreaterThan(disclosure);
+    expect(evidence).toBeGreaterThan(activity);
+    expect(markup).not.toContain("主答案应该先被看到。");
     expect(markup).toContain("已读取 7 天期间表现 · 1 条当前事实");
     expect(markup).not.toContain("选择合适的只读工具");
     expect(markup).not.toContain("生成并验证回答");
@@ -112,11 +110,11 @@ describe("Portfolio Analyst report hierarchy", () => {
   it("omits the activity timeline for old reports without an agent audit", () => {
     const markup = renderToStaticMarkup(createElement(AnalystReport, {
       report: { ...report, agentAudit: undefined },
+      sourcesOnly: true,
     }));
 
     expect(markup).not.toContain('class="analyst-agent-activity"');
     expect(markup).toContain("回答依据");
-    expect(markup).toContain("事实与依据");
   });
 
   it("does not leave interrupted work looking active", () => {
@@ -224,7 +222,7 @@ describe("Portfolio Analyst report hierarchy", () => {
     expect(markup).not.toContain("账户已创建");
   });
 
-  it("renders a safe import handoff for an existing account", () => {
+  it("asks for the account screenshot in chat without an extra import action card", () => {
     const importReport: PortfolioAnalystReport = {
       ...report,
       job: "manage-accounts",
@@ -262,12 +260,20 @@ describe("Portfolio Analyst report hierarchy", () => {
 
     const markup = renderToStaticMarkup(createElement(AnalystReport, {
       report: importReport,
-      onStartAccountImport: () => undefined,
     }));
 
-    expect(markup).toContain("开始更新 WeChat");
-    expect(markup).toContain("在这里发送截图");
-    expect(markup).toContain("/imports?accountType=WeChat%20Wealth%20Management");
-    expect(markup).toContain("确认前不会更新持仓");
+    expect(markup).toContain("I found the account and prepared the import handoff.");
+    expect(markup).not.toContain("请把 WeChat 的持仓截图发给我。");
+    expect(markup).not.toContain("在这里发送截图");
+    expect(markup).not.toContain("analyst-import-handoff");
+    const apiAccount = renderToStaticMarkup(createElement(AnalystReport, {
+      report: {
+        ...importReport,
+        evidence: importReport.evidence.map((fact) => fact.kind === "source-account-import-target"
+          ? { ...fact, updateMethod: "trading-212" as const }
+          : fact),
+      },
+    }));
+    expect(apiAccount).toContain("I found the account and prepared the import handoff.");
   });
 });

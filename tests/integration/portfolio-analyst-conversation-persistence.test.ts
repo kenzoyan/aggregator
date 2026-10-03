@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
+  appendPortfolioAnalystImportFollowUp,
   attachPortfolioAnalystImport,
   appendPortfolioAnalystTurn,
   createPortfolioAnalystConversation,
@@ -102,7 +103,11 @@ describe("portfolio analyst conversation persistence", () => {
       screenshotCount: 1,
       createdAt: "2026-09-22T20:01:00.000Z",
     }]);
-    const second = attachPortfolioAnalystImport(conversation, {
+    const withReply = appendPortfolioAnalystImportFollowUp(conversation, "draft-wechat", {
+      id: "reply-1", userText: "2026-09-22", assistantText: "Saved the date.",
+      createdAt: "2026-09-22T20:01:30.000Z",
+    });
+    const second = attachPortfolioAnalystImport(withReply, {
       draftId: "draft-alipay",
       targetLabel: "Alipay",
       submissionText: "更新支付宝",
@@ -113,6 +118,10 @@ describe("portfolio analyst conversation persistence", () => {
     expect(database.readLatestPortfolioAnalystConversation()?.importActivities.map((item) => item.draftId))
       .toEqual(["draft-wechat", "draft-alipay"]);
     database.close();
+    const reopened = createPortfolioDatabase(filename);
+    expect(reopened.readLatestPortfolioAnalystConversation()?.importActivities[0]?.followUps)
+      .toEqual([{ id: "reply-1", userText: "2026-09-22", assistantText: "Saved the date.", createdAt: "2026-09-22T20:01:30.000Z" }]);
+    reopened.close();
   }));
 
   it("reads the previous single-activity conversation format", () => withDatabase((filename) => {

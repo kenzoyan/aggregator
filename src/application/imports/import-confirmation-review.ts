@@ -81,6 +81,17 @@ export function validateImportConfirmationReview(
   return reviewSchema.superRefine((candidate, context) => {
     candidate.portfolio.holdings.forEach((position, index) => {
       if (
+        existing.sourceKind === "screenshot" &&
+        position.observedPrice &&
+        !position.priceAsOf
+      ) {
+        context.addIssue({
+          code: "custom",
+          path: ["portfolio", "holdings", index, "priceAsOf"],
+          message: "Choose the NAV / price date, including year, before confirming this screenshot holding.",
+        });
+      }
+      if (
         !position.reportedMarketValue ||
         trackedTrading212Lines.has(position.lineId)
       ) return;

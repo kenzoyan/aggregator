@@ -3,6 +3,7 @@ import type { ScreenshotExtraction } from "@/application/imports/vision-extracto
 export const demoScreenshotExtraction: ScreenshotExtraction = {
   accountName: "Demo fund account",
   asOf: "2026-07-19T12:00:00.000Z",
+  asOfYearVisible: true,
   currency: "CNY",
   totalValue: "10280.50",
   reportedPriorReturn: "1280.50",
@@ -23,6 +24,7 @@ export const demoScreenshotExtraction: ScreenshotExtraction = {
       averageCost: null,
       observedPrice: null,
       priceAsOf: null,
+      priceAsOfYearVisible: false,
       confidence: "high",
     },
     {
@@ -38,6 +40,7 @@ export const demoScreenshotExtraction: ScreenshotExtraction = {
       averageCost: null,
       observedPrice: null,
       priceAsOf: null,
+      priceAsOfYearVisible: false,
       confidence: "medium",
     },
   ],

@@ -32,6 +32,7 @@ describe("POST /api/imports/:id/confirm", () => {
           costBasis: "200",
           reportedPriorReturn: "10",
           observedPrice: "105",
+          priceAsOf: "2024-01-01T00:00:00.000Z",
           reportedMarketValue: "210",
         }],
       }, "vision"),
@@ -67,6 +68,50 @@ describe("POST /api/imports/:id/confirm", () => {
     await expect(response.json()).resolves.toMatchObject({
       fieldErrors: {
         "portfolio.asOf": "Choose 2026-08-20 or a later date.",
+      },
+    });
+    expect(confirmImport).not.toHaveBeenCalled();
+  });
+
+  it("requires a dated screenshot NAV before confirming a priced holding", async () => {
+    const stored: StoredImportDraft = {
+      id: "draft-undated-price",
+      sourceAccountId: "wechat-main",
+      sourceKind: "screenshot",
+      createdAt: "2026-09-22T12:00:00.000Z",
+      confidence: "medium",
+      warnings: [],
+      portfolio: draftPortfolioFromOpeningSnapshot({
+        id: "snapshot-undated-price",
+        sourceAccountId: "wechat-main",
+        asOf: "2026-09-22T00:00:00.000Z",
+        positions: [{
+          instrumentId: "SYNTH-FUND-1",
+          quantity: "2",
+          currency: "CNY",
+          costBasis: "200",
+          reportedPriorReturn: "10",
+          observedPrice: "105",
+          reportedMarketValue: "210",
+        }],
+      }, "vision"),
+      status: "draft",
+    };
+    const confirmImport = vi.fn();
+    const response = await createImportConfirmHandler({
+      database: { getImportDraft: () => stored, confirmImport },
+      newId: () => "unused",
+      now: () => "2026-09-22T12:01:00.000Z",
+    })(new Request("http://localhost/api/imports/draft-undated-price/confirm", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(createImportDraftReadModel(stored)),
+    }), stored.id);
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      fieldErrors: {
+        "portfolio.holdings.0.priceAsOf": expect.stringContaining("including year"),
       },
     });
     expect(confirmImport).not.toHaveBeenCalled();

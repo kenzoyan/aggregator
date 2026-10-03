@@ -2,10 +2,11 @@ import type { PortfolioAnalystLanguage } from "@/application/portfolio-analyst-c
 import type { PortfolioAnalystProviderId } from "@/application/portfolio-analyst-provider";
 import type { Period } from "@/application/portfolio-read-model";
 
-export const portfolioAnalystPreferencesStorageKey = "invest-monitor.portfolio-agent-preferences.v1";
+export const portfolioAnalystPreferencesStorageKey = "invest-monitor.portfolio-agent-preferences.v2";
+const legacyPreferencesStorageKey = "invest-monitor.portfolio-agent-preferences.v1";
 
 export interface PortfolioAnalystPreferences {
-  version: "portfolio-agent-preferences.v1";
+  version: "portfolio-agent-preferences.v2";
   provider: PortfolioAnalystProviderId;
   language: PortfolioAnalystLanguage;
   defaultPeriod: Period;
@@ -27,9 +28,9 @@ export function defaultPortfolioAnalystPreferences(
   provider: PortfolioAnalystProviderId,
 ): PortfolioAnalystPreferences {
   return {
-    version: "portfolio-agent-preferences.v1",
+    version: "portfolio-agent-preferences.v2",
     provider,
-    language: "zh-CN",
+    language: "en",
     defaultPeriod: "week",
     includeHoldingNames: true,
   };
@@ -70,10 +71,12 @@ export function readPortfolioAnalystPreferences(
   fallbackProvider: PortfolioAnalystProviderId,
 ): PortfolioAnalystPreferences {
   try {
-    return parsePortfolioAnalystPreferences(
-      storage.getItem(portfolioAnalystPreferencesStorageKey),
-      fallbackProvider,
-    );
+    const current = storage.getItem(portfolioAnalystPreferencesStorageKey);
+    if (current) return parsePortfolioAnalystPreferences(current, fallbackProvider);
+    const legacy = storage.getItem(legacyPreferencesStorageKey);
+    return legacy
+      ? { ...parsePortfolioAnalystPreferences(legacy, fallbackProvider), language: "en" }
+      : defaultPortfolioAnalystPreferences(fallbackProvider);
   } catch {
     return defaultPortfolioAnalystPreferences(fallbackProvider);
   }
@@ -92,7 +95,7 @@ export function resolvePortfolioAnalystConversationSettings(input: {
   fallbackProvider: PortfolioAnalystProviderId;
   conversation?: PortfolioAnalystConversationSettings;
 }): PortfolioAnalystConversationSettings {
-  if (input.conversation) return input.conversation;
+  if (input.conversation) return { ...input.conversation, language: input.preferences.language };
   const selected = input.providers.find((item) =>
     item.id === input.preferences.provider && item.configured
   ) ?? input.providers.find((item) => item.configured);

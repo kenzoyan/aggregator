@@ -11,9 +11,9 @@ import {
 describe("portfolio analyst preferences", () => {
   it("uses private local defaults when no saved value exists", () => {
     expect(defaultPortfolioAnalystPreferences("openai")).toEqual({
-      version: "portfolio-agent-preferences.v1",
+      version: "portfolio-agent-preferences.v2",
       provider: "openai",
-      language: "zh-CN",
+      language: "en",
       defaultPeriod: "week",
       includeHoldingNames: true,
     });
@@ -60,7 +60,7 @@ describe("portfolio analyst preferences", () => {
     expect(readPortfolioAnalystPreferences(storage, "deepseek")).toEqual(preferences);
   });
 
-  it("keeps an existing conversation fixed and otherwise chooses an available saved provider", () => {
+  it("allows language changes while keeping an existing conversation's provider and privacy", () => {
     const preferences = {
       ...defaultPortfolioAnalystPreferences("deepseek"),
       language: "en" as const,
@@ -86,6 +86,20 @@ describe("portfolio analyst preferences", () => {
         language: "zh-CN",
         includeHoldingNames: true,
       },
-    })).toEqual({ provider: "deepseek", language: "zh-CN", includeHoldingNames: true });
+    })).toEqual({ provider: "deepseek", language: "en", includeHoldingNames: true });
+  });
+
+  it("moves legacy preferences to English without losing other choices", () => {
+    const storage = {
+      getItem: (key: string) => key.endsWith(".v1")
+        ? JSON.stringify({ provider: "deepseek", language: "zh-CN", defaultPeriod: "month", includeHoldingNames: false })
+        : null,
+    };
+    expect(readPortfolioAnalystPreferences(storage, "openai")).toMatchObject({
+      provider: "deepseek",
+      language: "en",
+      defaultPeriod: "month",
+      includeHoldingNames: false,
+    });
   });
 });

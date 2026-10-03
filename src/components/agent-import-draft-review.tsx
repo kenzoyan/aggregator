@@ -1,13 +1,12 @@
 import type { ImportDraftReadModel } from "@/application/imports/import-draft-read-model";
 import type { ImportDraftEdit } from "@/application/imports/import-review-editor";
 import type { PortfolioAnalystLanguage } from "@/application/portfolio-analyst-contract";
+import { partialImportPreservationWarning } from "@/domain/import-lifecycle-policy";
 import { assetTypeLabels, assetTypes } from "@/domain/portfolio/types";
 
 export function AgentImportDraftReview({
   draft,
   targetLabel,
-  screenshotCount,
-  submissionText,
   language,
   busy,
   saveStatus,
@@ -17,8 +16,6 @@ export function AgentImportDraftReview({
 }: {
   draft: ImportDraftReadModel;
   targetLabel: string;
-  screenshotCount: number;
-  submissionText: string;
   language: PortfolioAnalystLanguage;
   busy: boolean;
   saveStatus?: "saving" | "saved" | "error";
@@ -27,31 +24,25 @@ export function AgentImportDraftReview({
   onConfirm: () => void;
 }) {
   const confirmed = draft.status === "confirmed";
+  const missingPriceDates = draft.sourceKind === "screenshot"
+    ? draft.portfolio.holdings.filter((holding) => holding.observedPrice && !holding.priceAsOf).length
+    : 0;
   return (
     <div className="analyst-turn analyst-import-turn">
       <article className="portfolio-analyst-result analyst-import-draft-summary">
-        <div className="analyst-primary-answer analyst-assistant-message">
-          <span>Portfolio Agent</span>
-          <p>{confirmed
-            ? (language === "zh-CN"
-                ? `${targetLabel} 的资产已经确认并更新。`
-                : `${targetLabel} was confirmed and updated.`)
-            : (language === "zh-CN"
-                ? `我已经为 ${targetLabel} 创建了草稿。请检查并修改识别结果；确认前不会更新你的投资组合。`
-                : `I created a draft for ${targetLabel}. Review and edit the extraction; your portfolio will not change before confirmation.`)}</p>
-          <small>{language === "zh-CN" ? `已识别 ${screenshotCount} 张截图` : `${screenshotCount} screenshot${screenshotCount === 1 ? "" : "s"} analyzed`}
-            {submissionText ? ` · ${submissionText}` : ""}
-          </small>
-        </div>
         <div className="analyst-import-draft-heading">
           <strong>{confirmed
             ? (language === "zh-CN" ? "已确认" : "Confirmed")
-            : (language === "zh-CN" ? "审核草稿" : "Review draft")}</strong>
+            : (language === "zh-CN" ? `审核草稿 · ${targetLabel}` : `Review draft · ${targetLabel}`)}</strong>
           <span className={`confidence ${draft.confidence}`}>{draft.confidence}</span>
         </div>
         {draft.warnings.length > 0 && (
           <ul className="analyst-import-warnings">
-            {draft.warnings.map((warning, index) => <li key={`${index}:${warning}`}>{warning}</li>)}
+            {draft.warnings.map((warning, index) => <li key={`${index}:${warning}`}>
+              {language === "zh-CN" && warning === partialImportPreservationWarning
+                ? "本次仅更新识别到的持仓；其他已确认持仓保持不变。"
+                : warning}
+            </li>)}
           </ul>
         )}
         <dl className="analyst-import-draft-facts">
@@ -60,12 +51,17 @@ export function AgentImportDraftReview({
             <dd>{confirmed
               ? (draft.portfolio.asOf || (language === "zh-CN" ? "未识别" : "Not detected"))
               : (
-                  <input
-                    aria-label={language === "zh-CN" ? "估值日期" : "Valuation date"}
-                    type="date"
-                    value={draft.portfolio.asOf.slice(0, 10)}
-                    onChange={(event) => onEdit({ type: "update-as-of", value: event.target.value })}
-                  />
+                  <>
+                    <input
+                      aria-label={language === "zh-CN" ? "估值日期" : "Valuation date"}
+                      type="date"
+                      value={draft.portfolio.asOf.slice(0, 10)}
+                      onChange={(event) => onEdit({ type: "update-as-of", value: event.target.value })}
+                    />
+                    {!draft.portfolio.asOf && <small className="analyst-import-date-help">
+                      {language === "zh-CN" ? "请选择包含年份的日期后再确认" : "Choose a date including the year before confirming"}
+                    </small>}
+                  </>
                 )}</dd>
           </div>
           <div>
@@ -146,29 +142,36 @@ export function AgentImportDraftReview({
           </ol>
         )}
         {!confirmed && (
-          <div className="analyst-import-review-actions">
-            <span className="analyst-import-save-status" role="status">
-              {saveStatus === "saving"
-                ? (language === "zh-CN" ? "正在保存草稿……" : "Saving draft…")
-                : saveStatus === "error"
-                  ? (language === "zh-CN" ? "草稿保存失败，请再次修改或重试" : "Draft save failed; edit again to retry")
-                  : saveStatus === "saved"
-                    ? (language === "zh-CN" ? "草稿已保存" : "Draft saved")
-                    : ""}
-            </span>
-            <button type="button" className="secondary" disabled={busy} onClick={onAddHolding}>
-              {language === "zh-CN" ? "+ 添加持仓" : "+ Add holding"}
-            </button>
-            <button
-              type="button"
-              disabled={busy || saveStatus === "saving" || saveStatus === "error" || (draft.portfolio.holdings.length === 0 && !draft.portfolio.portfolioCash)}
-              onClick={onConfirm}
-            >
-              {busy
-                ? (language === "zh-CN" ? "正在确认……" : "Confirming…")
-                : (language === "zh-CN" ? "确认并更新资产" : "Confirm & update assets")}
-            </button>
-          </div>
+          <>
+            {missingPriceDates > 0 && <p className="analyst-import-date-help">
+              {language === "zh-CN"
+                ? `还有 ${missingPriceDates} 项持仓需要填写包含年份的价格日期。`
+                : `${missingPriceDates} holding${missingPriceDates === 1 ? " needs" : "s need"} a price date including the year.`}
+            </p>}
+            <div className="analyst-import-review-actions">
+              <span className="analyst-import-save-status" role="status">
+                {saveStatus === "saving"
+                  ? (language === "zh-CN" ? "正在保存草稿……" : "Saving draft…")
+                  : saveStatus === "error"
+                    ? (language === "zh-CN" ? "草稿保存失败，请再次修改或重试" : "Draft save failed; edit again to retry")
+                    : saveStatus === "saved"
+                      ? (language === "zh-CN" ? "草稿已保存" : "Draft saved")
+                      : ""}
+              </span>
+              <button type="button" className="secondary" disabled={busy} onClick={onAddHolding}>
+                {language === "zh-CN" ? "+ 添加持仓" : "+ Add holding"}
+              </button>
+              <button
+                type="button"
+                disabled={busy || saveStatus === "saving" || saveStatus === "error" || !draft.portfolio.asOf || missingPriceDates > 0 || (draft.portfolio.holdings.length === 0 && !draft.portfolio.portfolioCash)}
+                onClick={onConfirm}
+              >
+                {busy
+                  ? (language === "zh-CN" ? "正在确认……" : "Confirming…")
+                  : (language === "zh-CN" ? "确认并更新资产" : "Confirm & update assets")}
+              </button>
+            </div>
+          </>
         )}
         <p className="analyst-import-next-step">{confirmed
           ? (language === "zh-CN" ? "导入完成。原始截图没有保存。" : "Import complete. Original screenshots were not saved.")

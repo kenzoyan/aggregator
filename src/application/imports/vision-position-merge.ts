@@ -4,7 +4,7 @@ type ExtractedPosition = ScreenshotExtraction["positions"][number];
 
 type MergeablePositionField = Exclude<
   keyof ExtractedPosition,
-  "displayName" | "instrumentCode" | "confidence"
+  "displayName" | "instrumentCode" | "priceAsOfYearVisible" | "confidence"
 >;
 
 function normalizedInstrumentCode(position: ExtractedPosition): string | undefined {
@@ -94,6 +94,7 @@ export function mergeScreenshotPositions(
         }
         return values[0] ?? null;
       }
+      const priceAsOf = mergedField("priceAsOf");
       return {
         displayName,
         instrumentCode: code ?? null,
@@ -106,7 +107,10 @@ export function mergeScreenshotPositions(
         reportedPriorReturnPercent: mergedField("reportedPriorReturnPercent"),
         averageCost: mergedField("averageCost"),
         observedPrice: mergedField("observedPrice"),
-        priceAsOf: mergedField("priceAsOf"),
+        priceAsOf,
+        priceAsOfYearVisible: rows.some((row) =>
+          row.priceAsOfYearVisible && row.priceAsOf === priceAsOf
+        ),
         confidence: rows.reduce<ExtractedPosition["confidence"]>(
           (result, row) => lowerConfidence(result, row.confidence),
           "high",

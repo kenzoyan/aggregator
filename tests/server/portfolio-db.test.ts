@@ -11,6 +11,7 @@ describe("portfolio database singleton", () => {
       saveMarketIntelligenceBrief: vi.fn(),
       deleteSourceAccount: vi.fn(),
       saveImportDraftReview: vi.fn(),
+      discardImportDraft: vi.fn(),
     };
     const create = vi.fn(() => replacement);
 
@@ -30,6 +31,7 @@ describe("portfolio database singleton", () => {
       saveMarketIntelligenceBrief: vi.fn(),
       deleteSourceAccount: vi.fn(),
       saveImportDraftReview: vi.fn(),
+      discardImportDraft: vi.fn(),
     };
     const create = vi.fn();
 
@@ -46,6 +48,7 @@ describe("portfolio database singleton", () => {
       saveMarketIntelligenceBrief: vi.fn(),
       deleteSourceAccount: vi.fn(),
       saveImportDraftReview: vi.fn(),
+      discardImportDraft: vi.fn(),
     };
     const current = {
       close,
@@ -53,6 +56,20 @@ describe("portfolio database singleton", () => {
       saveMarketIntelligenceBrief: vi.fn(),
       deleteSourceAccount: vi.fn(),
     };
+    expect(ensureCurrentPortfolioDatabase(current, () => replacement)).toBe(replacement);
+    expect(close).toHaveBeenCalledOnce();
+  });
+
+  it("replaces a hot-reload instance missing draft cancellation", () => {
+    const close = vi.fn();
+    const current = {
+      close,
+      readLatestMarketIntelligenceBrief: vi.fn(),
+      saveMarketIntelligenceBrief: vi.fn(),
+      deleteSourceAccount: vi.fn(),
+      saveImportDraftReview: vi.fn(),
+    };
+    const replacement = { ...current, close: vi.fn(), discardImportDraft: vi.fn() };
     expect(ensureCurrentPortfolioDatabase(current, () => replacement)).toBe(replacement);
     expect(close).toHaveBeenCalledOnce();
   });

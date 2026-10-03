@@ -17,6 +17,7 @@ describe("Import Draft read model", () => {
       extraction: {
         accountName: "WeChat",
         asOf: "2026-07-20T00:00:00.000Z",
+        asOfYearVisible: true,
         currency: "CNY",
         totalValue: "125",
         reportedPriorReturn: "25",
@@ -36,6 +37,7 @@ describe("Import Draft read model", () => {
           averageCost: null,
           observedPrice: null,
           priceAsOf: null,
+          priceAsOfYearVisible: false,
           confidence: "high",
         }],
       },
@@ -60,6 +62,7 @@ describe("Import Draft read model", () => {
       extraction: {
         accountName: "Synthetic Provider",
         asOf: "2026-07-20T00:00:00.000Z",
+        asOfYearVisible: true,
         currency: "CNY",
         totalValue: "125",
         reportedPriorReturn: "25",
@@ -79,6 +82,7 @@ describe("Import Draft read model", () => {
           averageCost: null,
           observedPrice: null,
           priceAsOf: null,
+          priceAsOfYearVisible: false,
           confidence: "high",
         }],
       },
@@ -127,6 +131,7 @@ describe("Import Draft read model", () => {
       extraction: {
         accountName: "Danske Bank",
         asOf: "2026-07-20T00:00:00.000Z",
+        asOfYearVisible: true,
         currency: "EUR",
         totalValue: "75.25",
         reportedPriorReturn: null,

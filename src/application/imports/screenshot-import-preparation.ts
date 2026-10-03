@@ -76,9 +76,17 @@ export function prepareScreenshotImport(input: {
   const warnings = [...extraction.warnings];
   const source = input.sourceKind === "demo" ? "demo" as const : "vision" as const;
   const positions = mergeScreenshotPositions(extraction.positions, warnings);
+  const accountAsOf = extraction.asOfYearVisible ? extraction.asOf : null;
+  if (!accountAsOf) {
+    warnings.push("The account valuation date is not fully visible; choose the correct date, including year, before confirming.");
+  }
 
   const holdings: DraftHolding[] = positions.map((position, index) => {
     const currency = position.currency ?? extraction.currency;
+    const priceAsOf = position.priceAsOfYearVisible ? position.priceAsOf : null;
+    if (!priceAsOf && position.observedPrice !== null) {
+      warnings.push(`${position.displayName}: the price date is not fully visible; check the NAV / price date before confirming.`);
+    }
 
     const wholeHoldingMode = position.quantity === null;
     if (wholeHoldingMode) {
@@ -126,8 +134,8 @@ export function prepareScreenshotImport(input: {
       observedPrice: position.observedPrice
         ? knownDraftValue(position.observedPrice, source, position.confidence)
         : unknownDraftValue(),
-      priceAsOf: position.priceAsOf
-        ? knownDraftValue(position.priceAsOf, source, position.confidence)
+      priceAsOf: priceAsOf
+        ? knownDraftValue(priceAsOf, source, position.confidence)
         : unknownDraftValue(),
       priceSource: position.observedPrice
         ? knownDraftValue("confirmed-screenshot", source, position.confidence)
@@ -147,12 +155,9 @@ export function prepareScreenshotImport(input: {
     warnings,
     portfolio: {
       snapshotId: input.snapshotId,
-      asOf: extraction.asOf
-        ? knownDraftValue(extraction.asOf, source, extraction.confidence)
-        : inferredDraftValue(
-            input.createdAt,
-            "Screenshot does not show an as-of time; using import time",
-          ),
+      asOf: accountAsOf
+        ? knownDraftValue(accountAsOf, source, extraction.confidence)
+        : unknownDraftValue(),
       portfolioCash: extraction.portfolioCash
         ? knownDraftValue(extraction.portfolioCash, source, extraction.confidence)
         : unknownDraftValue(),

@@ -169,6 +169,7 @@ export function createAnalyzeImportHandler(input: {
       const reviewedExtraction = providerMismatchWarning
         ? {
             ...extraction,
+            confidence: "low" as const,
             warnings: [
               ...extraction.warnings.slice(0, 19),
               providerMismatchWarning,

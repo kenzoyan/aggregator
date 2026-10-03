@@ -1,10 +1,10 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import {
   Plus,
   RefreshCw,
-  WalletCards,
 } from "lucide-react";
 import {
   useEffect,
@@ -235,6 +235,7 @@ export function Dashboard() {
   const [localFxOverview, setLocalFxOverview] = useState<FxOverviewReadModel>();
   const [refreshingPrices, setRefreshingPrices] = useState(false);
   const [refreshMessage, setRefreshMessage] = useState<string>();
+  const [reviewHost, setReviewHost] = useState<HTMLDivElement | null>(null);
   async function loadLocalPortfolio(signal?: AbortSignal) {
     setPortfolioLoadError(undefined);
     try {
@@ -405,12 +406,18 @@ export function Dashboard() {
 
   return (
     <>
-      <main className="main-content" id="overview">
+      <main className="main-content home-workspace" id="overview">
+        <PortfolioAnalyst
+          blocked={false}
+          reviewHost={reviewHost}
+          onPortfolioChanged={() => { void loadLocalPortfolio().catch(() => undefined); }}
+        />
+        <div className="home-workspace-main">
         <header className="topbar">
           <div>
-            <p className="eyebrow">YOUR PRIVATE WEALTH</p>
-            <h1>Your portfolio, at a glance.</h1>
-            <p className="page-intro">A calm view of everything you own, measured in euros.</p>
+            <p className="eyebrow">YOUR INVESTMENT OVERVIEW</p>
+            <h1>All your investments, together.</h1>
+            <p className="page-intro">A clear view of your holdings and performance, measured in euros.</p>
           </div>
           <div className="header-actions">
             <span className="demo-badge">{isLocal ? "Local data" : portfolioLoadError ? "Load failed" : demoEnabled ? "Demo data" : loading ? "Loading" : "No portfolio"}</span>
@@ -434,8 +441,6 @@ export function Dashboard() {
           </div>
         </header>
 
-        <PortfolioAnalyst blocked={false} />
-
         {portfolioLoadError && (
           <section className="portfolio-load-error" role="alert">
             <div>
@@ -451,7 +456,7 @@ export function Dashboard() {
         {!loading && !portfolioLoadError && !hasVisiblePortfolio && (
           <section className="empty-portfolio-banner">
             <div>
-              <span><WalletCards aria-hidden="true" /></span>
+              <span><Image src="/brand/aggrigator-icon-192.png" alt="" width={48} height={48} /></span>
               <div>
                 <p className="eyebrow">YOUR PORTFOLIO IS EMPTY</p>
                 <h2>Start with a screenshot, manual entry or Trading 212</h2>
@@ -464,6 +469,8 @@ export function Dashboard() {
             </div>
           </section>
         )}
+
+        <div ref={setReviewHost} className="home-review-host" id="agent-review" />
 
         <section className="hero-grid">
           <article className="balance-card">
@@ -691,6 +698,7 @@ export function Dashboard() {
             )}
           </div>
         </section>
+        </div>
       </main>
 
     </>

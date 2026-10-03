@@ -1,6 +1,8 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
+import { createPortal } from "react-dom";
 import { useEffect, useRef, useState } from "react";
 
 import type { PortfolioAnalystAnswer } from "@/application/portfolio-analyst-answer";
@@ -10,6 +12,9 @@ import type {
   PortfolioAnalystToolName,
 } from "@/application/portfolio-analyst-agent";
 import type { PortfolioAnalystConversation } from "@/application/portfolio-analyst-conversation";
+import type { PortfolioAnalystImageAttachment } from "@/application/portfolio-analyst-conversation";
+import { pendingScreenshotImportTarget, requestsScreenshotImport } from "@/application/agent-image-intent";
+import { consumePortfolioAnalystImageStream } from "@/application/portfolio-analyst-image-stream";
 import type {
   AnalystEvidenceFact,
   FactualUpdate,
@@ -35,6 +40,10 @@ import {
   type ImportDraftReadModel,
 } from "@/application/imports/import-draft-read-model";
 import {
+  importDateFollowUpQuestion,
+  nextImportDateFollowUp,
+} from "@/application/imports/import-chat-follow-up";
+import {
   applyImportDraftEdit,
   type ImportDraftEdit,
 } from "@/application/imports/import-review-editor";
@@ -50,6 +59,7 @@ import {
   type AgentImageAttachmentState,
 } from "@/components/agent-image-attachment-state";
 import { AgentImageAttachments } from "@/components/agent-image-attachments";
+import { AssistantMessageContent } from "@/components/assistant-message-content";
 import {
   createAgentImportAnalysisForm,
   resolveAgentImportSourceAccount,
@@ -105,30 +115,40 @@ const starterQuestions = {
   ],
 } as const;
 
-export function PortfolioAnalyst({ blocked = false }: { blocked?: boolean }) {
+export function PortfolioAnalyst({
+  blocked = false,
+  reviewHost,
+  onPortfolioChanged,
+}: {
+  blocked?: boolean;
+  reviewHost?: HTMLElement | null;
+  onPortfolioChanged?: () => void;
+}) {
   const activeRequest = useRef<AbortController | undefined>(undefined);
   const conversationView = useRef<HTMLDivElement | null>(null);
   const composer = useRef<HTMLTextAreaElement | null>(null);
-  const entryAction = useRef<HTMLButtonElement | null>(null);
-  const [open, setOpen] = useState(false);
   const [configuration, setConfiguration] = useState<AnalystConfiguration>();
   const [provider, setProvider] = useState<PortfolioAnalystProviderId>("openai");
   const [period, setPeriod] = useState<Period>("week");
-  const [language, setLanguage] = useState<PortfolioAnalystLanguage>("zh-CN");
+  const [language, setLanguage] = useState<PortfolioAnalystLanguage>("en");
+  const [selectedReviewId, setSelectedReviewId] = useState<string>();
+  const [selectedEvidenceId, setSelectedEvidenceId] = useState<string>();
   const [includeHoldingNames, setIncludeHoldingNames] = useState(true);
   const [conversation, setConversation] = useState<PortfolioAnalystConversation>();
   const [pendingTurn, setPendingTurn] = useState<PendingPortfolioAnalystTurn>();
   const [question, setQuestion] = useState("");
   const [loading, setLoading] = useState(false);
   const [importBusy, setImportBusy] = useState(false);
-  const [importOperation, setImportOperation] = useState<"analysis" | "confirmation">("analysis");
   const [error, setError] = useState<string>();
-  const [importTarget, setImportTarget] = useState<StartAccountImportAction>();
   const [accountOptions, setAccountOptions] = useState<AgentImportAccountOption[]>([]);
   const [selectedAccountId, setSelectedAccountId] = useState("");
   const [importAttachments, setImportAttachments] = useState<AgentImageAttachmentState<File>>(
     () => createAgentImageAttachmentState<File>(),
   );
+  const [pendingImageMessage, setPendingImageMessage] = useState<{ text: string; files: readonly File[] }>();
+  const [pendingImportReply, setPendingImportReply] = useState<string>();
+  const [answeringImageTurnId, setAnsweringImageTurnId] = useState<string>();
+  const [streamedImageAnswer, setStreamedImageAnswer] = useState("");
   const [importDrafts, setImportDrafts] = useState<Record<string, ImportDraftReadModel>>({});
   const importDraftsRef = useRef<Record<string, ImportDraftReadModel>>({});
   const saveQueue = useRef<Promise<void>>(Promise.resolve());
@@ -141,6 +161,7 @@ export function PortfolioAnalyst({ blocked = false }: { blocked?: boolean }) {
     "confirming" | "created" | "failed"
   >>({});
   const selectedProvider = configuration?.providers.find((item) => item.id === provider);
+  const activeImportTarget = pendingScreenshotImportTarget(conversation);
 
   useEffect(() => {
     let active = true;
@@ -187,55 +208,9 @@ export function PortfolioAnalyst({ blocked = false }: { blocked?: boolean }) {
   useEffect(() => {
     const view = conversationView.current;
     if (view) view.scrollTop = view.scrollHeight;
-  }, [conversation?.turns.length, Object.keys(importDrafts).length, pendingTurn?.answerText]);
+  }, [conversation?.updatedAt, conversation?.turns.length, Object.keys(importDrafts).length, pendingTurn?.answerText, pendingImageMessage, pendingImportReply]);
 
-  useEffect(() => {
-    function closeOnEscape(event: KeyboardEvent) {
-      if (event.key !== "Escape") return;
-      setOpen((current) => {
-        if (!current) return current;
-        window.requestAnimationFrame(() => entryAction.current?.focus());
-        return false;
-      });
-    }
-    window.addEventListener("keydown", closeOnEscape);
-    return () => {
-      window.removeEventListener("keydown", closeOnEscape);
-      activeRequest.current?.abort();
-    };
-  }, []);
-
-  function openAgent() {
-    setOpen(true);
-    window.requestAnimationFrame(() => composer.current?.focus());
-  }
-
-  function closeAgent() {
-    setOpen(false);
-    window.requestAnimationFrame(() => entryAction.current?.focus());
-  }
-
-  function startPrompt(prompt: string) {
-    setOpen(true);
-    void runAnalyst(prompt);
-  }
-
-  function startAccountImport(action: StartAccountImportAction) {
-    if (loading || importBusy) return;
-    setImportTarget(action);
-    setImportAttachments((current) => resetAgentImageAttachments(current));
-    setSelectedAccountId("");
-    setError(undefined);
-    window.requestAnimationFrame(() => composer.current?.focus());
-  }
-
-  function cancelAccountImport() {
-    if (importBusy) return;
-    setImportTarget(undefined);
-    setImportAttachments((current) => resetAgentImageAttachments(current));
-    setSelectedAccountId("");
-    setError(undefined);
-  }
+  useEffect(() => () => { activeRequest.current?.abort(); }, []);
 
   async function analyzeAccountImport(
     submission: NonNullable<ReturnType<typeof createAgentComposerSubmission<File>>>,
@@ -245,7 +220,6 @@ export function PortfolioAnalyst({ blocked = false }: { blocked?: boolean }) {
   ) {
     if (submission.screenshots.length === 0 || importBusy) return;
     setImportBusy(true);
-    setImportOperation("analysis");
     setError(undefined);
     setImportAttachments((current) => lockAgentImageAttachments(current));
     const controller = new AbortController();
@@ -308,7 +282,8 @@ export function PortfolioAnalyst({ blocked = false }: { blocked?: boolean }) {
       setConversation(activityPayload.conversation);
       importDraftsRef.current = { ...importDraftsRef.current, [activityPayload.importDraft.id]: activityPayload.importDraft };
       setImportDrafts(importDraftsRef.current);
-      setImportTarget(undefined);
+      setSelectedEvidenceId(undefined);
+      setSelectedReviewId(activityPayload.importDraft.id);
       pendingImportRoute.current = undefined;
       setSelectedAccountId("");
       setAccountOptions([]);
@@ -333,29 +308,249 @@ export function PortfolioAnalyst({ blocked = false }: { blocked?: boolean }) {
     });
     if (!submission) return;
     if (submission.screenshots.length > 0) {
-      void submitScreenshotImport(submission);
+      if (requestsScreenshotImport(submission.text, Boolean(activeImportTarget || selectedAccountId))) {
+        void submitScreenshotImport(submission, activeImportTarget);
+      } else {
+        void submitImageQuestion(submission);
+      }
+      return;
+    }
+    if (activeReview) {
+      void submitImportMessage(activeReview.draftId, submission.text);
       return;
     }
     void runAnalyst(submission.text);
   }
 
-  async function submitScreenshotImport(
+  async function submitImportMessage(draftId: string, userText: string) {
+    if (!conversation || loading || importBusy) return;
+    setImportBusy(true);
+    setPendingImportReply(userText);
+    setError(undefined);
+    let delegate = false;
+    try {
+      await saveQueue.current;
+      if (saveErrors.current[draftId]) throw new Error("Please fix the draft save error before continuing.");
+      const response = await fetch("/api/portfolio/analyst/import-message", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: crypto.randomUUID(), conversationId: conversation.id, draftId, message: userText }),
+      });
+      const payload = await response.json() as {
+        conversation?: PortfolioAnalystConversation;
+        draft?: ImportDraftReadModel;
+        delegate?: boolean;
+        cancelled?: boolean;
+        portfolioChanged?: boolean;
+        error?: string;
+      };
+      if (!response.ok) throw new Error(payload.error ?? "I couldn't complete that request. Please try again.");
+      if (payload.delegate) {
+        delegate = true;
+      } else {
+        if (!payload.conversation) throw new Error("I couldn't save the chat reply. Please refresh and check the draft.");
+        setConversation(payload.conversation);
+        if (payload.cancelled) {
+          const remaining = { ...importDraftsRef.current };
+          delete remaining[draftId];
+          importDraftsRef.current = remaining;
+          setImportDrafts(remaining);
+          setSelectedReviewId(undefined);
+        } else if (payload.draft) {
+          importDraftsRef.current = { ...importDraftsRef.current, [draftId]: payload.draft };
+          setImportDrafts(importDraftsRef.current);
+          if (payload.portfolioChanged) {
+            setSelectedReviewId(undefined);
+            onPortfolioChanged?.();
+          }
+        }
+        setQuestion("");
+        setPendingTurn(undefined);
+      }
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "I couldn't complete that request. Please try again.");
+    } finally {
+      setPendingImportReply(undefined);
+      setImportBusy(false);
+    }
+    if (delegate) void runAnalyst(userText);
+  }
+
+  function retryFailedTurn() {
+    if (!pendingTurn || loading || importBusy) return;
+    const text = pendingTurn.question;
+    setPendingTurn(undefined);
+    setError(undefined);
+    if (activeReview) void submitImportMessage(activeReview.draftId, text);
+    else void runAnalyst(text);
+  }
+
+  async function submitImageQuestion(
     submission: NonNullable<ReturnType<typeof createAgentComposerSubmission<File>>>,
   ) {
+    if (loading || importBusy) return;
+    if (provider !== "openai") {
+      setError("Image questions require OpenAI. Select OpenAI in Settings.");
+      return;
+    }
+    setImportBusy(true);
+    setError(undefined);
+    setPendingImageMessage({ text: submission.text, files: submission.screenshots });
     setImportAttachments((current) => lockAgentImageAttachments(current));
-    const prompt = submission.text || (language === "zh-CN"
-      ? "请帮我识别截图中的资产，并准备导入已登记的账户。"
-      : "Identify the assets in my screenshots and prepare an import into a registered account.");
+    const controller = new AbortController();
+    activeRequest.current = controller;
+    try {
+      const form = new FormData();
+      form.set("userText", submission.text);
+      form.set("language", language);
+      form.set("includeHoldingNames", String(includeHoldingNames));
+      if (conversation) form.set("conversationId", conversation.id);
+      submission.screenshots.forEach((file) => form.append("images", file));
+      const response = await fetch("/api/portfolio/analyst/images/ask", {
+        method: "POST", body: form, signal: controller.signal,
+      });
+      const payload = await response.json() as { conversation?: PortfolioAnalystConversation; error?: string };
+      if (!response.ok || !payload.conversation) {
+        throw new Error(payload.error ?? "The image could not be analyzed.");
+      }
+      setConversation(payload.conversation);
+      setPendingTurn(undefined);
+      setPendingImageMessage(undefined);
+      setQuestion("");
+      setImportAttachments((current) => resetAgentImageAttachments(current));
+      const turnId = payload.conversation.turns.at(-1)?.id;
+      if (!turnId) throw new Error("The sent image message could not be found.");
+      setAnsweringImageTurnId(turnId);
+      await completeImageAnswer(turnId, controller.signal);
+    } catch (cause) {
+      if (!(cause instanceof DOMException && cause.name === "AbortError")) {
+        setError(cause instanceof Error ? cause.message : "The image could not be analyzed.");
+      }
+    } finally {
+      setPendingImageMessage(undefined);
+      setAnsweringImageTurnId(undefined);
+      setStreamedImageAnswer("");
+      activeRequest.current = undefined;
+      setImportAttachments((current) => unlockAgentImageAttachments(current));
+      setImportBusy(false);
+    }
+  }
+
+  async function retryImageQuestion(turnId: string) {
+    if (loading || importBusy) return;
+    setImportBusy(true);
+    setAnsweringImageTurnId(turnId);
+    setStreamedImageAnswer("");
+    setError(undefined);
+    const controller = new AbortController();
+    activeRequest.current = controller;
+    try {
+      await completeImageAnswer(turnId, controller.signal);
+    } catch (cause) {
+      if (!(cause instanceof DOMException && cause.name === "AbortError")) {
+        setError(cause instanceof Error ? cause.message : "The image could not be analyzed.");
+      }
+    } finally {
+      activeRequest.current = undefined;
+      setAnsweringImageTurnId(undefined);
+      setStreamedImageAnswer("");
+      setImportBusy(false);
+    }
+  }
+
+  async function completeImageAnswer(turnId: string, signal: AbortSignal) {
+    const response = await fetch(`/api/portfolio/analyst/images/ask/${encodeURIComponent(turnId)}`, {
+      method: "POST",
+      headers: { accept: "application/x-ndjson" },
+      signal,
+    });
+    let finished = false;
+    let failure: string | undefined;
+    await consumePortfolioAnalystImageStream(response, (event) => {
+      if (event.type === "delta") {
+        setStreamedImageAnswer((current) => current + event.delta);
+      } else if (event.type === "completed") {
+        finished = true;
+        setConversation(event.conversation);
+        if (event.error) setError(event.error);
+      } else {
+        failure = event.error;
+      }
+    });
+    if (failure) throw new Error(failure);
+    if (!finished) throw new Error("The image response ended before completion.");
+  }
+
+  async function submitScreenshotImport(
+    submission: NonNullable<ReturnType<typeof createAgentComposerSubmission<File>>>,
+    activeTarget?: StartAccountImportAction,
+  ) {
+    setPendingImageMessage({ text: submission.text, files: submission.screenshots });
+    setImportAttachments((current) => lockAgentImageAttachments(current));
+    const prompt = activeTarget
+      ? (language === "zh-CN"
+          ? `请将截图中的资产导入已登记的 ${activeTarget.label}（${activeTarget.accountType}）账户。${submission.text}`
+          : `Import the assets in these screenshots into my registered ${activeTarget.label} (${activeTarget.accountType}) account. ${submission.text}`)
+      : submission.text || (language === "zh-CN"
+          ? "请帮我识别截图中的资产，并准备导入已登记的账户。"
+          : "Identify the assets in my screenshots and prepare an import into a registered account.");
     const routed = pendingImportRoute.current ?? await runAnalyst(prompt, submission.screenshots.length);
     if (!routed) {
+      setPendingImageMessage(undefined);
+      setPendingTurn(undefined);
       setQuestion(submission.text);
       setImportAttachments((current) => unlockAgentImageAttachments(current));
       return;
     }
     pendingImportRoute.current = routed;
-    const proposed = routed.turns.at(-1)?.report.answer.proposedUpdate;
-    const target = proposed?.kind === "start-account-import" ? proposed : importTarget;
-    await analyzeAccountImport(submission, target, routed, selectedAccountId);
+    const message = routed.turns.at(-1);
+    if (!message) {
+      setPendingImageMessage(undefined);
+      setError("The image message could not be found.");
+      setImportAttachments((current) => unlockAgentImageAttachments(current));
+      return;
+    }
+    let savedConversation = routed;
+    if (!message.attachments?.length) {
+      setImportBusy(true);
+      const controller = new AbortController();
+      activeRequest.current = controller;
+      try {
+        const form = new FormData();
+        form.set("conversationId", routed.id);
+        form.set("turnId", message.id);
+        form.set("userText", submission.text);
+        submission.screenshots.forEach((file) => form.append("images", file));
+        const response = await fetch("/api/portfolio/analyst/images", {
+          method: "POST", body: form, signal: controller.signal,
+        });
+        const payload = await response.json() as {
+          conversation?: PortfolioAnalystConversation;
+          error?: string;
+        };
+        if (!response.ok || !payload.conversation) {
+          throw new Error(payload.error ?? "Images could not be saved to the conversation.");
+        }
+        savedConversation = payload.conversation;
+        pendingImportRoute.current = savedConversation;
+      } catch (cause) {
+        setPendingImageMessage(undefined);
+        if (!(cause instanceof DOMException && cause.name === "AbortError")) {
+          setError(cause instanceof Error ? cause.message : "Images could not be saved.");
+        }
+        setQuestion(submission.text);
+        setImportAttachments((current) => unlockAgentImageAttachments(current));
+        return;
+      } finally {
+        activeRequest.current = undefined;
+        setImportBusy(false);
+      }
+    }
+    setConversation(savedConversation);
+    setPendingImageMessage(undefined);
+    const proposed = routed.turns.findLast((turn) => turn.report)?.report?.answer.proposedUpdate;
+    const target = activeTarget ?? (proposed?.kind === "start-account-import" ? proposed : undefined);
+    await analyzeAccountImport(submission, target, savedConversation, selectedAccountId);
   }
 
   function queueDraftSave(draft: ImportDraftReadModel): Promise<void> {
@@ -382,13 +577,13 @@ export function PortfolioAnalyst({ blocked = false }: { blocked?: boolean }) {
     return saveQueue.current;
   }
 
-  function editImportDraft(draftId: string, edit: ImportDraftEdit) {
+  function editImportDraft(draftId: string, edit: ImportDraftEdit): Promise<void> {
     const current = importDraftsRef.current[draftId];
-    if (!current) return;
+    if (!current) return Promise.resolve();
     const next = applyImportDraftEdit(current, edit);
     importDraftsRef.current = { ...importDraftsRef.current, [draftId]: next };
     setImportDrafts(importDraftsRef.current);
-    void queueDraftSave(next);
+    return queueDraftSave(next);
   }
 
   function addImportHolding(draftId: string) {
@@ -417,7 +612,6 @@ export function PortfolioAnalyst({ blocked = false }: { blocked?: boolean }) {
       return;
     }
     setImportBusy(true);
-    setImportOperation("confirmation");
     setError(undefined);
     const controller = new AbortController();
     activeRequest.current = controller;
@@ -439,9 +633,9 @@ export function PortfolioAnalyst({ blocked = false }: { blocked?: boolean }) {
       }
       importDraftsRef.current = { ...importDraftsRef.current, [draftId]: payload.draft };
       setImportDrafts(importDraftsRef.current);
-      setImportTarget(undefined);
       pendingImportRoute.current = undefined;
       setImportAttachments((current) => resetAgentImageAttachments(current));
+      onPortfolioChanged?.();
     } catch (cause) {
       if (!(cause instanceof DOMException && cause.name === "AbortError")) {
         setError(cause instanceof Error ? cause.message : "Confirmation failed.");
@@ -495,26 +689,26 @@ export function PortfolioAnalyst({ blocked = false }: { blocked?: boolean }) {
         signal: controller.signal,
       });
       if (!response.ok) throw new Error("The analyst stream could not be opened.");
-      let streamError: string | undefined;
       let streamFinished = false;
       let completedConversation: PortfolioAnalystConversation | undefined;
       await consumePortfolioAnalystStream(response, (event) => {
         if (event.type === "completed") {
           streamFinished = true;
           completedConversation = event.conversation;
-          setConversation(event.conversation);
+          if (!screenshotCount) setConversation(event.conversation);
           setPendingTurn(undefined);
           return;
         }
+        // The structured answer is checked after generation. Showing its draft text here
+        // makes a provisional sentence appear to be a saved chat message before it is replaced.
+        if (event.type === "answer-delta") return;
         if (event.type === "failed") {
           streamFinished = true;
-          streamError = event.error;
         }
         setPendingTurn((current) => current
           ? applyPortfolioAnalystStreamEvent(current, event)
           : current);
       });
-      if (streamError) setError(streamError);
       if (!streamFinished) {
         throw new Error("The analyst stream ended before the answer was complete.");
       }
@@ -528,7 +722,6 @@ export function PortfolioAnalyst({ blocked = false }: { blocked?: boolean }) {
         setPendingTurn((current) => current
           ? { ...current, answerText: "", phase: "failed" }
           : current);
-        setError(cause instanceof Error ? cause.message : "The analyst could not complete this job.");
       }
     } finally {
       activeRequest.current = undefined;
@@ -552,9 +745,10 @@ export function PortfolioAnalyst({ blocked = false }: { blocked?: boolean }) {
         }
       }
       setConversation(undefined);
+      setSelectedEvidenceId(undefined);
+      setSelectedReviewId(undefined);
       setPendingTurn(undefined);
       setQuestion("");
-      setImportTarget(undefined);
       setImportAttachments((current) => resetAgentImageAttachments(current));
       importDraftsRef.current = {};
       setImportDrafts({});
@@ -603,68 +797,35 @@ export function PortfolioAnalyst({ blocked = false }: { blocked?: boolean }) {
     }
   }
 
+  const reviewActivities = conversation?.importActivities.filter((activity) =>
+    importDrafts[activity.draftId]?.status === "draft"
+  ) ?? [];
+  const activeReview = reviewActivities.find((activity) => activity.draftId === selectedReviewId)
+    ?? reviewActivities.at(-1);
+  const activeDraft = activeReview && importDrafts[activeReview.draftId];
+  const activeDateRequest = activeDraft && nextImportDateFollowUp(activeDraft);
+  const selectedEvidenceTurn = conversation?.turns.find((turn) => turn.id === selectedEvidenceId && turn.report);
+
   return (
     <div
-      className={`portfolio-agent-shell${open ? " open" : ""}`}
+      className="portfolio-agent-shell"
+      id="agent"
       aria-hidden={blocked || undefined}
       inert={blocked || undefined}
     >
-      <section className="portfolio-agent-home" id="agent" aria-labelledby="portfolio-agent-home-title">
-        <header>
-          <div className="portfolio-agent-home-title">
-            <span aria-hidden="true">✦</span>
-            <div>
-              <p className="eyebrow">PORTFOLIO AGENT</p>
-              <h2 id="portfolio-agent-home-title">Ask your portfolio</h2>
-              <small>Read-only answers from current portfolio facts.</small>
-            </div>
-          </div>
-          <button
-            ref={entryAction}
-            type="button"
-            className="portfolio-agent-home-action"
-            aria-controls="portfolio-analyst-panel"
-            aria-expanded={open}
-            onClick={openAgent}
-          >
-            {conversation?.turns.length
-              ? `Continue chat · ${conversation.turns.length}`
-              : "Start chat"}
-          </button>
-        </header>
-        <div className="portfolio-agent-home-prompts">
-          {starterQuestions[language].map((prompt) => (
-            <button
-              type="button"
-              key={prompt}
-              disabled={loading || !selectedProvider?.configured}
-              onClick={() => startPrompt(prompt)}
-            >
-              {prompt}
-            </button>
-          ))}
-        </div>
-      </section>
-      {open && <aside
+      <aside
         id="portfolio-analyst-panel"
         className="portfolio-analyst"
         aria-labelledby="portfolio-analyst-title"
       >
         <header className="portfolio-agent-header">
           <div className="portfolio-agent-identity">
-            <span aria-hidden="true">✦</span>
+            <Image src="/brand/aggrigator-icon-192.png" alt="" width={42} height={42} />
             <div>
-              <h2 id="portfolio-analyst-title">Portfolio Agent</h2>
-              <p>Read-only · fresh facts every turn</p>
+              <h2 id="portfolio-analyst-title">Alligator</h2>
+              <p>Your portfolio companion. Ask me anything or send a screenshot.</p>
             </div>
           </div>
-        <button
-          type="button"
-          aria-label="Close Portfolio Agent"
-          onClick={closeAgent}
-        >
-          ×
-        </button>
         </header>
 
         <div className="portfolio-analyst-workspace">
@@ -674,7 +835,6 @@ export function PortfolioAnalyst({ blocked = false }: { blocked?: boolean }) {
             Add {provider === "openai" ? "OPENAI_API_KEY" : "DEEPSEEK_API_KEY"} to .env.local, then restart the app.
           </p>
         )}
-        {error && <p className="portfolio-analyst-error" role="alert">{error}</p>}
         <div ref={conversationView} className="analyst-conversation" aria-live="polite">
           {!conversation?.turns.length && !conversation?.importActivities.length && !pendingTurn && (
             <div className="analyst-conversation-empty">
@@ -695,38 +855,94 @@ export function PortfolioAnalyst({ blocked = false }: { blocked?: boolean }) {
           {conversation && [
             ...conversation.turns.map((turn) => ({ kind: "turn" as const, at: turn.createdAt, turn })),
             ...conversation.importActivities.map((activity) => ({ kind: "import" as const, at: activity.createdAt, activity })),
+            ...conversation.importActivities.flatMap((activity) => (activity.followUps ?? []).map((followUp) => ({
+              kind: "import-follow-up" as const, at: followUp.createdAt, followUp,
+            }))),
           ].toSorted((left, right) => left.at.localeCompare(right.at)).map((entry) => entry.kind === "turn" ? (
             <div className="analyst-turn" key={entry.turn.id}>
-              <div className="analyst-user-message">
-                <span>You</span>
-                <p>{entry.turn.question}</p>
+              <div className="analyst-user-entry">
+                {entry.turn.attachments?.length ? (
+                  <AgentMessageImages attachments={entry.turn.attachments} />
+                ) : null}
+                {(entry.turn.userText ?? entry.turn.question) ? (
+                  <div className="analyst-user-message"><p>{entry.turn.userText ?? entry.turn.question}</p></div>
+                ) : null}
               </div>
-              <AnalystReport
+              {entry.turn.report ? <AnalystReport
                 report={entry.turn.report}
                 actionStatus={accountActionStatus[entry.turn.id]}
                 onConfirmCreateAccount={(action) => void confirmCreateAccount(entry.turn.id, action)}
-                onStartAccountImport={startAccountImport}
-              />
+                sourceId={entry.turn.id}
+                sourcesOpen={selectedEvidenceId === entry.turn.id}
+                onShowSources={() => {
+                  setSelectedEvidenceId(entry.turn.id);
+                  window.requestAnimationFrame(() => {
+                    document.getElementById("agent-sources-panel")?.focus();
+                    document.getElementById("agent-review")?.scrollIntoView({ block: "start", behavior: "smooth" });
+                  });
+                }}
+              /> : entry.turn.imageAnswer ? <div className="analyst-primary-answer analyst-assistant-message" aria-live="polite">
+                {entry.turn.imageAnswer.status === "pending" || entry.turn.imageAnswer.status === "failed" ? (
+                  <div className="analyst-image-answer-status">
+                    <p>{answeringImageTurnId === entry.turn.id
+                      ? (streamedImageAnswer || "Thinking about your image…")
+                      : entry.turn.imageAnswer.status === "failed"
+                        ? "I couldn't finish reading this image."
+                        : "Image sent. Response paused."}</p>
+                    {answeringImageTurnId !== entry.turn.id && (
+                      <button type="button" disabled={loading || importBusy} onClick={() => void retryImageQuestion(entry.turn.id)}>
+                        Retry response
+                      </button>
+                    )}
+                  </div>
+                ) : <>
+                  <AssistantMessageContent text={entry.turn.imageAnswer.text} />
+                  {entry.turn.imageAnswer.uncertainties.length > 0 && (
+                    <ul>{entry.turn.imageAnswer.uncertainties.map((item) => <li key={item}>{item}</li>)}</ul>
+                  )}
+                </>}
+              </div> : null}
+            </div>
+          ) : entry.kind === "import-follow-up" ? (
+            <div className="analyst-turn" key={entry.followUp.id}>
+              <div className="analyst-user-message"><p>{entry.followUp.userText}</p></div>
+              <div className="analyst-primary-answer analyst-assistant-message"><p>{entry.followUp.assistantText}</p></div>
             </div>
           ) : importDrafts[entry.activity.draftId] ? (
-            <AgentImportDraftReview
-              key={entry.activity.draftId}
-              draft={importDrafts[entry.activity.draftId]}
-              targetLabel={entry.activity.targetLabel}
-              screenshotCount={entry.activity.screenshotCount}
-              submissionText={entry.activity.submissionText}
-              language={language}
-              busy={importBusy}
-              saveStatus={saveStatus[entry.activity.draftId]}
-              onEdit={(edit) => editImportDraft(entry.activity.draftId, edit)}
-              onAddHolding={() => addImportHolding(entry.activity.draftId)}
-              onConfirm={() => void confirmAccountImport(entry.activity.draftId)}
-            />
+            <div className="analyst-import-chat-status" key={entry.activity.draftId}>
+              <strong>{entry.activity.targetLabel}</strong>
+              <span>{importDrafts[entry.activity.draftId].status === "confirmed"
+                ? "Import confirmed · portfolio updated"
+                : `${entry.activity.screenshotCount} screenshot${entry.activity.screenshotCount === 1 ? "" : "s"} analyzed · awaiting review`}</span>
+              {entry.activity.draftId === activeReview?.draftId && !entry.activity.followUps?.length && activeDateRequest && <p>
+                {importDateFollowUpQuestion(activeDateRequest, language)}
+              </p>}
+              {importDrafts[entry.activity.draftId].status === "draft" && (
+                <button type="button" onClick={() => {
+                  setSelectedEvidenceId(undefined);
+                  setSelectedReviewId(entry.activity.draftId);
+                  document.getElementById("agent-review")?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+                }}>Review draft</button>
+              )}
+            </div>
           ) : null)}
-          {pendingTurn && (
+          {pendingImageMessage && (
+            <div className="analyst-turn pending" aria-live="polite">
+              <div className="analyst-user-entry">
+                <PendingAgentMessageImages files={pendingImageMessage.files} />
+                {pendingImageMessage.text && <div className="analyst-user-message"><p>{pendingImageMessage.text}</p></div>}
+                <small className="analyst-user-status">Sending…</small>
+              </div>
+            </div>
+          )}
+          {pendingImportReply && (
+            <div className="analyst-turn pending" aria-live="polite">
+              <div className="analyst-user-message"><p>{pendingImportReply}</p><small>Working…</small></div>
+            </div>
+          )}
+          {pendingTurn && !pendingImageMessage && (
             <div className="analyst-turn pending">
               <div className="analyst-user-message">
-                <span>You</span>
                 <p>{pendingTurn.question}</p>
               </div>
               <AgentActivityTimeline
@@ -737,34 +953,25 @@ export function PortfolioAnalyst({ blocked = false }: { blocked?: boolean }) {
               />
               {pendingTurn.answerText ? (
                 <div className={`analyst-streaming-message analyst-assistant-message ${pendingTurn.phase}`}>
-                  <span>Portfolio Agent</span>
                     <p>{pendingTurn.answerText}<i aria-hidden="true" /></p>
                     <small>{language === "zh-CN" ? "生成中 · 完成后验证证据" : "Generating · evidence is validated on completion"}</small>
                 </div>
               ) : pendingTurn.phase === "failed" || pendingTurn.phase === "stopped" ? (
                 <div className={`analyst-streaming-message analyst-assistant-message ${pendingTurn.phase}`}>
-                  <span>Portfolio Agent</span>
                   <p>{pendingPhaseLabel(pendingTurn.phase, language)}</p>
+                  {pendingTurn.phase === "failed" && <button type="button" className="secondary"
+                    onClick={retryFailedTurn} disabled={loading || importBusy}>
+                    {language === "zh-CN" ? "重试" : "Try again"}
+                  </button>}
                 </div>
               ) : null}
             </div>
           )}
+          {error && <div className="analyst-turn" role="alert">
+            <div className="analyst-primary-answer analyst-assistant-message"><p>{error}</p></div>
+          </div>}
         </div>
         <div className="analyst-composer">
-          {importTarget && <div className="analyst-import-target" role="status">
-            <span>{language === "zh-CN" ? `目标账户：${importTarget.label}` : `Account: ${importTarget.label}`}</span>
-            <button type="button" disabled={importBusy} onClick={cancelAccountImport}>×</button>
-          </div>}
-          <AgentImageAttachments
-            state={importAttachments}
-            language={language}
-            onChange={(next) => {
-              pendingImportRoute.current = undefined;
-              setImportAttachments(next);
-              setAccountOptions([]);
-              setSelectedAccountId("");
-            }}
-          />
           {importAttachments.files.length > 0 && accountOptions.length > 0 && (
             <label className="analyst-account-picker">
               {language === "zh-CN" ? "截图所属账户" : "Screenshot account"}
@@ -774,60 +981,181 @@ export function PortfolioAnalyst({ blocked = false }: { blocked?: boolean }) {
               </select>
             </label>
           )}
-          <textarea
-            ref={composer}
-            rows={3}
-            maxLength={600}
-            disabled={loading || importBusy || !selectedProvider?.configured}
-            value={question}
-            placeholder={language === "zh-CN" ? "提问，或附上截图让我识别资产……" : "Ask a question or attach screenshots to import assets…"}
-            onChange={(event) => {
-              pendingImportRoute.current = undefined;
-              setQuestion(event.target.value);
-            }}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" && !event.shiftKey) {
-                event.preventDefault();
-                submitComposer();
-              }
-            }}
-          />
-          <div className="analyst-composer-actions">
-            <small>
-              {language === "zh-CN"
-                ? "仅供信息，不构成投资建议 · 发送当前有界事实及最多 3 轮本地对话。"
-                : "Information only, not investment advice · Sends current bounded facts and up to 3 local turns."}
-            </small>
-            {conversation && (
-              <button type="button" className="secondary" disabled={loading || importBusy} onClick={() => void resetConversation()}>
-                {language === "zh-CN" ? "重置并删除" : "Reset & delete"}
-              </button>
-            )}
-            {loading || importBusy ? (
-              <button type="button" onClick={() => activeRequest.current?.abort()}>
-                {importBusy
-                  ? importOperation === "confirmation"
-                    ? (language === "zh-CN" ? "停止确认" : "Stop confirmation")
-                    : (language === "zh-CN" ? "停止识别" : "Stop analysis")
-                  : (language === "zh-CN" ? "停止" : "Stop")}
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={submitComposer}
-                disabled={!selectedProvider?.configured || (!question.trim() && importAttachments.files.length === 0)}
-              >
-                {importAttachments.files.length > 0
-                  ? (language === "zh-CN" ? "发送并识别" : "Send & analyze")
-                  : (language === "zh-CN" ? "发送" : "Send")}
-              </button>
-            )}
+          <div className="analyst-composer-box">
+            <textarea
+              ref={composer}
+              rows={2}
+              maxLength={600}
+              disabled={loading || importBusy || !selectedProvider?.configured}
+              value={question}
+              aria-label={language === "zh-CN" ? "给助手发送消息" : "Message your assistant"}
+              placeholder={language === "zh-CN" ? "提出问题，或分享一张图片……" : "Ask a question or share an image…"}
+              onChange={(event) => {
+                pendingImportRoute.current = undefined;
+                setQuestion(event.target.value);
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && !event.shiftKey) {
+                  event.preventDefault();
+                  submitComposer();
+                }
+              }}
+            />
+            <div className="analyst-composer-bottom">
+              <AgentImageAttachments
+                state={importAttachments}
+                language={language}
+                onChange={(next) => {
+                  pendingImportRoute.current = undefined;
+                  setImportAttachments(next);
+                  setAccountOptions([]);
+                  setSelectedAccountId("");
+                }}
+              />
+              <div className="analyst-composer-actions">
+                {loading || importBusy ? (
+                  <button type="button" className="secondary" disabled={Boolean(pendingImageMessage)} onClick={() => activeRequest.current?.abort()}>
+                    {pendingImageMessage
+                      ? (language === "zh-CN" ? "发送中…" : "Sending…")
+                      : (language === "zh-CN" ? "停止" : "Stop")}
+                  </button>
+                ) : (
+                  <button type="button" onClick={submitComposer}
+                    disabled={!selectedProvider?.configured || (!question.trim() && importAttachments.files.length === 0)}>
+                    {language === "zh-CN" ? "发送" : "Send"}
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+          <div className="analyst-composer-meta">
+            <small>{language === "zh-CN" ? "仅供信息，不构成投资建议" : "Information only, not investment advice"}</small>
+            {conversation && <button type="button" disabled={loading || importBusy} onClick={() => void resetConversation()}>
+              {language === "zh-CN" ? "重置对话" : "Reset conversation"}
+            </button>}
           </div>
         </div>
         </div>
-      </aside>}
+      </aside>
+      {reviewHost && selectedEvidenceTurn?.report && createPortal(
+        <section id="agent-sources-panel" className="home-review-panel home-sources-panel" aria-label="Sources for the selected answer" tabIndex={-1}>
+          <div className="home-review-panel-heading">
+            <div>
+              <p className="eyebrow">ANSWER SOURCES</p>
+              <h2>Facts and sources</h2>
+              <p className="home-sources-question">{selectedEvidenceTurn.userText ?? selectedEvidenceTurn.question}</p>
+            </div>
+            <button type="button" className="home-review-close" onClick={() => {
+              const sourceButton = document.getElementById(`sources-${selectedEvidenceTurn.id}`);
+              setSelectedEvidenceId(undefined);
+              window.requestAnimationFrame(() => sourceButton?.focus());
+            }} aria-label="Close sources">×</button>
+          </div>
+          <div className="home-review-scroll">
+            <AnalystReport report={selectedEvidenceTurn.report} sourcesOnly />
+          </div>
+        </section>,
+        reviewHost,
+      )}
+      {reviewHost && !selectedEvidenceTurn && activeReview && activeDraft && createPortal(
+        <section className="home-review-panel" aria-label={`Review ${activeReview.targetLabel} import`}>
+          <div className="home-review-panel-heading">
+            <div><p className="eyebrow">IMPORT REVIEW</p><h2>Review {activeReview.targetLabel}</h2></div>
+            <span>Changes apply after confirmation</span>
+          </div>
+          <div className="home-review-scroll">
+            <AgentImportDraftReview
+              draft={activeDraft}
+              targetLabel={activeReview.targetLabel}
+              language={language}
+              busy={importBusy}
+              saveStatus={saveStatus[activeReview.draftId]}
+              onEdit={(edit) => editImportDraft(activeReview.draftId, edit)}
+              onAddHolding={() => addImportHolding(activeReview.draftId)}
+              onConfirm={() => void confirmAccountImport(activeReview.draftId)}
+            />
+          </div>
+        </section>,
+        reviewHost,
+      )}
     </div>
   );
+}
+
+function AgentMessageImages({ attachments }: { attachments: PortfolioAnalystImageAttachment[] }) {
+  return <AgentImageCards images={attachments.map((attachment, index) => ({
+    key: attachment.id,
+    url: `/api/portfolio/analyst/images/${encodeURIComponent(attachment.id)}`,
+    label: `Screenshot ${index + 1}`,
+  }))} />;
+}
+
+function PendingAgentMessageImages({ files }: { files: readonly File[] }) {
+  const [urls, setUrls] = useState<string[]>([]);
+  useEffect(() => {
+    const next = files.map((file) => URL.createObjectURL(file));
+    setUrls(next);
+    return () => next.forEach((url) => URL.revokeObjectURL(url));
+  }, [files]);
+  return <AgentImageCards images={urls.map((url, index) => ({
+    key: url, url, label: files[index]?.name || `Screenshot ${index + 1}`,
+  }))} />;
+}
+
+function AgentImageCards({ images }: { images: readonly { key: string; url: string; label: string }[] }) {
+  const [activeIndex, setActiveIndex] = useState<number>();
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const openerRef = useRef<HTMLButtonElement>(null);
+  const activeImage = activeIndex === undefined ? undefined : images[activeIndex];
+
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    if (activeImage && !dialog.open) dialog.showModal();
+    if (!activeImage && dialog.open) dialog.close();
+  }, [activeImage]);
+
+  if (images.length === 0) return null;
+  return <>
+    <div className="analyst-message-images" aria-label="Attached screenshots">
+      {images.map((image, index) => <button
+        key={image.key}
+        className="analyst-image-card"
+        type="button"
+        aria-label={`Preview ${image.label}`}
+        onClick={(event) => {
+          openerRef.current = event.currentTarget;
+          setActiveIndex(index);
+        }}
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element -- these images come from local URLs or the private image route */}
+        <img src={image.url} alt="" loading="lazy" />
+      </button>)}
+    </div>
+    <dialog
+      ref={dialogRef}
+      className="analyst-image-preview"
+      aria-label="Screenshot preview"
+      onClose={() => {
+        setActiveIndex(undefined);
+        openerRef.current?.focus();
+      }}
+      onClick={(event) => {
+        if (event.target === event.currentTarget) setActiveIndex(undefined);
+      }}
+    >
+      {activeImage && <div className="analyst-image-preview-content">
+        <button type="button" className="analyst-image-preview-close"
+          onClick={() => setActiveIndex(undefined)} aria-label="Close screenshot preview">×</button>
+          {/* eslint-disable-next-line @next/next/no-img-element -- the preview uses the same private image URL as its thumbnail */}
+          <img src={activeImage.url} alt={activeImage.label} />
+        {images.length > 1 && <div className="analyst-image-preview-nav">
+          <button type="button" disabled={activeIndex === 0} onClick={() => setActiveIndex(activeIndex! - 1)}>← Previous</button>
+          <button type="button" disabled={activeIndex === images.length - 1} onClick={() => setActiveIndex(activeIndex! + 1)}>Next →</button>
+        </div>}
+      </div>}
+    </dialog>
+  </>;
 }
 
 function pendingPhaseLabel(
@@ -840,14 +1168,14 @@ function pendingPhaseLabel(
     "reading-current-facts": "正在读取当前本地事实……",
     "generating-answer": "正在生成回答……",
     stopped: "已停止。",
-    failed: "这次回答没有完成。",
+    failed: "抱歉，这次回答失败了。你的消息还在，可以点“重试”再试一次。",
   } : {
     sending: "Connecting…",
     "selecting-tool": "Choosing a read-only tool…",
     "reading-current-facts": "Reading current local facts…",
     "generating-answer": "Generating an answer…",
     stopped: "Stopped.",
-    failed: "This answer did not complete.",
+    failed: "Sorry, I couldn't finish that reply. Your message is still here; please try again.",
   };
   return labels[phase];
 }
@@ -909,7 +1237,7 @@ export function AgentActivityTimeline({
   const calls = audit?.toolCalls ?? latestStreamedCalls;
   if (calls.length === 0) return null;
   return (
-    <ol className="analyst-agent-activity" aria-label={language === "zh-CN" ? "Agent 活动" : "Agent activity"}>
+    <ol className="analyst-agent-activity" aria-label={language === "zh-CN" ? "数据读取" : "Data checks"}>
       {audit
         ? audit.toolCalls.map((call) => (
             <li className={call.status === "completed" ? "done" : call.status} key={call.toolCallId}>
@@ -944,14 +1272,20 @@ export function AnalystReport({
   report,
   actionStatus,
   onConfirmCreateAccount,
-  onStartAccountImport,
+  sourceId,
+  sourcesOpen,
+  onShowSources,
+  sourcesOnly = false,
 }: {
   report: PortfolioAnalystReport;
   actionStatus?: "confirming" | "created" | "failed";
   onConfirmCreateAccount?: (
     action: Extract<FactualUpdate, { kind: "create-account" }>,
   ) => void;
-  onStartAccountImport?: (action: StartAccountImportAction) => void;
+  sourceId?: string;
+  sourcesOpen?: boolean;
+  onShowSources?: () => void;
+  sourcesOnly?: boolean;
 }) {
   const language = report.language;
   const evidence = new Map(report.evidence.map((fact) => [fact.key, fact]));
@@ -972,14 +1306,26 @@ export function AnalystReport({
           ? (language === "zh-CN" ? "账户管理" : "Account management")
           : (language === "zh-CN" ? "数据质量诊断" : "Data quality diagnosis");
   return (
-    <article className="portfolio-analyst-result" aria-live="polite">
-      {report.agentAudit && (
-        <AgentActivityTimeline audit={report.agentAudit} language={language} phase="completed" />
-      )}
+    <article className={`portfolio-analyst-result${sourcesOnly ? " sources-only" : ""}`} aria-live={sourcesOnly ? undefined : "polite"}>
+      {!sourcesOnly && <>
       <div className="analyst-primary-answer analyst-assistant-message">
-        <span>Portfolio Agent</span>
-        <p>{answer.answer.text}</p>
+        <AssistantMessageContent text={answer.answer.text} />
       </div>
+      {answer.limitations.length > 0 && (
+        <div className="analyst-visible-caveats">
+          <strong>{language === "zh-CN" ? "请注意" : "Worth checking"}</strong>
+          <ul>
+            {answer.limitations.slice(0, 2).map((limitation) => (
+              <li key={analystLimitationKey(limitation)}>
+                {portfolioAnalystLimitationLabel(limitation.code, language)}
+              </li>
+            ))}
+          </ul>
+          {answer.limitations.length > 2 && <small>
+            {language === "zh-CN" ? "更多限制见下方依据" : "More limitations in sources and details"}
+          </small>}
+        </div>
+      )}
       {answer.proposedUpdate?.kind === "create-account" && (
         <section className="analyst-account-confirmation">
           <span>{language === "zh-CN" ? "需要你的确认" : "Your confirmation is required"}</span>
@@ -1007,39 +1353,12 @@ export function AnalystReport({
           )}
         </section>
       )}
-      {answer.proposedUpdate?.kind === "start-account-import" && (
-        <section className="analyst-account-confirmation analyst-import-handoff">
-          <span>{language === "zh-CN" ? "可以在对话中继续" : "Continue in this conversation"}</span>
-          <strong>{portfolioAnalystActionLabel(answer.proposedUpdate, language)}</strong>
-          <p>{language === "zh-CN"
-            ? "账户已由本地注册表验证。发送截图后会先生成草稿；确认前不会更新持仓。"
-            : "The account was verified locally. Screenshots create a draft first; holdings do not change before confirmation."}</p>
-          <div className="analyst-import-actions">
-            {onStartAccountImport && (
-              <button
-                type="button"
-                onClick={() => onStartAccountImport(answer.proposedUpdate as StartAccountImportAction)}
-              >
-                {language === "zh-CN" ? "在这里发送截图" : "Send screenshots here"}
-              </button>
-            )}
-            <Link href={`/imports?accountType=${encodeURIComponent(answer.proposedUpdate.accountType)}`}>
-              {language === "zh-CN" ? "改用 Import 页面" : "Use Import page instead"}
-            </Link>
-          </div>
-        </section>
-      )}
-      <details className="analyst-facts-evidence">
-        <summary>
-          <span>{language === "zh-CN" ? "事实与依据" : "Facts & evidence"}</span>
-          <small>
-            {answer.claims.length > 0
-              ? `${answer.claims.length} ${language === "zh-CN" ? "条补充事实" : "claims"} · `
-              : ""}
-            {language === "zh-CN" ? `${report.evidence.length} 条依据` : `${report.evidence.length} evidence facts`}
-          </small>
-        </summary>
+      </>}
+      {sourcesOnly && <div className="analyst-facts-evidence">
         <div className="analyst-facts-evidence-body">
+          {report.agentAudit && (
+            <AgentActivityTimeline audit={report.agentAudit} language={language} phase="completed" />
+          )}
           {answer.claims.length > 0 && (
             <section className="analyst-supporting-facts">
               <h4>{language === "zh-CN" ? "补充事实" : "Supporting facts"}</h4>
@@ -1056,15 +1375,13 @@ export function AnalystReport({
           )}
           {answer.limitations.length > 0 && (
             <section className="analyst-limitations">
-              <strong>{language === "zh-CN" ? "已知限制" : "Known limitations"}</strong>
-              <ul>
-                {answer.limitations.map((limitation) => (
-                  <li key={analystLimitationKey(limitation)}>
-                    {portfolioAnalystLimitationLabel(limitation.code, language)}
-                    <EvidenceKeys keys={[limitation.evidenceKey]} facts={evidence} language={language} />
-                  </li>
-                ))}
-              </ul>
+              <strong>{language === "zh-CN" ? "限制的依据" : "Limitation evidence"}</strong>
+              <ul>{answer.limitations.map((limitation) => (
+                <li key={analystLimitationKey(limitation)}>
+                  {portfolioAnalystLimitationLabel(limitation.code, language)}
+                  <EvidenceKeys keys={[limitation.evidenceKey]} facts={evidence} language={language} />
+                </li>
+              ))}</ul>
             </section>
           )}
           {answer.proposedUpdate && (
@@ -1099,14 +1416,22 @@ export function AnalystReport({
             </dl>
           </section>
         </div>
-      </details>
-      <small className="analyst-disclaimer">
+      </div>}
+      {!sourcesOnly && onShowSources && <button
+        type="button"
+        className="analyst-sources-button"
+        onClick={onShowSources}
+        id={sourceId ? `sources-${sourceId}` : undefined}
+        aria-controls="agent-review"
+        aria-expanded={sourcesOpen}
+        aria-label={language === "zh-CN" ? "在右侧查看这条回答的来源" : "Show sources for this answer on the right"}
+      >{language === "zh-CN" ? "来源" : "Sources"}{report.evidence.length > 0 && <span>{report.evidence.length}</span>}</button>}
+      {!sourcesOnly && <small className="analyst-disclaimer">
         <time dateTime={report.generatedAt}>{new Intl.DateTimeFormat(
           language === "zh-CN" ? "zh-CN" : "en-FI",
           { hour: "2-digit", minute: "2-digit" },
         ).format(new Date(report.generatedAt))}</time>
-        <span>{language === "zh-CN" ? "基于本地事实" : "Based on local facts"}</span>
-      </small>
+      </small>}
     </article>
   );
 }
