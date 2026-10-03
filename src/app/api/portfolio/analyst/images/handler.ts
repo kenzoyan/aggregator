@@ -69,6 +69,28 @@ async function checkedImages(files: FormDataEntryValue[]): Promise<
   return checked;
 }
 
+async function saveWithAttachments<T>(
+  checked: Array<{ mimeType: ImageMimeType; bytes: Uint8Array }>,
+  images: PortfolioAnalystImageStore,
+  createId: () => string,
+  saveConversation: (attachments: PortfolioAnalystImageAttachment[]) => T,
+): Promise<T> {
+  const saved: PortfolioAnalystImageAttachment[] = [];
+  try {
+    for (const image of checked) {
+      const attachment: PortfolioAnalystImageAttachment = {
+        id: createId(), mimeType: image.mimeType, byteLength: image.bytes.byteLength,
+      };
+      saved.push(attachment);
+      await images.save(attachment, image.bytes);
+    }
+    return saveConversation(saved);
+  } catch (error) {
+    await Promise.allSettled(saved.map((attachment) => images.delete(attachment)));
+    throw error;
+  }
+}
+
 export function createPortfolioAnalystImageHandlers(input: {
   conversations: PortfolioAnalystConversationStore;
   images: PortfolioAnalystImageStore;
@@ -77,6 +99,64 @@ export function createPortfolioAnalystImageHandlers(input: {
   imageModel?: string;
 }) {
   return {
+    async SEND(request: Request) {
+      let form: FormData;
+      try { form = await request.formData(); }
+      catch { return errorResponse("Image message is invalid.", 400); }
+      const conversationId = form.get("conversationId");
+      const userText = form.get("userText");
+      const language = form.get("language");
+      const provider = form.get("provider");
+      const includeHoldingNames = form.get("includeHoldingNames");
+      const preferredAccountType = form.get("preferredAccountType");
+      if (
+        (conversationId !== null && (typeof conversationId !== "string" || conversationId.length > 80)) ||
+        typeof userText !== "string" || userText.length > 600 ||
+        (language !== "en" && language !== "zh-CN") ||
+        (provider !== "openai" && provider !== "deepseek") ||
+        (includeHoldingNames !== "true" && includeHoldingNames !== "false") ||
+        (preferredAccountType !== null && (typeof preferredAccountType !== "string" || preferredAccountType.length > 120))
+      ) return errorResponse("Image message is invalid.", 400);
+      const checked = await checkedImages(form.getAll("images"));
+      if (checked instanceof Response) return checked;
+      const stored = conversationId
+        ? input.conversations.readPortfolioAnalystConversation(conversationId)
+        : undefined;
+      if (conversationId && !stored) return errorResponse("Conversation was not found.", 404);
+      if (conversationId && input.conversations.readLatestPortfolioAnalystConversation()?.id !== conversationId) {
+        return errorResponse("Only the current conversation can receive images.", 409);
+      }
+      if (stored && (stored.provider !== provider || stored.includeHoldingNames !== (includeHoldingNames === "true"))) {
+        return errorResponse("Conversation settings changed. Reset the conversation before continuing.", 409);
+      }
+
+      const now = new Date().toISOString();
+      const createId = input.createId ?? randomUUID;
+      const conversation = stored && normalizePortfolioAnalystConversation(stored)
+        || createPortfolioAnalystConversation({
+          id: createId(), provider, language,
+          includeHoldingNames: includeHoldingNames === "true", now,
+        });
+      try {
+        const { next, id } = await saveWithAttachments(checked, input.images, createId, (saved) => {
+          const id = createId();
+          const next = appendPortfolioAnalystTurn({ ...conversation, language }, {
+            id, question: userText, userText,
+            attachments: saved, createdAt: now,
+            chat: { assistantText: "", imageAction: {
+              sourceTurnId: id, stage: "intent",
+              ...(preferredAccountType ? { preferredAccountType } : {}),
+            } },
+          });
+          input.conversations.savePortfolioAnalystConversation(next);
+          return { next, id };
+        });
+        return Response.json({ conversation: next, turnId: id }, { headers: { "cache-control": "no-store" } });
+      } catch {
+        return errorResponse("Image message could not be saved locally.", 500);
+      }
+    },
+
     async POST(request: Request) {
       let form: FormData;
       try {
@@ -108,25 +188,17 @@ export function createPortfolioAnalystImageHandlers(input: {
       const checked = await checkedImages(files);
       if (checked instanceof Response) return checked;
 
-      const saved: PortfolioAnalystImageAttachment[] = [];
       try {
-        for (const image of checked) {
-          const attachment: PortfolioAnalystImageAttachment = {
-            id: (input.createId ?? randomUUID)(),
-            mimeType: image.mimeType,
-            byteLength: image.bytes.byteLength,
-          };
-          await input.images.save(attachment, image.bytes);
-          saved.push(attachment);
-        }
-        const next = appendPortfolioAnalystImportImageTurn(conversation, {
-          sourceTurnId: turnId, id: randomUUID(), createdAt: new Date().toISOString(),
-          userText, attachments: saved,
+        const next = await saveWithAttachments(checked, input.images, input.createId ?? randomUUID, (saved) => {
+          const next = appendPortfolioAnalystImportImageTurn(conversation, {
+            sourceTurnId: turnId, id: randomUUID(), createdAt: new Date().toISOString(),
+            userText, attachments: saved,
+          });
+          input.conversations.savePortfolioAnalystConversation(next);
+          return next;
         });
-        input.conversations.savePortfolioAnalystConversation(next);
         return Response.json({ conversation: next }, { headers: { "cache-control": "no-store" } });
       } catch {
-        await Promise.allSettled(saved.map((attachment) => input.images.delete(attachment)));
         return errorResponse("Images could not be saved locally.", 500);
       }
     },
@@ -135,6 +207,7 @@ export function createPortfolioAnalystImageHandlers(input: {
       if (!input.imageQuestion || !input.imageModel) {
         return errorResponse("Image questions are not configured.", 503);
       }
+      const imageModel = input.imageModel;
       let form: FormData;
       try { form = await request.formData(); }
       catch { return errorResponse("Image upload is invalid.", 400); }
@@ -168,34 +241,28 @@ export function createPortfolioAnalystImageHandlers(input: {
           id: createId(), provider: "openai", language,
           includeHoldingNames: includeHoldingNames === "true", now,
         });
-      const saved: PortfolioAnalystImageAttachment[] = [];
       try {
-        for (const image of checked) {
-          const attachment: PortfolioAnalystImageAttachment = {
-            id: createId(), mimeType: image.mimeType, byteLength: image.bytes.byteLength,
-          };
-          await input.images.save(attachment, image.bytes);
-          saved.push(attachment);
-        }
-        const next = appendPortfolioAnalystTurn({ ...conversation, language }, {
-          id: createId(),
-          question: userText || "Explain the attached screenshots.",
-          userText,
-          attachments: saved,
-          createdAt: now,
-          imageAnswer: {
-            status: "pending",
-            text: "",
-            uncertainties: [],
-            provider: "openai",
-            model: input.imageModel,
-            generatedAt: now,
-          },
+        const next = await saveWithAttachments(checked, input.images, createId, (saved) => {
+          const next = appendPortfolioAnalystTurn({ ...conversation, language }, {
+            id: createId(),
+            question: userText || "Explain the attached screenshots.",
+            userText,
+            attachments: saved,
+            createdAt: now,
+            imageAnswer: {
+              status: "pending",
+              text: "",
+              uncertainties: [],
+              provider: "openai",
+              model: imageModel,
+              generatedAt: now,
+            },
+          });
+          input.conversations.savePortfolioAnalystConversation(next);
+          return next;
         });
-        input.conversations.savePortfolioAnalystConversation(next);
         return Response.json({ conversation: next }, { headers: { "cache-control": "no-store" } });
       } catch {
-        await Promise.allSettled(saved.map((attachment) => input.images.delete(attachment)));
         return errorResponse("Image message could not be saved locally.", 500);
       }
     },
@@ -204,7 +271,10 @@ export function createPortfolioAnalystImageHandlers(input: {
       if (!input.imageQuestion) return errorResponse("Image questions are not configured.", 503);
       const conversation = input.conversations.readLatestPortfolioAnalystConversation();
       const turn = conversation?.turns.find((item) => item.id === turnId);
-      if (!conversation || !turn?.imageAnswer || !turn.attachments?.length) {
+      const source = turn?.imageAnswer?.sourceTurnId
+        ? conversation?.turns.find((item) => item.id === turn.imageAnswer?.sourceTurnId)
+        : turn;
+      if (!conversation || !turn?.imageAnswer || !source?.attachments?.length) {
         return errorResponse("Image message was not found.", 404);
       }
       if (turn.imageAnswer.status === "complete" || !turn.imageAnswer.status) {
@@ -212,7 +282,7 @@ export function createPortfolioAnalystImageHandlers(input: {
       }
       let loaded: Array<{ mimeType: PortfolioAnalystImageAttachment["mimeType"]; bytes: Uint8Array | undefined }>;
       try {
-        loaded = await Promise.all(turn.attachments.map(async (attachment) => ({
+        loaded = await Promise.all(source.attachments.map(async (attachment) => ({
           mimeType: attachment.mimeType,
           bytes: await input.images.read(attachment),
         })));

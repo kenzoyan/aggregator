@@ -22,7 +22,10 @@ const knownAccountTypes: Record<
   Pick<SourceAccountDefinition, "id" | "provider" | "updateMethod">
 > = {
   alipay: { id: "alipay-main", provider: "alipay", updateMethod: "screenshot" },
+  支付宝: { id: "alipay-main", provider: "alipay", updateMethod: "screenshot" },
   wechat: { id: "wechat-main", provider: "wechat", updateMethod: "screenshot" },
+  微信: { id: "wechat-main", provider: "wechat", updateMethod: "screenshot" },
+  微信理财通: { id: "wechat-main", provider: "wechat", updateMethod: "screenshot" },
   wechatwealth: { id: "wechat-main", provider: "wechat", updateMethod: "screenshot" },
   wechatwealthmanagement: {
     id: "wechat-main",

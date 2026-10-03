@@ -194,6 +194,8 @@ export async function refreshFundNavs(input: {
       if (input.provider.supportsInstrumentCode(position.instrumentCode)) return [];
       return [{
         instrumentCode: position.instrumentCode,
+        sourceAccountId: position.sourceAccountId,
+        instrumentId: position.instrumentId,
         category: "configuration",
         message: "Automatic NAV route is not configured for this Danske Invest fund",
       }];
@@ -212,15 +214,15 @@ export async function refreshFundNavs(input: {
         input.now
       ).slice(0, 10);
       const knownDate = newestKnownPriceDate(position, input.existingObservations);
-      const fetchStart = knownDate && knownDate >= monitoringStart
-        ? knownDate
-        : monitoringStart;
+      // The displayed NAV may predate a screenshot confirmed during a market closure.
+      const fetchStart = knownDate ?? monitoringStart;
       const quotes = await input.provider.fetchSince(
         position.instrumentCode,
         fetchStart,
       );
       const newQuotes = quotes.filter((quote) =>
-        quote.asOf >= monitoringStart && (
+        (quote.asOf >= monitoringStart ||
+          (knownDate !== undefined && quote.asOf > knownDate)) && (
           !knownDate || quote.asOf > knownDate || (
             quote.asOf === knownDate &&
             !input.existingObservations.some((observation) =>
@@ -257,6 +259,8 @@ export async function refreshFundNavs(input: {
       failed.push({
         ...safeMarketRefreshFailure(error),
         instrumentCode: position.instrumentCode,
+        sourceAccountId: position.sourceAccountId,
+        instrumentId: position.instrumentId,
       });
     }
   }

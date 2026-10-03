@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { createAnalyzeImportHandler } from "@/app/api/imports/analyze/handler";
+import type { PortfolioAnalystConversation } from "@/application/portfolio-analyst-conversation";
 import type {
   ImportDraftInput,
   StoredImportDraft,
@@ -95,6 +96,85 @@ function multiImageRequest(sourceAccountId = "danske-main") {
 }
 
 describe("POST /api/imports/analyze", () => {
+  it("recovers a saved chat draft after linking fails without analyzing twice", async () => {
+    const store = database();
+    const extract = vi.fn(async () => extraction);
+    const imageId = "image-turn-1";
+    let conversation: PortfolioAnalystConversation = {
+      version: "portfolio-analyst-conversation.v1",
+      id: "conversation-1", provider: "openai", language: "en",
+      includeHoldingNames: true,
+      createdAt: "2026-07-23T10:00:00.000Z",
+      updatedAt: "2026-07-23T10:00:00.000Z",
+      turns: [{
+        id: imageId, question: "Import this", userText: "Import this",
+        createdAt: "2026-07-23T10:00:00.000Z",
+        attachments: [{ id: "saved-image", mimeType: "image/png", byteLength: pngBytes.length }],
+        chat: { assistantText: "I'll prepare a draft.", imageAction: {
+          sourceTurnId: imageId, stage: "account", accountId: "alipay-main",
+        } },
+      }],
+      importActivities: [],
+    };
+    let failLink = true;
+    const conversations = {
+      readLatestPortfolioAnalystConversation: () => conversation,
+      readPortfolioAnalystConversation: (id: string) => id === conversation.id ? conversation : undefined,
+      savePortfolioAnalystConversation: (next: PortfolioAnalystConversation) => {
+        if (failLink) { failLink = false; throw new Error("temporary save failure"); }
+        conversation = next;
+      },
+      deletePortfolioAnalystConversation: vi.fn(),
+    };
+    const handler = createAnalyzeImportHandler({
+      database: store, conversations,
+      images: { read: async () => pngBytes, save: vi.fn(), delete: vi.fn() },
+      createExtractor: () => ({ extract }),
+      newId: () => "snapshot-1",
+      now: () => "2026-07-23T10:01:00.000Z",
+      logError: vi.fn(),
+    });
+    const linkedRequest = () => {
+      const form = new FormData();
+      form.set("sourceAccountId", "alipay-main");
+      form.set("mode", "image");
+      form.set("conversationId", "conversation-1");
+      form.set("sourceTurnId", imageId);
+      return new Request("http://localhost/api/imports/analyze", { method: "POST", body: form });
+    };
+
+    const failed = await handler(linkedRequest());
+    expect(failed.status).toBe(500);
+    expect(store.saveImportDraft).toHaveBeenCalledOnce();
+    expect(extract).toHaveBeenCalledWith({
+      images: [{ image: pngBytes, mimeType: "image/png" }],
+      sourceAccountHint: "Alipay",
+    });
+    const recovered = await handler(linkedRequest());
+    expect(recovered.status).toBe(200);
+    const payload = await recovered.json();
+    expect(payload).toMatchObject({
+      draft: { sourceAccountId: "alipay-main", status: "draft" },
+      conversation: { importActivities: [{ draftId: payload.draft.id, sourceTurnId: imageId }] },
+    });
+    expect(extract).toHaveBeenCalledOnce();
+    expect(store.saveImportDraft).toHaveBeenCalledOnce();
+    const repeated = await handler(linkedRequest());
+    expect((await repeated.json()).draft.id).toBe(payload.draft.id);
+    expect(conversation.importActivities).toHaveLength(1);
+
+    const wrongAccount = new FormData();
+    wrongAccount.set("sourceAccountId", "danske-main");
+    wrongAccount.set("mode", "image");
+    wrongAccount.set("conversationId", "conversation-1");
+    wrongAccount.set("sourceTurnId", imageId);
+    const rejected = await handler(new Request("http://localhost/api/imports/analyze", {
+      method: "POST", body: wrongAccount,
+    }));
+    expect(rejected.status).toBe(409);
+    expect(extract).toHaveBeenCalledOnce();
+  });
+
   it("creates an editable Import Draft from direct vision extraction", async () => {
     const store = database();
     const extract = vi.fn(async () => extraction);

@@ -6,6 +6,11 @@ import { GeistSans } from "geist/font/sans";
 import { AppShell } from "@/components/app-shell";
 
 import "./globals.css";
+import "./dashboard.css";
+import "./portfolio-analyst.css";
+import "./portfolio-pages.css";
+import "./responsive.css";
+import "./design-overrides.css";
 
 export const metadata: Metadata = {
   title: "Aggrigator",

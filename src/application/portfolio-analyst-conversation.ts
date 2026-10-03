@@ -23,6 +23,17 @@ export interface PortfolioAnalystImageAnswer {
   provider: "openai";
   model: string;
   generatedAt: string;
+  sourceTurnId?: string;
+}
+
+export interface PortfolioAnalystChatReply {
+  assistantText: string;
+  imageAction?: {
+    sourceTurnId: string;
+    stage: "intent" | "account";
+    preferredAccountType?: string;
+    accountId?: string;
+  };
 }
 
 interface PortfolioAnalystConversationTurnBase {
@@ -34,13 +45,15 @@ interface PortfolioAnalystConversationTurnBase {
 }
 
 export type PortfolioAnalystConversationTurn = PortfolioAnalystConversationTurnBase & (
-  | { report: PortfolioAnalystReport; imageAnswer?: never; importImage?: never }
-  | { report?: never; imageAnswer: PortfolioAnalystImageAnswer; importImage?: never }
-  | { report?: never; imageAnswer?: never; importImage: { sourceTurnId: string } }
+  | { report: PortfolioAnalystReport; imageAnswer?: never; importImage?: never; chat?: never }
+  | { report?: never; imageAnswer: PortfolioAnalystImageAnswer; importImage?: never; chat?: never }
+  | { report?: never; imageAnswer?: never; importImage: { sourceTurnId: string }; chat?: never }
+  | { report?: never; imageAnswer?: never; importImage?: never; chat: PortfolioAnalystChatReply }
 );
 
 export interface PortfolioAnalystImportActivity {
   draftId: string;
+  sourceTurnId?: string;
   targetLabel: string;
   submissionText: string;
   screenshotCount: number;
@@ -232,23 +245,48 @@ export function appendPortfolioAnalystImportImageTurn(
 export function createPortfolioAnalystHistory(
   conversation: PortfolioAnalystConversation,
 ): PortfolioAnalystHistoryMessage[] {
-  const history: PortfolioAnalystHistoryMessage[] = conversation.turns
-    .filter((turn) => !turn.importImage && (!turn.imageAnswer || !turn.imageAnswer.status || turn.imageAnswer.status === "complete"))
-    .slice(-MAX_MODEL_HISTORY_TURNS)
-    .flatMap((turn) => [
-    { role: "user" as const, text: turn.question },
-    {
-      role: "assistant" as const,
-      text: turn.report ? historicalAssistantText(turn.report) : turn.imageAnswer?.text ?? "",
+  const exchanges = conversation.turns.flatMap((turn) => {
+    if (turn.importImage) return [];
+    if (turn.imageAnswer && turn.imageAnswer.status && turn.imageAnswer.status !== "complete") return [];
+    if (!conversation.includeHoldingNames && (turn.chat || turn.imageAnswer)) return [];
+    const assistantText = turn.report
+      ? historicalAssistantText(turn.report)
+      : turn.imageAnswer?.text ?? turn.chat?.assistantText ?? "";
+    if (!assistantText.trim()) return [];
+    return [{
+      createdAt: turn.createdAt,
+      userText: turn.question.trim() || "Shared an image",
+      assistantText,
       factsAsOf: turn.report?.factsAsOf ?? turn.imageAnswer?.generatedAt ?? turn.createdAt,
-    },
-    ]);
+    }];
+  });
+  if (conversation.includeHoldingNames) {
+    for (const activity of conversation.importActivities) {
+      for (const followUp of activity.followUps ?? []) {
+        if (!followUp.userText.trim() || !followUp.assistantText.trim()) continue;
+        exchanges.push({
+          createdAt: followUp.createdAt,
+          userText: followUp.userText,
+          assistantText: followUp.assistantText,
+          factsAsOf: followUp.createdAt,
+        });
+      }
+    }
+  }
+  const recent = exchanges
+    .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
+    .slice(-MAX_MODEL_HISTORY_TURNS);
+  const history: PortfolioAnalystHistoryMessage[] = recent.flatMap((exchange) => [
+    { role: "user" as const, text: exchange.userText },
+    { role: "assistant" as const, text: exchange.assistantText, factsAsOf: exchange.factsAsOf },
+  ]);
   const recentImport = conversation.importActivities.at(-1);
-  const latestTurnAt = conversation.turns.at(-1)?.createdAt;
+  const latestExchangeAt = recent.at(-1)?.createdAt;
   if (
     conversation.includeHoldingNames &&
     recentImport &&
-    (!latestTurnAt || recentImport.createdAt > latestTurnAt)
+    !recentImport.followUps?.length &&
+    (!latestExchangeAt || recentImport.createdAt > latestExchangeAt)
   ) {
     history.push({
       role: "assistant",

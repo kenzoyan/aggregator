@@ -29,6 +29,9 @@ describe("market price persistence", () => {
           instrumentCode: "270042",
           category: "provider-error",
           message: "upstream unavailable",
+          sourceAccountId: "alipay-main",
+          instrumentId: "fund-1",
+          retryCount: 1,
         }],
       },
     });
@@ -46,6 +49,9 @@ describe("market price persistence", () => {
         instrumentCode: "270042",
         category: "provider-error",
         message: "upstream unavailable",
+        sourceAccountId: "alipay-main",
+        instrumentId: "fund-1",
+        retryCount: 1,
       }],
     });
     expect(data.marketRefreshHistory).toEqual([data.latestMarketRefresh]);

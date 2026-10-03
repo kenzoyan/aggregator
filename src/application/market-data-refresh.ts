@@ -9,6 +9,7 @@ import { marketObservationsFromTrading212Snapshot } from "@/application/trading2
 import type {
   FundNavProvider,
   MarketPriceObservation,
+  MarketRefreshFailure,
   MarketRefreshRecord,
 } from "@/domain/market-data";
 import type {
@@ -57,6 +58,25 @@ export interface MarketDataRefreshDependencies {
   now?: () => string;
 }
 
+const retryDelayMs = 30 * 60 * 1000;
+const retryableCategories = new Set<MarketRefreshFailure["category"]>([
+  "timeout",
+  "rate-limit",
+  "provider-error",
+]);
+
+function retryableFailure(failure: MarketRefreshFailure): boolean {
+  return Boolean(
+    failure.sourceAccountId && failure.instrumentId &&
+    retryableCategories.has(failure.category) &&
+    (failure.retryCount ?? 0) < 1,
+  );
+}
+
+function failureKey(failure: Pick<MarketRefreshFailure, "sourceAccountId" | "instrumentId">): string {
+  return `${failure.sourceAccountId}:${failure.instrumentId}`;
+}
+
 export function createMarketDataRefresh(
   input: MarketDataRefreshDependencies,
 ) {
@@ -68,27 +88,43 @@ export function createMarketDataRefresh(
     const now = input.now?.() ?? new Date().toISOString();
     const automatic = mode === "automatic";
     const marketData = input.database.readMarketData();
-    if (
-      automatic &&
-      marketData.latestMarketRefresh &&
-      portfolioCalendarDate(marketData.latestMarketRefresh.completedAt) ===
-        portfolioCalendarDate(now)
-    ) {
+    const latest = marketData.latestMarketRefresh;
+    const alreadyRefreshedToday = Boolean(
+      automatic && latest &&
+      portfolioCalendarDate(latest.completedAt) === portfolioCalendarDate(now),
+    );
+    const retryFailures = alreadyRefreshedToday && latest &&
+      Date.parse(now) - Date.parse(latest.completedAt) >= retryDelayMs
+      ? latest.failures.filter(retryableFailure)
+      : [];
+    if (alreadyRefreshedToday && latest && retryFailures.length === 0) {
       return {
         automatic: true,
         skipped: true,
         reason: "already-refreshed-today",
-        lastRefreshedAt: marketData.latestMarketRefresh.completedAt,
+        lastRefreshedAt: latest.completedAt,
       };
     }
 
     const facts = input.database.readPortfolioFacts();
     const sourceAccounts = input.database.readSourceAccounts?.() ?? [];
-    const hasRefreshablePosition = facts.state.positions.some((position) =>
-      hasFundNavRefreshTarget(position, input.fundNavProvider, sourceAccounts) ||
-      (Boolean(input.refreshTrading212Snapshot) &&
-        position.sourceAccountId === trading212SourceAccountId)
+    const retryTargetKeys = new Set(retryFailures.map(failureKey));
+    const retrying = retryFailures.length > 0;
+    const refreshState = retrying ? {
+      ...facts.state,
+      positions: facts.state.positions.filter((position) =>
+        retryTargetKeys.has(`${position.sourceAccountId}:${position.instrumentId}`)
+      ),
+    } : facts.state;
+    const refreshTrading212 = Boolean(
+      input.refreshTrading212Snapshot &&
+      (!retrying || retryTargetKeys.has(`${trading212SourceAccountId}:snapshot`)),
     );
+    const hasRefreshablePosition = refreshState.positions.some((position) =>
+      hasFundNavRefreshTarget(position, input.fundNavProvider, sourceAccounts)
+    ) || (refreshTrading212 && facts.state.positions.some((position) =>
+      position.sourceAccountId === trading212SourceAccountId
+    ));
     if (automatic && !hasRefreshablePosition) {
       return {
         automatic: true,
@@ -99,7 +135,7 @@ export function createMarketDataRefresh(
 
     const observations: MarketPriceObservation[] = [];
     const result = await refreshFundNavs({
-      state: facts.state,
+      state: refreshState,
       sourceAccounts,
       existingObservations: marketData.observations,
       monitoringStartedAtByPosition: Object.fromEntries(
@@ -118,8 +154,8 @@ export function createMarketDataRefresh(
 
     let trading212Updated = 0;
     let trading212Included = false;
-    const trading212Failures = [];
-    if (input.refreshTrading212Snapshot) {
+    const trading212Failures: MarketRefreshFailure[] = [];
+    if (refreshTrading212 && input.refreshTrading212Snapshot) {
       try {
         const snapshot = await input.refreshTrading212Snapshot();
         if (snapshot) {
@@ -139,9 +175,19 @@ export function createMarketDataRefresh(
         trading212Failures.push({
           ...safeMarketRefreshFailure(error),
           instrumentCode: "Trading 212",
+          sourceAccountId: trading212SourceAccountId,
+          instrumentId: "snapshot",
         });
       }
     }
+
+    const carriedFailures = retrying && latest
+      ? latest.failures.filter((failure) => !retryTargetKeys.has(failureKey(failure)))
+      : [];
+    const attemptedFailures = [...result.failed, ...trading212Failures].map((failure) => ({
+      ...failure,
+      ...(retrying ? { retryCount: 1 } : {}),
+    }));
 
     const combinedResult: MarketRefreshResult & { automatic: boolean } = {
       ...result,
@@ -149,7 +195,7 @@ export function createMarketDataRefresh(
       updated: result.updated + trading212Updated,
       recordedPrices: result.recordedPrices + trading212Updated,
       skipped: Math.max(0, result.skipped - trading212Updated),
-      failed: [...result.failed, ...trading212Failures],
+      failed: [...carriedFailures, ...attemptedFailures],
     };
     input.database.recordMarketData({
       observations,

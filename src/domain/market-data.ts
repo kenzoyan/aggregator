@@ -42,6 +42,9 @@ export interface MarketRefreshFailure {
   instrumentCode: string;
   category: MarketRefreshFailureCategory;
   message: string;
+  sourceAccountId?: string;
+  instrumentId?: string;
+  retryCount?: number;
 }
 
 export type MarketRefreshFailureCategory =

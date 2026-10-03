@@ -1,6 +1,58 @@
 import type { PortfolioAnalystConversation } from "@/application/portfolio-analyst-conversation";
 import { importChannelForReport } from "@/application/imports/import-channel";
 
+export interface AgentImageIntentInput {
+  text: string;
+  importFlowActive: boolean;
+  stage: "intent" | "account" | "image-follow-up" | "import-follow-up";
+  preferredAccountType?: string;
+  accounts: Array<{ id: string; label: string; accountType: string }>;
+}
+
+export interface AgentImageIntentDecision {
+  intent: "answer-image" | "prepare-import" | "clarify" | "delegate";
+  confidence: "high" | "low";
+  accountId?: string | null;
+}
+
+export function resumableImageContext(conversation?: PortfolioAnalystConversation): {
+  sourceTurnId: string;
+  stage: "image-follow-up" | "import-follow-up";
+  preferredAccountType?: string;
+} | undefined {
+  const latest = conversation?.turns.at(-1);
+  if (!conversation || !latest) return undefined;
+  const target = pendingScreenshotImportTarget(conversation);
+  if (!latest.imageAnswer || latest.imageAnswer.status !== "complete") {
+    if (!latest.report) return undefined;
+    const sourceIndex = conversation.turns.findLastIndex((turn) => Boolean(turn.attachments?.length));
+    const source = conversation.turns[sourceIndex];
+    if (!source) return undefined;
+    if (!target) {
+      if (conversation.turns.length - sourceIndex > 7 ||
+        conversation.importActivities.some((activity) => activity.createdAt >= source.createdAt)) return undefined;
+      return { sourceTurnId: source.id, stage: "image-follow-up" };
+    }
+    const related = conversation.turns.slice(sourceIndex + 1).every((turn) => {
+      if (turn.imageAnswer) return turn.imageAnswer.status === "complete"
+        && turn.imageAnswer.sourceTurnId === source.id;
+      if (turn.report) return turn.report.answer.proposedUpdate?.kind === "start-account-import"
+        && importChannelForReport(turn.report) === "screenshot"
+        && turn.report.answer.proposedUpdate.accountType === target.accountType;
+      return Boolean(turn.chat?.imageAction?.sourceTurnId === source.id);
+    });
+    if (!related || conversation.importActivities.some((activity) => activity.createdAt >= source.createdAt)) return undefined;
+    return { sourceTurnId: source.id, stage: "import-follow-up", preferredAccountType: target.accountType };
+  }
+  const source = latest.imageAnswer.sourceTurnId
+    ? conversation.turns.find((turn) => turn.id === latest.imageAnswer?.sourceTurnId)
+    : latest;
+  if (!source?.attachments?.length || conversation.importActivities.some((activity) => activity.createdAt >= source.createdAt)) {
+    return undefined;
+  }
+  return { sourceTurnId: source.id, stage: "image-follow-up" };
+}
+
 export function pendingScreenshotImportTarget(conversation?: PortfolioAnalystConversation) {
   const latestTurn = conversation?.turns.at(-1);
   const routedTurn = latestTurn?.importImage
@@ -11,11 +63,4 @@ export function pendingScreenshotImportTarget(conversation?: PortfolioAnalystCon
   if (action?.kind !== "start-account-import" || importChannelForReport(routedTurn.report) !== "screenshot") return undefined;
   const latestImport = conversation?.importActivities.at(-1);
   return latestImport && latestImport.createdAt >= routedTurn.createdAt ? undefined : action;
-}
-
-export function requestsScreenshotImport(text: string, importFlowActive: boolean): boolean {
-  const explicitImport = /\b(import|update|replace|sync|add)\b.{0,50}\b(holdings?|assets?|portfolio|account)\b|\b(holdings?|assets?|portfolio|account)\b.{0,50}\b(import|update|replace|sync|add)\b|(?:导入|更新|同步|添加).{0,20}(?:资产|持仓|账户|投资组合)|(?:资产|持仓|账户|投资组合).{0,20}(?:导入|更新|同步|添加)/i.test(text);
-  if (explicitImport) return true;
-  if (/\b(explain|describe)\b|\bwhat(?:'s| is| does)\b.{0,40}\b(image|picture|screenshot|photo)\b|(?:解释|说明|看懂|分析一下).{0,20}(?:图片|截图|照片)/i.test(text)) return false;
-  return importFlowActive;
 }

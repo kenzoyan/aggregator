@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import type { PortfolioAnalystReport } from "@/application/portfolio-analyst-provider";
 import { AgentActivityTimeline, analystLimitationKey, AnalystReport } from "@/components/portfolio-analyst";
+import { pendingPhaseLabel } from "@/components/portfolio-analyst-transcript";
 
 const report = {
   provider: "openai",
@@ -68,6 +69,17 @@ const report = {
 } as PortfolioAnalystReport;
 
 describe("Portfolio Analyst report hierarchy", () => {
+  it("explains a failed answer by its safe failure code", () => {
+    expect(pendingPhaseLabel("failed", "en", "invalid-provider-output"))
+      .toContain("couldn't verify the model's answer");
+    expect(pendingPhaseLabel("failed", "zh-CN", "provider-unavailable"))
+      .toContain("模型服务暂时无法回应");
+    expect(pendingPhaseLabel("failed", "en", "unknown-internal-detail"))
+      .not.toContain("unknown-internal-detail");
+    expect(pendingPhaseLabel("failed", "en", "toString"))
+      .toContain("couldn't finish that reply");
+  });
+
   it("keeps the chat answer conversational and puts evidence in the right panel", () => {
     const markup = renderToStaticMarkup(createElement(AnalystReport, { report, onShowSources: () => undefined }));
     const sources = renderToStaticMarkup(createElement(AnalystReport, { report, sourcesOnly: true }));

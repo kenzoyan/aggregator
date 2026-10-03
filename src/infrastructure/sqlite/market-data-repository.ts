@@ -124,6 +124,9 @@ export function createMarketDataRepository(
           category: failure.category ?? "legacy-redacted",
           message: failure.message ??
             "Failure details from this earlier run were removed for privacy",
+          ...(failure.sourceAccountId ? { sourceAccountId: failure.sourceAccountId } : {}),
+          ...(failure.instrumentId ? { instrumentId: failure.instrumentId } : {}),
+          ...(typeof failure.retryCount === "number" ? { retryCount: failure.retryCount } : {}),
         })),
       }));
       const latestMarketRefresh = marketRefreshHistory[0];

@@ -111,7 +111,8 @@ describe("assistant import message tools", () => {
   it("discards only the active draft when the assistant selects cancellation", async () => {
     const test = fixture();
     try {
-      const response = await test.send("I don't want to keep this import", "66666666-6666-4666-8666-666666666666", { intent: "cancel" });
+      const cancelId = "66666666-6666-4666-8666-666666666666";
+      const response = await test.send("I don't want to keep this import", cancelId, { intent: "cancel" });
       expect(response.status).toBe(200);
       const payload = await response.json();
       expect(payload.cancelled).toBe(true);
@@ -120,8 +121,49 @@ describe("assistant import message tools", () => {
       expect(payload.conversation.importActivities[0].followUps[0].assistantText).toContain("holdings were not changed");
       expect(test.database.getImportDraft("synthetic-draft")).toBeUndefined();
       expect(test.database.readPortfolioFacts().state.positions).toHaveLength(0);
+      const repeated = await test.send("I don't want to keep this import", cancelId, { intent: "cancel" });
+      expect(repeated.status).toBe(200);
+      expect((await repeated.json()).cancelled).toBe(true);
+      expect(test.count()).toBe(1);
     } finally {
       test.database.close();
+      rmSync(test.directory, { recursive: true, force: true });
+    }
+  });
+
+  it("does not discard a confirmed import", async () => {
+    const test = fixture();
+    try {
+      const confirmed = await test.send("Apply the draft", "77777777-7777-4777-8777-777777777777", { intent: "confirm" });
+      expect(confirmed.status).toBe(200);
+      const cancellation = await test.send("Cancel it", "88888888-8888-4888-8888-888888888888", { intent: "cancel" });
+      expect(cancellation.status).toBe(409);
+      expect(test.database.getImportDraft("synthetic-draft")?.status).toBe("confirmed");
+      expect(test.database.readPortfolioFacts().state.positions).toHaveLength(1);
+    } finally {
+      test.database.close();
+      rmSync(test.directory, { recursive: true, force: true });
+    }
+  });
+
+  it("restores a cancelled draft conversation after reopening the database", async () => {
+    const test = fixture();
+    try {
+      const response = await test.send("Cancel this import", "99999999-9999-4999-8999-999999999999", { intent: "cancel" });
+      expect(response.status).toBe(200);
+      test.database.close();
+      const reopened = createPortfolioDatabase(join(test.directory, "portfolio.sqlite"));
+      try {
+        expect(reopened.getImportDraft("synthetic-draft")).toBeUndefined();
+        expect(reopened.readLatestPortfolioAnalystConversation()?.importActivities[0]).toMatchObject({
+          cancelledAt: expect.any(String),
+          followUps: [{ userText: "Cancel this import" }],
+        });
+        expect(reopened.readPortfolioFacts().state.positions).toHaveLength(0);
+      } finally {
+        reopened.close();
+      }
+    } finally {
       rmSync(test.directory, { recursive: true, force: true });
     }
   });

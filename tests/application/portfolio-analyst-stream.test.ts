@@ -78,10 +78,12 @@ describe("portfolio analyst streaming view state", () => {
     pending = applyPortfolioAnalystStreamEvent(pending, {
       type: "failed",
       error: "The final answer was invalid.",
+      code: "invalid-provider-output",
     });
 
     expect(pending.answerText).toBe("");
     expect(pending.phase).toBe("failed");
+    expect(pending.failureCode).toBe("invalid-provider-output");
   });
 
   it("parses NDJSON events even when transport chunks split a JSON line", async () => {

@@ -5,6 +5,7 @@ import {
   type StreamFn,
 } from "@earendil-works/pi-agent-core";
 import { Type, type Model, type Usage } from "@earendil-works/pi-ai";
+import { z } from "zod";
 
 import {
   portfolioAnalystAnswerCandidateSchema,
@@ -30,6 +31,29 @@ import { PortfolioAnalystProviderError } from "@/application/portfolio-analyst-p
 
 const MAX_MODEL_TURNS = 5;
 const MAX_TOOL_CALLS = 4;
+const conversationIntentSchema = z.object({
+  kind: z.literal("conversation"),
+  intent: z.enum(["greeting", "acknowledgement", "clarification"]),
+}).strict();
+
+function conversationReply(output: string, language: PortfolioAnalystAgentTurn["language"]): string {
+  let intent: z.infer<typeof conversationIntentSchema>["intent"] = "clarification";
+  try {
+    const parsed = conversationIntentSchema.safeParse(JSON.parse(output));
+    if (parsed.success) intent = parsed.data.intent;
+  } catch {
+    // An unstructured no-tool answer cannot be shown as an asset claim.
+  }
+  if (language === "zh-CN") {
+    if (intent === "greeting") return "你好！想了解投资组合或账户的哪一部分？";
+    if (intent === "acknowledgement") return "不客气。接下来想查看什么？";
+    return "可以再说明一下，你希望我查看投资组合或账户的什么信息吗？";
+  }
+  if (intent === "greeting") return "Hi! What would you like to know about your portfolio or accounts?";
+  if (intent === "acknowledgement") return "You're welcome. What would you like to check next?";
+  return "Could you clarify what you'd like me to check about your portfolio or accounts?";
+}
+
 const emptyUsage: Usage = {
   input: 0,
   output: 0,
@@ -76,6 +100,7 @@ function systemPrompt(input: PortfolioAnalystAgentTurn): string {
     `Use ${input.defaultPeriod} when the question needs a performance period but does not specify one.`,
     `Answer language: ${input.language}.`,
     "Only tool output from this turn is current evidence. Historical answers resolve references only.",
+    "For a greeting, acknowledgement or request that needs clarification and makes no portfolio or account claim, call no tools and return only JSON with kind=conversation and intent=greeting, acknowledgement or clarification. The application writes the user-facing reply. Never use this path to assert holdings, balances, returns, prices, account status or completed actions.",
     "When the user asks to update or import assets for an existing account, read the account registry and return the exact matching start-account-import allowed action as proposedUpdate. Respect the account's update method: screenshot accounts can receive screenshots, while Trading 212 uses its API connection. Confirmation is performed by the application; never claim that this text turn changed holdings.",
     "When the user asks what a specific account currently holds or refers to a recently imported account, use read_account_holdings. Use read_accounts first if the account reference needs resolving. A portfolio overview does not contain individual account holdings. If the target account cannot be identified, ask for its name rather than inventing holdings.",
     portfolioAnalystConversationalAnswerInstruction,
@@ -101,12 +126,40 @@ function completedAudit(
   };
 }
 
+type CollectToolContext = (
+  context: PortfolioAnalystContextV1,
+  audit: PortfolioAnalystToolAudit,
+) => PortfolioAnalystContextV1;
+
+function executeSelectedTool(
+  input: PortfolioAnalystAgentTurn,
+  collect: CollectToolContext,
+  toolCallId: string,
+  name: PortfolioAnalystToolName,
+  toolInput: PortfolioAnalystToolAudit["input"],
+  readContext: () => PortfolioAnalystContextV1,
+) {
+  const activity = { toolCallId, name, input: toolInput };
+  input.onToolActivity?.({ stage: "started", ...activity });
+  input.onPhase?.("reading-current-facts");
+  const rawContext = readContext();
+  const context = collect(rawContext, completedAudit(toolCallId, name, toolInput, rawContext));
+  input.onToolActivity?.({
+    stage: "completed",
+    ...activity,
+    factsAsOf: context.factsAsOf,
+    evidenceCount: context.facts.length,
+  });
+  input.onPhase?.("generating-answer");
+  return {
+    content: [{ type: "text" as const, text: JSON.stringify(context) }],
+    details: { factsAsOf: context.factsAsOf },
+  };
+}
+
 function createTools(
   input: PortfolioAnalystAgentTurn,
-  collect: (
-    context: PortfolioAnalystContextV1,
-    audit: PortfolioAnalystToolAudit,
-  ) => PortfolioAnalystContextV1,
+  collect: CollectToolContext,
 ): AgentTool[] {
   const periodParameters = Type.Object({
     period: Type.Union([
@@ -130,35 +183,13 @@ function createTools(
     parameters: periodParameters,
     executionMode: "sequential",
     async execute(toolCallId, params) {
-      const activity = {
-        toolCallId,
-        name: "read_period_drivers" as const,
-        input: { period: params.period },
-      };
-      input.onToolActivity?.({ stage: "started", ...activity });
-      input.onPhase?.("reading-current-facts");
-      const rawContext = input.tools.readPeriodDrivers({
+      return executeSelectedTool(input, collect, toolCallId, "read_period_drivers", {
+        period: params.period,
+      }, () => input.tools.readPeriodDrivers({
         period: params.period,
         language: input.language,
         includeHoldingNames: input.includeHoldingNames,
-      });
-      const context = collect(rawContext, completedAudit(
-        toolCallId,
-        "read_period_drivers",
-        { period: params.period },
-        rawContext,
-      ));
-      input.onToolActivity?.({
-        stage: "completed",
-        ...activity,
-        factsAsOf: context.factsAsOf,
-        evidenceCount: context.facts.length,
-      });
-      input.onPhase?.("generating-answer");
-      return {
-        content: [{ type: "text", text: JSON.stringify(context) }],
-        details: { factsAsOf: context.factsAsOf },
-      };
+      }));
     },
   };
   const qualityTool: AgentTool<typeof noParameters> = {
@@ -168,34 +199,10 @@ function createTools(
     parameters: noParameters,
     executionMode: "sequential",
     async execute(toolCallId) {
-      const activity = {
-        toolCallId,
-        name: "read_data_quality" as const,
-        input: {},
-      };
-      input.onToolActivity?.({ stage: "started", ...activity });
-      input.onPhase?.("reading-current-facts");
-      const rawContext = input.tools.readDataQuality({
+      return executeSelectedTool(input, collect, toolCallId, "read_data_quality", {}, () => input.tools.readDataQuality({
         language: input.language,
         includeHoldingNames: input.includeHoldingNames,
-      });
-      const context = collect(rawContext, completedAudit(
-        toolCallId,
-        "read_data_quality",
-        {},
-        rawContext,
-      ));
-      input.onToolActivity?.({
-        stage: "completed",
-        ...activity,
-        factsAsOf: context.factsAsOf,
-        evidenceCount: context.facts.length,
-      });
-      input.onPhase?.("generating-answer");
-      return {
-        content: [{ type: "text", text: JSON.stringify(context) }],
-        details: { factsAsOf: context.factsAsOf },
-      };
+      }));
     },
   };
   const overviewTool: AgentTool<typeof noParameters> = {
@@ -205,34 +212,10 @@ function createTools(
     parameters: noParameters,
     executionMode: "sequential",
     async execute(toolCallId) {
-      const activity = {
-        toolCallId,
-        name: "read_portfolio_overview" as const,
-        input: {},
-      };
-      input.onToolActivity?.({ stage: "started", ...activity });
-      input.onPhase?.("reading-current-facts");
-      const rawContext = input.tools.readPortfolioOverview({
+      return executeSelectedTool(input, collect, toolCallId, "read_portfolio_overview", {}, () => input.tools.readPortfolioOverview({
         language: input.language,
         includeHoldingNames: input.includeHoldingNames,
-      });
-      const context = collect(rawContext, completedAudit(
-        toolCallId,
-        "read_portfolio_overview",
-        {},
-        rawContext,
-      ));
-      input.onToolActivity?.({
-        stage: "completed",
-        ...activity,
-        factsAsOf: context.factsAsOf,
-        evidenceCount: context.facts.length,
-      });
-      input.onPhase?.("generating-answer");
-      return {
-        content: [{ type: "text", text: JSON.stringify(context) }],
-        details: { factsAsOf: context.factsAsOf },
-      };
+      }));
     },
   };
   const accountsTool: AgentTool<typeof noParameters> = {
@@ -242,34 +225,10 @@ function createTools(
     parameters: noParameters,
     executionMode: "sequential",
     async execute(toolCallId) {
-      const activity = {
-        toolCallId,
-        name: "read_accounts" as const,
-        input: {},
-      };
-      input.onToolActivity?.({ stage: "started", ...activity });
-      input.onPhase?.("reading-current-facts");
-      const rawContext = input.tools.readAccounts({
+      return executeSelectedTool(input, collect, toolCallId, "read_accounts", {}, () => input.tools.readAccounts({
         language: input.language,
         includeAccountNames: input.includeHoldingNames,
-      });
-      const context = collect(rawContext, completedAudit(
-        toolCallId,
-        "read_accounts",
-        {},
-        rawContext,
-      ));
-      input.onToolActivity?.({
-        stage: "completed",
-        ...activity,
-        factsAsOf: context.factsAsOf,
-        evidenceCount: context.facts.length,
-      });
-      input.onPhase?.("generating-answer");
-      return {
-        content: [{ type: "text", text: JSON.stringify(context) }],
-        details: { factsAsOf: context.factsAsOf },
-      };
+      }));
     },
   };
   const accountHoldingsTool: AgentTool<typeof importAccountParameters> = {
@@ -279,35 +238,13 @@ function createTools(
     parameters: importAccountParameters,
     executionMode: "sequential",
     async execute(toolCallId, params) {
-      const activity = {
-        toolCallId,
-        name: "read_account_holdings" as const,
-        input: { accountType: params.accountType },
-      };
-      input.onToolActivity?.({ stage: "started", ...activity });
-      input.onPhase?.("reading-current-facts");
-      const rawContext = input.tools.readAccountHoldings({
+      return executeSelectedTool(input, collect, toolCallId, "read_account_holdings", {
+        accountType: params.accountType,
+      }, () => input.tools.readAccountHoldings({
         accountType: params.accountType,
         language: input.language,
         includeHoldingNames: input.includeHoldingNames,
-      });
-      const context = collect(rawContext, completedAudit(
-        toolCallId,
-        "read_account_holdings",
-        activity.input,
-        rawContext,
-      ));
-      input.onToolActivity?.({
-        stage: "completed",
-        ...activity,
-        factsAsOf: context.factsAsOf,
-        evidenceCount: context.facts.length,
-      });
-      input.onPhase?.("generating-answer");
-      return {
-        content: [{ type: "text", text: JSON.stringify(context) }],
-        details: { factsAsOf: context.factsAsOf },
-      };
+      }));
     },
   };
   const proposeCreateAccountTool: AgentTool<typeof createAccountParameters> = {
@@ -321,34 +258,10 @@ function createTools(
         accountType: params.accountType,
         ...(params.label ? { label: params.label } : {}),
       };
-      const activity = {
-        toolCallId,
-        name: "propose_create_account" as const,
-        input: toolInput,
-      };
-      input.onToolActivity?.({ stage: "started", ...activity });
-      input.onPhase?.("reading-current-facts");
-      const rawContext = input.tools.proposeCreateAccount({
+      return executeSelectedTool(input, collect, toolCallId, "propose_create_account", toolInput, () => input.tools.proposeCreateAccount({
         ...toolInput,
         language: input.language,
-      });
-      const context = collect(rawContext, completedAudit(
-        toolCallId,
-        "propose_create_account",
-        toolInput,
-        rawContext,
-      ));
-      input.onToolActivity?.({
-        stage: "completed",
-        ...activity,
-        factsAsOf: context.factsAsOf,
-        evidenceCount: context.facts.length,
-      });
-      input.onPhase?.("generating-answer");
-      return {
-        content: [{ type: "text", text: JSON.stringify(context) }],
-        details: { factsAsOf: context.factsAsOf },
-      };
+      }));
     },
   };
   const prepareAccountImportTool: AgentTool<typeof importAccountParameters> = {
@@ -359,35 +272,11 @@ function createTools(
     executionMode: "sequential",
     async execute(toolCallId, params) {
       const toolInput = { accountType: params.accountType };
-      const activity = {
-        toolCallId,
-        name: "prepare_account_import" as const,
-        input: toolInput,
-      };
-      input.onToolActivity?.({ stage: "started", ...activity });
-      input.onPhase?.("reading-current-facts");
-      const rawContext = input.tools.prepareAccountImport({
+      return executeSelectedTool(input, collect, toolCallId, "prepare_account_import", toolInput, () => input.tools.prepareAccountImport({
         accountType: params.accountType,
         language: input.language,
         includeAccountNames: input.includeHoldingNames,
-      });
-      const context = collect(rawContext, completedAudit(
-        toolCallId,
-        "prepare_account_import",
-        toolInput,
-        rawContext,
-      ));
-      input.onToolActivity?.({
-        stage: "completed",
-        ...activity,
-        factsAsOf: context.factsAsOf,
-        evidenceCount: context.facts.length,
-      });
-      input.onPhase?.("generating-answer");
-      return {
-        content: [{ type: "text", text: JSON.stringify(context) }],
-        details: { factsAsOf: context.factsAsOf },
-      };
+      }));
     },
   };
   return [
@@ -495,13 +384,25 @@ class PiModelControlledPortfolioAnalyst implements PortfolioAnalystAgentRuntime 
       if (agent.state.errorMessage) {
         throw new PortfolioAnalystProviderError("provider-unavailable", this.model.provider);
       }
+      const latest = [...agent.state.messages]
+        .reverse()
+        .find((message) => message.role === "assistant");
+      if (selectedContexts.length === 0 && acceptedToolCalls === 0 && toolCalls.length === 0) {
+        return {
+          kind: "conversation" as const,
+          reply: conversationReply(messageText(latest), input.language),
+          audit: {
+            runtime: "pi-agent-core" as const,
+            modelTurns,
+            stopReason: "completed" as const,
+            toolCalls,
+          },
+        };
+      }
       if (selectedContexts.length === 0 || toolCalls.length === 0) {
         throw new Error("The agent did not produce current evidence.");
       }
       const selectedContext = combinePortfolioAnalystContexts(selectedContexts);
-      const latest = [...agent.state.messages]
-        .reverse()
-        .find((message) => message.role === "assistant");
       let candidate;
       try {
         candidate = portfolioAnalystAnswerCandidateSchema.parse(
@@ -514,6 +415,7 @@ class PiModelControlledPortfolioAnalyst implements PortfolioAnalystAgentRuntime 
         candidate = validatePortfolioAnalystAnswer({ context: selectedContext, candidate: fallback });
       }
       return {
+        kind: "report" as const,
         answer: candidate,
         context: selectedContext,
         audit: {

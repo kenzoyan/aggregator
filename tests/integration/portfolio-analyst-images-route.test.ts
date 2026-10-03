@@ -51,6 +51,61 @@ async function imageRequest(type = "image/png") {
 }
 
 describe("Portfolio Agent images", () => {
+  it("saves the chat message and image before deciding how to respond", async () => {
+    const fixture = fixtures();
+    const handlers = createPortfolioAnalystImageHandlers({ ...fixture });
+    const request = await imageRequest();
+    const form = await request.formData();
+    form.delete("turnId");
+    form.set("userText", "处理这张图");
+    form.set("language", "zh-CN");
+    form.set("provider", "openai");
+    form.set("includeHoldingNames", "true");
+    const response = await handlers.SEND(new Request(request.url, { method: "POST", body: form }));
+    expect(response.status).toBe(200);
+    const saved = fixture.current().turns.at(-1)!;
+    expect(saved.userText).toBe("处理这张图");
+    expect(saved.chat?.imageAction).toMatchObject({ sourceTurnId: saved.id, stage: "intent" });
+    expect(saved.attachments).toHaveLength(1);
+    expect(fixture.bytes.size).toBe(1);
+    expect(fixture.current().importActivities).toHaveLength(0);
+  });
+
+  it("answers a follow-up using the original saved image", async () => {
+    const fixture = fixtures();
+    const handlers = createPortfolioAnalystImageHandlers({
+      ...fixture,
+      imageModel: "synthetic-vision-model",
+      imageQuestion: async ({ images, question }) => {
+        expect(question).toBe("解释这张图");
+        expect(images).toHaveLength(1);
+        expect(images[0].bytes.byteLength).toBeGreaterThan(0);
+        return { answer: "A synthetic image.", uncertainties: [] };
+      },
+    });
+    const request = await imageRequest();
+    const form = await request.formData();
+    form.set("language", "en");
+    form.set("includeHoldingNames", "true");
+    const sent = await handlers.ASK(new Request(request.url, { method: "POST", body: form }));
+    expect(sent.status).toBe(200);
+    const source = fixture.current().turns.at(-1)!;
+    fixture.conversations.savePortfolioAnalystConversation({
+      ...fixture.current(),
+      turns: [...fixture.current().turns, {
+        id: "follow-up", question: "解释这张图", userText: "解释这张图",
+        createdAt: "2026-10-03T00:00:00.000Z",
+        imageAnswer: {
+          status: "pending", text: "", uncertainties: [], provider: "openai",
+          model: "synthetic", generatedAt: "2026-10-03T00:00:00.000Z", sourceTurnId: source.id,
+        },
+      }],
+    });
+    const response = await handlers.COMPLETE("follow-up", new Request("http://localhost/complete", { method: "POST" }));
+    expect(response.status).toBe(200);
+    expect(fixture.current().turns.at(-1)?.imageAnswer?.text).toBe("A synthetic image.");
+  });
+
   it("saves a visible image message before analysis and fills in the answer later", async () => {
     const fixture = fixtures();
     let receivedQuestion = "";

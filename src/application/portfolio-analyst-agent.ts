@@ -65,11 +65,18 @@ export interface PortfolioAnalystAgentTurn {
   onAnswerTextDelta?: (delta: string) => void;
 }
 
-export interface PortfolioAnalystAgentResult {
-  answer: PortfolioAnalystAnswer;
-  context: PortfolioAnalystContextV1;
-  audit: PortfolioAnalystAgentAudit;
-}
+export type PortfolioAnalystAgentResult =
+  | {
+      kind: "report";
+      answer: PortfolioAnalystAnswer;
+      context: PortfolioAnalystContextV1;
+      audit: PortfolioAnalystAgentAudit;
+    }
+  | {
+      kind: "conversation";
+      reply: string;
+      audit: PortfolioAnalystAgentAudit;
+    };
 
 export interface PortfolioAnalystAgentRuntime {
   runTurn(input: PortfolioAnalystAgentTurn): Promise<PortfolioAnalystAgentResult>;

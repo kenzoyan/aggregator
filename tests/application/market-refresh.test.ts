@@ -124,6 +124,43 @@ describe("fund NAV refresh", () => {
     expect(saved[0]).toMatchObject({ instrumentCode: "019670", price: "1.3726" });
   });
 
+  it("refreshes a fund in a Chinese-named WeChat account stored as generic", async () => {
+    const account = {
+      ...createSourceAccountDefinition({ id: "account-wechat-cn", accountType: "微信" }),
+      provider: "generic" as const,
+    };
+    const saved: MarketPriceObservation[] = [];
+    const result = await refreshFundNavs({
+      state: {
+        ...state,
+        positions: [{
+          ...state.positions[0]!,
+          sourceAccountId: account.id,
+          instrumentId: "synthetic-fund",
+        }],
+      },
+      sourceAccounts: [account],
+      existingObservations: [],
+      monitoringStartedAtByPosition: {},
+      provider: {
+        id: "eastmoney",
+        supportsInstrumentCode: (code) => /^\d{6}$/.test(code),
+        fetchSince: async () => [{
+          instrumentCode: "040046",
+          price: "8.2530",
+          currency: "CNY",
+          asOf: "2026-07-17",
+          source: "eastmoney",
+        }],
+      },
+      record: (observations) => { saved.push(...observations); },
+      now: "2026-07-17T18:00:00.000Z",
+    });
+
+    expect(result).toMatchObject({ updated: 1, recordedPrices: 1, failed: [] });
+    expect(saved).toMatchObject([{ sourceAccountId: account.id, instrumentId: "synthetic-fund", source: "eastmoney" }]);
+  });
+
   it("records a newer NAV without changing quantity, cost basis or prior return", async () => {
     const saved: MarketPriceObservation[] = [];
     const originalState = structuredClone(state);
@@ -197,6 +234,40 @@ describe("fund NAV refresh", () => {
     expect(state).toEqual(originalState);
   });
 
+  it("catches a published NAV between an imported price date and a holiday import", async () => {
+    const saved: MarketPriceObservation[] = [];
+    const requestedDates: string[] = [];
+    const result = await refreshFundNavs({
+      state: {
+        ...state,
+        positions: [{ ...state.positions[0]!, priceAsOf: "2026-09-29" }],
+      },
+      existingObservations: [],
+      monitoringStartedAtByPosition: {
+        "alipay-main:alipay-main:040046": "2026-10-03",
+      },
+      provider: {
+        id: "eastmoney",
+        fetchSince: async (_code, sinceDate) => {
+          requestedDates.push(sinceDate);
+          return sinceDate > "2026-09-30" ? [] : [{
+            instrumentCode: "040046",
+            price: "8.2530",
+            currency: "CNY",
+            asOf: "2026-09-30",
+            source: "eastmoney",
+          }];
+        },
+      },
+      record: (observations) => { saved.push(...observations); },
+      now: "2026-10-03T12:00:00.000Z",
+    });
+
+    expect(requestedDates).toEqual(["2026-09-29"]);
+    expect(result).toMatchObject({ updated: 1, recordedPrices: 1 });
+    expect(saved).toMatchObject([{ asOf: "2026-09-30", source: "eastmoney" }]);
+  });
+
   it("keeps the last successful observation when the provider fails", async () => {
     const existing: MarketPriceObservation = {
       sourceAccountId: "alipay-main",
@@ -227,6 +298,8 @@ describe("fund NAV refresh", () => {
     expect(result.updated).toBe(0);
     expect(result.failed).toEqual([{
       instrumentCode: "040046",
+      sourceAccountId: "alipay-main",
+      instrumentId: "alipay-main:040046",
       category: "provider-error",
       message: "Market data provider could not be refreshed",
     }]);
@@ -345,6 +418,8 @@ describe("fund NAV refresh", () => {
 
     expect(result.failed).toEqual([{
       instrumentCode: "040046",
+      sourceAccountId: "alipay-main",
+      instrumentId: "alipay-main:040046",
       category: "provider-error",
       message: "Market data provider could not be refreshed",
     }]);

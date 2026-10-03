@@ -61,7 +61,7 @@ export function createImportMessageHandler(input: {
     if (prior) {
       const existing = input.database.getImportDraft(body.draftId);
       return json({ conversation, ...(existing ? { draft: createImportDraftReadModel(existing) } : {}),
-        portfolioChanged: existing?.status === "confirmed" });
+        portfolioChanged: existing?.status === "confirmed", cancelled: Boolean(activity.cancelledAt) });
     }
     const draft = input.database.getImportDraft(body.draftId);
     if (!draft || draft.status !== "draft" || draft.sourceKind !== "screenshot" || activity.cancelledAt) {

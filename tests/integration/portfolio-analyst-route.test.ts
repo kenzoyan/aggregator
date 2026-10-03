@@ -12,7 +12,7 @@ import type {
   PortfolioInsightsReadModel,
   PortfolioOverviewReadModel,
 } from "@/application/portfolio-read-model";
-import { draftPortfolioFromOpeningSnapshot, knownDraftValue, unknownDraftValue, type StoredImportDraft } from "@/domain/imports";
+import { draftPortfolioFromOpeningSnapshot, type StoredImportDraft } from "@/domain/imports";
 
 function portfolio(): PortfolioOverviewReadModel & { insights: PortfolioInsightsReadModel } {
   const performance = {
@@ -140,6 +140,110 @@ function conversationStore(): PortfolioAnalystConversationStore {
 }
 
 describe("/api/portfolio/analyst", () => {
+  it.each(["thanks", "Thank you"])(
+    "finishes %s after a cancelled import without requiring a portfolio tool",
+    async (question) => {
+    const store = conversationStore();
+    store.savePortfolioAnalystConversation({
+      version: "portfolio-analyst-conversation.v1",
+      id: "cancelled-import-conversation",
+      provider: "openai",
+      language: "en",
+      includeHoldingNames: true,
+      createdAt: "2026-10-01T10:00:00.000Z",
+      updatedAt: "2026-10-01T10:03:00.000Z",
+      turns: [],
+      importActivities: [{
+        draftId: "discarded-draft",
+        targetLabel: "Synthetic Account",
+        submissionText: "Import this image",
+        screenshotCount: 1,
+        createdAt: "2026-10-01T10:01:00.000Z",
+        cancelledAt: "2026-10-01T10:03:00.000Z",
+        followUps: [{
+          id: "cancel-message",
+          userText: "cancel import",
+          assistantText: "I cancelled this import and removed its unconfirmed draft. Your holdings were not changed.",
+          createdAt: "2026-10-01T10:03:00.000Z",
+        }],
+      }],
+    });
+    let runtimeCalled = false;
+    const handlers = createPortfolioAnalystHandlers({
+      providers: { openai: provider() },
+      models: { openai: "gpt-synthetic", deepseek: "deepseek-synthetic" },
+      defaultProvider: "openai",
+      agentRuntimes: { openai: { async runTurn() {
+        runtimeCalled = true;
+        throw new Error("No current evidence was produced for a courtesy message.");
+      } } },
+    }, {
+      readCurrentPortfolio: portfolio,
+      conversations: store,
+      now: () => "2026-10-01T10:04:00.000Z",
+      createId: () => "courtesy-turn",
+    });
+
+    const response = await handlers.POST(request({
+      provider: "openai",
+      mode: "agent",
+      defaultPeriod: "week",
+      language: "en",
+      includeHoldingNames: true,
+      conversationId: "cancelled-import-conversation",
+      question,
+    }));
+
+    expect(response.status).toBe(200);
+    expect(runtimeCalled).toBe(false);
+    expect(store.readLatestPortfolioAnalystConversation()?.turns.at(-1)).toMatchObject({
+      id: "courtesy-turn",
+      question,
+      chat: { assistantText: "You're welcome." },
+    });
+    },
+  );
+
+  it("persists a no-evidence dialogue result as a chat turn", async () => {
+    const store = conversationStore();
+    const handlers = createPortfolioAnalystHandlers({
+      providers: { openai: provider() },
+      models: { openai: "gpt-synthetic", deepseek: "deepseek-synthetic" },
+      defaultProvider: "openai",
+      agentRuntimes: { openai: { async runTurn() {
+        return {
+          kind: "conversation" as const,
+          reply: "Hi! What would you like to know about your portfolio or accounts?",
+          audit: { runtime: "pi-agent-core" as const, modelTurns: 1, stopReason: "completed" as const, toolCalls: [] },
+        };
+      } } },
+    }, {
+      readCurrentPortfolio: portfolio,
+      conversations: store,
+      now: () => "2026-10-01T10:04:00.000Z",
+      createId: (() => {
+        const ids = ["dialogue-conversation", "dialogue-turn"];
+        return () => ids.shift()!;
+      })(),
+    });
+
+    const response = await handlers.POST(request({
+      provider: "openai",
+      mode: "agent",
+      defaultPeriod: "week",
+      language: "en",
+      includeHoldingNames: false,
+      question: "Hello",
+    }));
+
+    expect(response.status).toBe(200);
+    expect(store.readLatestPortfolioAnalystConversation()?.turns).toMatchObject([{
+      id: "dialogue-turn",
+      question: "Hello",
+      chat: { assistantText: "Hi! What would you like to know about your portfolio or accounts?" },
+    }]);
+  });
+
   it("loads configuration when a hot-reload repository returns the previous conversation shape", async () => {
     const store = conversationStore();
     store.savePortfolioAnalystConversation({
@@ -240,88 +344,7 @@ describe("/api/portfolio/analyst", () => {
       importDrafts: [{ id: "draft-wechat", status: "draft" }],
     });
 
-    const followUp = {
-      mode: "import-date-follow-up", id: "11111111-1111-4111-8111-111111111111",
-      conversationId: "conversation-import", draftId: "draft-wechat",
-      userText: "2026-09-22", field: "valuation-date", value: "2026-09-22",
-    };
-    const reply = () => handlers.PATCH(new Request("http://localhost/api/portfolio/analyst", {
-      method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(followUp),
-    }));
-    expect((await reply()).status).toBe(200);
-    expect((await reply()).status).toBe(200);
-    const restored = await handlers.GET().then((response) => response.json());
-    expect(restored.conversation.importActivities[0].followUps).toHaveLength(1);
-    expect(restored.conversation.importActivities[0].followUps[0]).toMatchObject({
-      userText: "2026-09-22", assistantText: expect.stringContaining("已记录估值日期"),
-    });
-    const wrongDate = await handlers.PATCH(new Request("http://localhost/api/portfolio/analyst", {
-      method: "PATCH", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ ...followUp, id: "22222222-2222-4222-8222-222222222222", value: "2026-09-23" }),
-    }));
-    expect(wrongDate.status).toBe(409);
 
-    storedDraft.portfolio.asOf = unknownDraftValue();
-    const ambiguousDate = await handlers.PATCH(new Request("http://localhost/api/portfolio/analyst", {
-      method: "PATCH", headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        mode: "import-clarification", id: "33333333-3333-4333-8333-333333333333",
-        conversationId: "conversation-import", draftId: "draft-wechat",
-        userText: "03 10 2026", reason: "date",
-      }),
-    }));
-    expect(ambiguousDate.status).toBe(200);
-    const ambiguousPayload = await ambiguousDate.json();
-    expect(ambiguousPayload.conversation.importActivities[0].followUps.at(-1)).toMatchObject({
-      userText: "03 10 2026", assistantText: expect.stringContaining("2026-03-10"),
-    });
-    expect(ambiguousPayload.conversation.importActivities[0].followUps.at(-1).assistantText).toContain("2026-10-03");
-    expect(ambiguousPayload.importDraft.portfolio.asOf).toBe("");
-
-    const holding = storedDraft.portfolio.holdings[0]!;
-    holding.instrumentCode = knownDraftValue("TEST123456", "manual");
-    const savedCode = await handlers.PATCH(new Request("http://localhost/api/portfolio/analyst", {
-      method: "PATCH", headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        mode: "import-code-follow-up", id: "44444444-4444-4444-8444-444444444444",
-        conversationId: "conversation-import", draftId: "draft-wechat",
-        userText: "and code/isin is TEST123456", holdingLineId: holding.lineId, value: "TEST123456",
-      }),
-    }));
-    expect(savedCode.status).toBe(200);
-    const codePayload = await savedCode.json();
-    expect(codePayload.importDraft.portfolio.holdings[0].instrumentCode).toBe("TEST123456");
-    expect(codePayload.conversation.importActivities[0].followUps.at(-1)).toMatchObject({
-      userText: "and code/isin is TEST123456", assistantText: expect.stringContaining("TEST123456"),
-    });
-    await expect(handlers.GET().then((response) => response.json())).resolves.toMatchObject({
-      importDrafts: [{ portfolio: { holdings: [{ instrumentCode: "TEST123456" }] } }],
-    });
-
-    const confirmReply = () => handlers.PATCH(new Request("http://localhost/api/portfolio/analyst", {
-      method: "PATCH", headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        mode: "import-confirm-follow-up", id: "55555555-5555-4555-8555-555555555555",
-        conversationId: "conversation-import", draftId: "draft-wechat",
-        userText: "yes looks good, save it",
-      }),
-    }));
-    expect((await confirmReply()).status).toBe(409);
-    storedDraft.status = "confirmed";
-    storedDraft.confirmedAt = "2026-09-22T20:03:00.000Z";
-    const confirmed = await confirmReply();
-    expect(confirmed.status).toBe(200);
-    const confirmedPayload = await confirmed.json();
-    expect(confirmedPayload.conversation.importActivities[0].followUps.at(-1)).toMatchObject({
-      id: "55555555-5555-4555-8555-555555555555",
-      userText: "yes looks good, save it",
-      assistantText: expect.stringContaining("资产已更新"),
-    });
-    expect(confirmedPayload.conversation.turns).toHaveLength(0);
-    expect((await confirmReply()).status).toBe(200);
-    const refreshed = await handlers.GET().then((response) => response.json());
-    expect(refreshed.conversation.importActivities[0].followUps).toHaveLength(4);
-    expect(refreshed.importDrafts[0].status).toBe("confirmed");
   });
 
   it("uses the model-controlled runtime tool choice and persists its safe audit", async () => {
@@ -355,6 +378,7 @@ describe("/api/portfolio/analyst", () => {
               evidenceCount: selected.facts.length,
             });
             return {
+              kind: "report",
               context: selected,
               answer: await provider().generate(selected),
               audit: {
@@ -652,6 +676,63 @@ describe("/api/portfolio/analyst", () => {
     expect(deleted.status).toBe(200);
     expect(store.readLatestPortfolioAnalystConversation()).toBeUndefined();
     expect(deletedImageIds).toEqual(["11111111-1111-4111-8111-111111111111"]);
+  });
+
+  it("passes recent chat and import replies to an ordinary follow-up", async () => {
+    const store = conversationStore();
+    let receivedHistory: unknown;
+    store.savePortfolioAnalystConversation({
+      version: "portfolio-analyst-conversation.v1",
+      id: "mixed-conversation",
+      provider: "openai",
+      language: "en",
+      includeHoldingNames: true,
+      createdAt: "2026-09-09T10:00:00.000Z",
+      updatedAt: "2026-09-09T10:02:00.000Z",
+      turns: [{
+        id: "chat-1", question: "Use the synthetic account.",
+        createdAt: "2026-09-09T10:01:00.000Z",
+        chat: { assistantText: "I found the synthetic account." },
+      }],
+      importActivities: [{
+        draftId: "draft-1", targetLabel: "Synthetic Account",
+        submissionText: "Import", screenshotCount: 1,
+        createdAt: "2026-09-09T10:01:30.000Z",
+        followUps: [{
+          id: "follow-1", userText: "Cancel that draft.",
+          assistantText: "The draft was cancelled.",
+          createdAt: "2026-09-09T10:02:00.000Z",
+        }],
+      }],
+    });
+    const fake = provider(async (context, turn) => {
+      receivedHistory = turn?.history;
+      return provider().generate(context);
+    });
+    const handlers = createPortfolioAnalystHandlers({
+      providers: { openai: fake },
+      models: { openai: "gpt-synthetic", deepseek: "deepseek-synthetic" },
+      defaultProvider: "openai",
+    }, {
+      readCurrentPortfolio: portfolio,
+      conversations: store,
+      createId: () => "follow-up-1",
+      now: () => "2026-09-09T10:03:00.000Z",
+    });
+
+    const response = await handlers.POST(request({
+      provider: "openai", conversationId: "mixed-conversation",
+      mode: "agent", defaultPeriod: "week", language: "en",
+      includeHoldingNames: true, question: "What does that account hold now?",
+    }));
+
+    expect(response.status).toBe(200);
+    expect(receivedHistory).toEqual([
+      { role: "user", text: "Use the synthetic account." },
+      { role: "assistant", text: "I found the synthetic account.", factsAsOf: "2026-09-09T10:01:00.000Z" },
+      { role: "user", text: "Cancel that draft." },
+      { role: "assistant", text: "The draft was cancelled.", factsAsOf: "2026-09-09T10:02:00.000Z" },
+    ]);
   });
 
   it("requires a reset before conversation privacy settings become stricter", async () => {

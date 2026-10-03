@@ -113,6 +113,70 @@ function completedStream(message: AssistantMessage) {
 }
 
 describe("Pi model-controlled Portfolio Analyst", () => {
+  it.each([
+    { question: "Hello", language: "en" as const, reply: "Hi! What would you like to know about your portfolio or accounts?" },
+    { question: "你好", language: "zh-CN" as const, reply: "你好！想了解投资组合或账户的哪一部分？" },
+  ])("returns a nonfactual $language conversation turn without a portfolio tool", async ({ question, language, reply }) => {
+    const streamFn: StreamFn = () => completedStream(assistant([{
+      type: "text",
+      text: JSON.stringify({ kind: "conversation", intent: "greeting" }),
+    }], "stop"));
+    const tools: PortfolioAnalystTools = {
+      readPeriodDrivers: () => { throw new Error("unexpected portfolio read"); },
+      readDataQuality: () => { throw new Error("unexpected portfolio read"); },
+      readPortfolioOverview: () => { throw new Error("unexpected portfolio read"); },
+      readAccounts: () => { throw new Error("unexpected account read"); },
+      readAccountHoldings: () => { throw new Error("unexpected account read"); },
+      proposeCreateAccount: () => { throw new Error("unexpected account action"); },
+      prepareAccountImport: () => { throw new Error("unexpected import action"); },
+    };
+
+    const result = await createPiModelControlledPortfolioAnalyst({ model, streamFn }).runTurn({
+      question,
+      history: [],
+      tools,
+      language,
+      includeHoldingNames: false,
+      defaultPeriod: "week",
+    });
+
+    expect(result).toMatchObject({
+      kind: "conversation",
+      reply,
+      audit: { modelTurns: 1, toolCalls: [] },
+    });
+  });
+
+  it("asks for clarification when a portfolio question gets an unsupported no-tool answer", async () => {
+    const streamFn: StreamFn = () => completedStream(assistant([{
+      type: "text", text: "Your account balance is EUR 999,999.",
+    }], "stop"));
+    const tools: PortfolioAnalystTools = {
+      readPeriodDrivers: () => { throw new Error("unexpected portfolio read"); },
+      readDataQuality: () => { throw new Error("unexpected portfolio read"); },
+      readPortfolioOverview: () => { throw new Error("unexpected portfolio read"); },
+      readAccounts: () => { throw new Error("unexpected account read"); },
+      readAccountHoldings: () => { throw new Error("unexpected account read"); },
+      proposeCreateAccount: () => { throw new Error("unexpected account action"); },
+      prepareAccountImport: () => { throw new Error("unexpected import action"); },
+    };
+
+    const result = await createPiModelControlledPortfolioAnalyst({ model, streamFn }).runTurn({
+      question: "What is my account balance?",
+      history: [],
+      tools,
+      language: "en",
+      includeHoldingNames: true,
+      defaultPeriod: "week",
+    });
+
+    expect(result).toMatchObject({
+      kind: "conversation",
+      reply: "Could you clarify what you'd like me to check about your portfolio or accounts?",
+    });
+    expect(JSON.stringify(result)).not.toContain("999,999");
+  });
+
   it("returns a cited account summary when a model answer is malformed after reading account holdings", async () => {
     const accountContext: PortfolioAnalystContextV1 = {
       ...context,
@@ -176,6 +240,7 @@ describe("Pi model-controlled Portfolio Analyst", () => {
       defaultPeriod: "week",
     });
 
+    if (result.kind !== "report") throw new Error("Expected an evidenced report.");
     expect(result.answer.answer.text).toContain("Synthetic Fund");
     expect(result.answer.answer.evidence).toEqual([
       "call1.account.holdings.summary",
@@ -242,6 +307,7 @@ describe("Pi model-controlled Portfolio Analyst", () => {
       toolName: "read_period_drivers",
       isError: false,
     });
+    if (result.kind !== "report") throw new Error("Expected an evidenced report.");
     expect(result.answer).toEqual(answer);
     expect(result.context).toEqual(namespacePortfolioAnalystContext(context, "call1"));
     expect(result.audit).toEqual({
@@ -271,6 +337,120 @@ describe("Pi model-controlled Portfolio Analyst", () => {
       factsAsOf: context.factsAsOf,
       evidenceCount: 1,
     }]);
+  });
+
+  it.each([
+    { name: "read_period_drivers", args: { period: "week" }, auditInput: { period: "week" } },
+    { name: "read_data_quality", args: {}, auditInput: {} },
+    { name: "read_portfolio_overview", args: {}, auditInput: {} },
+    { name: "read_accounts", args: {}, auditInput: {} },
+    { name: "read_account_holdings", args: { accountType: "Synthetic Account" }, auditInput: { accountType: "Synthetic Account" } },
+    { name: "propose_create_account", args: { accountType: "Synthetic Account", label: "My Account" }, auditInput: { accountType: "Synthetic Account", label: "My Account" } },
+    { name: "prepare_account_import", args: { accountType: "Synthetic Account" }, auditInput: { accountType: "Synthetic Account" } },
+  ])("preserves $name activity, audit input and namespaced evidence", async ({ name, args, auditInput }) => {
+    let modelCall = 0;
+    const streamFn: StreamFn = () => {
+      modelCall += 1;
+      return modelCall === 1
+        ? completedStream(assistant([{
+            type: "toolCall", id: "selected-tool", name, arguments: args,
+          }], "toolUse"))
+        : completedStream(assistant([{ type: "text", text: JSON.stringify(answer) }], "stop"));
+    };
+    const tools: PortfolioAnalystTools = {
+      readPeriodDrivers: () => context,
+      readDataQuality: () => context,
+      readPortfolioOverview: () => context,
+      readAccounts: () => context,
+      readAccountHoldings: () => context,
+      proposeCreateAccount: () => context,
+      prepareAccountImport: () => context,
+    };
+    const activities: unknown[] = [];
+    const phases: string[] = [];
+
+    const result = await createPiModelControlledPortfolioAnalyst({ model, streamFn }).runTurn({
+      question: "Synthetic question",
+      history: [], tools, language: "zh-CN", includeHoldingNames: true, defaultPeriod: "week",
+      onToolActivity: (activity) => activities.push(activity),
+      onPhase: (phase) => phases.push(phase),
+    });
+
+    if (result.kind !== "report") throw new Error("Expected an evidenced report.");
+    expect(result.answer).toEqual(answer);
+    expect(result.audit.toolCalls).toMatchObject([{
+      name, input: auditInput, status: "completed", evidenceKeys: ["call1.period.total"],
+    }]);
+    expect(activities).toMatchObject([
+      { stage: "started", name, input: auditInput },
+      { stage: "completed", name, input: auditInput, evidenceCount: 1 },
+    ]);
+    expect(phases).toEqual(["reading-current-facts", "generating-answer"]);
+  });
+
+  it("blocks a fifth tool call before it reads portfolio data", async () => {
+    let modelCall = 0;
+    let reads = 0;
+    const streamFn: StreamFn = () => {
+      modelCall += 1;
+      return modelCall === 1
+        ? completedStream(assistant(Array.from({ length: 5 }, (_, index) => ({
+            type: "toolCall" as const,
+            id: `read-${index + 1}`,
+            name: "read_data_quality",
+            arguments: {},
+          })), "toolUse"))
+        : completedStream(assistant([{ type: "text", text: JSON.stringify(answer) }], "stop"));
+    };
+    const tools: PortfolioAnalystTools = {
+      readPeriodDrivers: () => { throw new Error("wrong tool"); },
+      readDataQuality: () => { reads += 1; return context; },
+      readPortfolioOverview: () => { throw new Error("wrong tool"); },
+      readAccounts: () => { throw new Error("wrong tool"); },
+      readAccountHoldings: () => { throw new Error("wrong tool"); },
+      proposeCreateAccount: () => { throw new Error("wrong tool"); },
+      prepareAccountImport: () => { throw new Error("wrong tool"); },
+    };
+
+    const result = await createPiModelControlledPortfolioAnalyst({ model, streamFn }).runTurn({
+      question: "Read data repeatedly",
+      history: [], tools, language: "zh-CN", includeHoldingNames: false, defaultPeriod: "week",
+    });
+    if (result.kind !== "report") throw new Error("Expected an evidenced report.");
+    expect(reads).toBe(4);
+    expect(result.audit.toolCalls).toMatchObject([
+      { status: "completed", evidenceKeys: ["call1.period.total"] },
+      { status: "completed", evidenceKeys: ["call2.period.total"] },
+      { status: "completed", evidenceKeys: ["call3.period.total"] },
+      { status: "completed", evidenceKeys: ["call4.period.total"] },
+      { status: "blocked", errorCode: "tool-budget-exceeded", evidenceKeys: [] },
+    ]);
+  });
+
+  it("does not turn a failed tool read into a no-evidence chat reply", async () => {
+    let modelCall = 0;
+    const streamFn: StreamFn = () => {
+      modelCall += 1;
+      return modelCall === 1
+        ? completedStream(assistant([{
+            type: "toolCall", id: "failed-read", name: "read_data_quality", arguments: {},
+          }], "toolUse"))
+        : completedStream(assistant([{ type: "text", text: "I can help with that." }], "stop"));
+    };
+    const tools: PortfolioAnalystTools = {
+      readPeriodDrivers: () => { throw new Error("wrong tool"); },
+      readDataQuality: () => { throw new Error("Synthetic read failed"); },
+      readPortfolioOverview: () => { throw new Error("wrong tool"); },
+      readAccounts: () => { throw new Error("wrong tool"); },
+      readAccountHoldings: () => { throw new Error("wrong tool"); },
+      proposeCreateAccount: () => { throw new Error("wrong tool"); },
+      prepareAccountImport: () => { throw new Error("wrong tool"); },
+    };
+
+    await expect(createPiModelControlledPortfolioAnalyst({ model, streamFn }).runTurn({
+      question: "Is my data current?",
+      history: [], tools, language: "en", includeHoldingNames: false, defaultPeriod: "week",
+    })).rejects.toMatchObject({ code: "invalid-provider-output" });
   });
 
   it("combines multiple read tools into one validated evidence set", async () => {
@@ -340,6 +520,7 @@ describe("Pi model-controlled Portfolio Analyst", () => {
 
     expect(periodReads).toBe(1);
     expect(qualityReads).toBe(1);
+    if (result.kind !== "report") throw new Error("Expected an evidenced report.");
     expect(result.context.facts.map((fact) => fact.key)).toEqual([
       "call1.period.total",
       "call2.quality.summary",
@@ -401,6 +582,7 @@ describe("Pi model-controlled Portfolio Analyst", () => {
       defaultPeriod: "week",
     });
 
+    if (result.kind !== "report") throw new Error("Expected an evidenced report.");
     expect(result.context.job).toBe("summarize-portfolio");
     expect(result.context.facts[0]?.key).toBe("call1.overview.summary");
     expect(result.audit.toolCalls[0]).toMatchObject({
@@ -479,6 +661,7 @@ describe("Pi model-controlled Portfolio Analyst", () => {
       defaultPeriod: "week",
     });
 
+    if (result.kind !== "report") throw new Error("Expected an evidenced report.");
     expect(result.answer.proposedUpdate).toEqual({
       kind: "create-account",
       accountType: "Nordea",
@@ -563,6 +746,7 @@ describe("Pi model-controlled Portfolio Analyst", () => {
       defaultPeriod: "week",
     });
 
+    if (result.kind !== "report") throw new Error("Expected an evidenced report.");
     expect(result.answer.proposedUpdate).toMatchObject({
       kind: "start-account-import",
       accountType: "WeChat Wealth Management",

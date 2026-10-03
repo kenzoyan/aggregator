@@ -190,4 +190,45 @@ describe("portfolio analyst conversation", () => {
     });
     expect(JSON.stringify(history)).not.toContain("changeEur");
   });
+
+  it("keeps the latest image, chat, and import replies in chronological history", () => {
+    let conversation = createPortfolioAnalystConversation({
+      id: "conversation-mixed", provider: "openai", language: "en",
+      includeHoldingNames: true, now: "2026-09-22T10:00:00.000Z",
+    });
+    conversation = appendPortfolioAnalystTurn(conversation, {
+      id: "image-1", question: "What is in this image?",
+      createdAt: "2026-09-22T10:01:00.000Z",
+      imageAnswer: {
+        status: "complete", text: "It shows a synthetic fund statement.",
+        uncertainties: [], provider: "openai", model: "synthetic",
+        generatedAt: "2026-09-22T10:01:30.000Z",
+      },
+    });
+    conversation = appendPortfolioAnalystTurn(conversation, {
+      id: "chat-1", question: "Use my WeChat account.",
+      createdAt: "2026-09-22T10:02:00.000Z",
+      chat: { assistantText: "I can prepare a draft for that account." },
+    });
+    conversation = attachPortfolioAnalystImport(conversation, {
+      draftId: "draft-1", targetLabel: "WeChat", submissionText: "Import it",
+      screenshotCount: 1, createdAt: "2026-09-22T10:03:00.000Z",
+    });
+    conversation = appendPortfolioAnalystImportFollowUp(conversation, "draft-1", {
+      id: "follow-1", userText: "Cancel this draft.",
+      assistantText: "The unconfirmed draft was cancelled.",
+      createdAt: "2026-09-22T10:04:00.000Z",
+    });
+
+    const history = createPortfolioAnalystHistory(conversation);
+    expect(history).toContainEqual({ role: "user", text: "What is in this image?" });
+    expect(history).toContainEqual({ role: "assistant", text: "It shows a synthetic fund statement.", factsAsOf: "2026-09-22T10:01:30.000Z" });
+    expect(history).toContainEqual({ role: "user", text: "Use my WeChat account." });
+    expect(history).toContainEqual({ role: "assistant", text: "I can prepare a draft for that account.", factsAsOf: "2026-09-22T10:02:00.000Z" });
+    expect(history).toContainEqual({ role: "user", text: "Cancel this draft." });
+    expect(history).toContainEqual({ role: "assistant", text: "The unconfirmed draft was cancelled.", factsAsOf: "2026-09-22T10:04:00.000Z" });
+    expect(history[0]).toEqual({ role: "user", text: "What is in this image?" });
+    expect(history).toHaveLength(6);
+    expect(createPortfolioAnalystHistory({ ...conversation, includeHoldingNames: false })).toEqual([]);
+  });
 });

@@ -21,6 +21,7 @@ export interface PendingPortfolioAnalystTurn {
   answerText: string;
   activities: PortfolioAnalystToolActivity[];
   statusHistory: PortfolioAnalystStreamPhase[];
+  failureCode?: string;
   phase:
     | "sending"
     | "selecting-tool"
@@ -68,7 +69,7 @@ export function applyPortfolioAnalystStreamEvent(
     case "completed":
       return pending;
     case "failed":
-      return { ...pending, answerText: "", phase: "failed" };
+      return { ...pending, answerText: "", phase: "failed", failureCode: event.code };
   }
 }
 

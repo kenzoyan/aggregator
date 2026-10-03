@@ -92,6 +92,7 @@ describe.skipIf(!runCloudEvaluation)("Portfolio Agent real-provider tool selecti
       defaultPeriod: "week",
     });
 
+    if (result.kind !== "report") throw new Error("Expected an evidenced report.");
     expect(result.context.job).toBe("explain-period-drivers");
     expect(result.context.scope.period).toBe("week");
     expect(result.audit.toolCalls).toMatchObject([
