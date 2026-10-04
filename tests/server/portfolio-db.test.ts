@@ -14,6 +14,10 @@ describe("portfolio database singleton", () => {
       discardImportDraft: vi.fn(),
       readPriceSourceBindings: vi.fn(),
       savePriceSourceBinding: vi.fn(),
+      listPortfolioAnalystMemories: vi.fn(),
+      readPortfolioAnalystMemory: vi.fn(),
+      savePortfolioAnalystMemory: vi.fn(),
+      deletePortfolioAnalystMemory: vi.fn(),
     };
     const create = vi.fn(() => replacement);
 
@@ -36,6 +40,10 @@ describe("portfolio database singleton", () => {
       discardImportDraft: vi.fn(),
       readPriceSourceBindings: vi.fn(),
       savePriceSourceBinding: vi.fn(),
+      listPortfolioAnalystMemories: vi.fn(),
+      readPortfolioAnalystMemory: vi.fn(),
+      savePortfolioAnalystMemory: vi.fn(),
+      deletePortfolioAnalystMemory: vi.fn(),
     };
     const create = vi.fn();
 

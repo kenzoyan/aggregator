@@ -10,6 +10,7 @@ import {
   createPortfolioAnalystConversation,
   createPortfolioAnalystHistory,
   normalizePortfolioAnalystConversation,
+  replacePortfolioAnalystTurn,
   type PortfolioAnalystImageAttachment,
   type PortfolioAnalystConversationStore,
 } from "@/application/portfolio-analyst-conversation";
@@ -30,6 +31,8 @@ import {
 } from "@/application/portfolio-analyst-provider";
 import type { SourceAccountDefinition } from "@/domain/source-accounts";
 import type { StoredImportDraft } from "@/domain/imports";
+import type { PortfolioAnalystMemoryStore } from "@/application/portfolio-analyst-memory";
+import { parseMemoryRequest } from "@/application/portfolio-analyst-memory";
 import {
   portfolioAnalystStreamContentType,
   type PortfolioAnalystStreamEvent,
@@ -107,14 +110,6 @@ function runtimeQuestion(body: AnalystApiRequest): string {
   return `The user attached ${body.screenshotCount} screenshot(s). Their image contents are not visible in this text turn. Read the registered accounts and use prepare_account_import when the user's text clearly identifies one. Do not claim to have read or extracted the images; the application will analyze them after account selection. User request: ${question}`;
 }
 
-function courtesyReply(question: string, language: "en" | "zh-CN"): string | undefined {
-  const normalized = question.trim().replace(/[.!。！…]+$/u, "").trim().toLowerCase();
-  if (!["thanks", "thank you", "thank you so much", "谢谢", "谢谢你", "多谢", "感谢"].includes(normalized)) {
-    return undefined;
-  }
-  return language === "zh-CN" ? "不客气。" : "You're welcome.";
-}
-
 function json(body: unknown, init?: ResponseInit) {
   return NextResponse.json(body, {
     ...init,
@@ -143,6 +138,7 @@ export function createPortfolioAnalystHandlers(
     now?: () => string;
     createId?: () => string;
     conversations?: PortfolioAnalystConversationStore;
+    memory?: PortfolioAnalystMemoryStore;
     deleteImage?: (attachment: PortfolioAnalystImageAttachment) => Promise<void>;
     getImportDraft?: (id: string) => StoredImportDraft | undefined;
   },
@@ -290,19 +286,86 @@ export function createPortfolioAnalystHandlers(
         now: generatedAt,
       });
 
-      const courtesy = "mode" in body && !body.screenshotCount
-        ? courtesyReply(body.question, body.language)
+      const memoryRequest = "mode" in body && !body.screenshotCount
+        ? parseMemoryRequest(body.question)
         : undefined;
-      if (courtesy) {
-        const nextConversation = appendPortfolioAnalystTurn({ ...conversation, language: body.language }, {
-          id: createId(),
-          question: requestQuestion(body),
-          createdAt: generatedAt,
-          chat: { assistantText: courtesy },
+      if ("mode" in body && memoryRequest) {
+        const turnId = createId();
+        const startingConversation = appendPortfolioAnalystTurn({ ...conversation, language: body.language }, {
+          id: turnId, question: body.question, createdAt: generatedAt,
+          chat: {
+            assistantText: body.language === "zh-CN" ? "正在整理记忆……" : "Preparing a memory…",
+            requestStatus: "pending",
+          },
         });
+        options.conversations?.savePortfolioAnalystConversation(startingConversation);
+        let proposal: Awaited<ReturnType<NonNullable<typeof agentRuntime.generateMemoryProposal>>> = { kind: "unsupported" };
+        let generationError: unknown;
+        if (memoryRequest !== "unsupported") {
+          try {
+            if (!agentRuntime.generateMemoryProposal) {
+              throw new PortfolioAnalystProviderError("provider-unavailable", body.provider);
+            }
+            proposal = await agentRuntime.generateMemoryProposal({
+              content: memoryRequest, language: body.language,
+              existingMemories: options.memory?.listPortfolioAnalystMemories() ?? [],
+              signal: request.signal,
+            });
+          } catch (error) {
+            generationError = error;
+          }
+        }
+        const assistantText = generationError
+          ? (body.language === "zh-CN"
+            ? "这次未能整理记忆。你的消息已保留，请稍后重试。"
+            : "I couldn't prepare that memory. Your message is saved; please try again.")
+          : proposal.kind === "duplicate"
+            ? (body.language === "zh-CN" ? "已有同义的记忆，没有重复保存。" : "A similar memory is already saved, so I did not add another one.")
+          : proposal.kind === "unsupported"
+            ? (body.language === "zh-CN"
+              ? "这条内容不能保存为记忆。请只写一条 200 字以内的回答偏好，不要包含密码、密钥或财务记录。"
+              : "I can't save that as memory. Use one answer preference under 200 characters, without secrets or financial records.")
+            : (body.language === "zh-CN"
+              ? "我已将整理后的记忆放在右侧供你审核。确认前不会保存。"
+              : "I put the rewritten memory in the review panel on the right. It will not be saved until you confirm.");
+        const nextConversation = replacePortfolioAnalystTurn(startingConversation, {
+          id: turnId, question: body.question, createdAt: generatedAt,
+          chat: {
+            assistantText,
+            ...(generationError ? {
+              failureCode: generationError instanceof PortfolioAnalystProviderError
+                ? generationError.code : "provider-unavailable",
+              ...(generationError instanceof PortfolioAnalystProviderError && generationError.diagnosticCode
+                ? { failureDetail: generationError.diagnosticCode } : {}),
+            } : proposal.kind !== "preference" ? {} : {
+              memoryProposal: { content: proposal.content, status: "pending" as const },
+            }),
+          },
+        }, options.now?.() ?? new Date().toISOString());
         options.conversations?.savePortfolioAnalystConversation(nextConversation);
         return json({ conversation: nextConversation });
       }
+
+      const pendingTurnId = "mode" in body && options.conversations ? createId() : undefined;
+      if (pendingTurnId) {
+        conversation = appendPortfolioAnalystTurn({ ...conversation, language: body.language }, {
+          id: pendingTurnId,
+          question: requestQuestion(body),
+          createdAt: generatedAt,
+          chat: {
+            assistantText: body.language === "zh-CN"
+              ? "正在生成回答。如果请求中断，请重新发送问题。"
+              : "Response in progress. If the request is interrupted, send the question again.",
+            requestStatus: "pending",
+          },
+        });
+        options.conversations!.savePortfolioAnalystConversation(conversation);
+      }
+
+      const finishTurn = (turn: Parameters<typeof appendPortfolioAnalystTurn>[1]) =>
+        pendingTurnId
+          ? replacePortfolioAnalystTurn(conversation, turn, options.now?.() ?? new Date().toISOString())
+          : appendPortfolioAnalystTurn({ ...conversation, language: body.language }, turn);
 
       let context: PortfolioAnalystContextV1;
       let answer: PortfolioAnalystAnswer;
@@ -320,6 +383,7 @@ export function createPortfolioAnalystHandlers(
           language: body.language,
           includeHoldingNames: body.includeHoldingNames,
           defaultPeriod: requestDefaultPeriod(body),
+          memories: options.memory?.listPortfolioAnalystMemories(),
           factsAsOf: portfolio.insights.asOf,
           signal: request.signal,
           onPhase: (phase) => emit?.({ type: "status", phase }),
@@ -327,8 +391,8 @@ export function createPortfolioAnalystHandlers(
           onAnswerTextDelta: (delta) => emit?.({ type: "answer-delta", delta }),
         });
         if (result.kind === "conversation") {
-          const nextConversation = appendPortfolioAnalystTurn({ ...conversation, language: body.language }, {
-            id: createId(),
+          const nextConversation = finishTurn({
+            id: pendingTurnId ?? createId(),
             question: requestQuestion(body),
             createdAt: generatedAt,
             chat: { assistantText: result.reply },
@@ -340,6 +404,35 @@ export function createPortfolioAnalystHandlers(
         answer = result.answer;
         agentAudit = result.audit;
       } catch (error) {
+        if ("mode" in body && options.conversations) {
+          const code = error instanceof PortfolioAnalystContextError
+            ? "context-too-large"
+            : error instanceof PortfolioAnalystProviderError ? error.code : "provider-unavailable";
+          const detail = error instanceof PortfolioAnalystProviderError ? error.diagnosticCode : undefined;
+          const assistantText = code === "invalid-provider-output"
+            ? (body.language === "zh-CN"
+              ? "我无法核实刚才生成的回答。这条消息已保留；请重试。"
+              : "I couldn't verify the generated answer. This message is saved; please try again.")
+            : detail === "timeout"
+              ? (body.language === "zh-CN" ? "模型响应超时。这条消息已保留；请重试。" : "The model timed out. This message is saved; please try again.")
+            : detail === "rate-limited"
+              ? (body.language === "zh-CN" ? "模型请求暂时受限。这条消息已保留；请稍后重试。" : "The model is temporarily rate limited. This message is saved; please try again later.")
+            : detail === "authentication" || detail === "request-rejected"
+              ? (body.language === "zh-CN" ? "模型拒绝了这次请求。请检查模型配置；消息已保留。" : "The model rejected this request. Check its configuration; your message is saved.")
+            : (body.language === "zh-CN"
+              ? "这次回答没有完成。这条消息已保留；请稍后重试。"
+              : "I couldn't complete the answer. This message is saved; please try again.");
+          const nextConversation = finishTurn({
+            id: pendingTurnId ?? createId(), question: body.question, createdAt: generatedAt,
+            chat: {
+              assistantText, failureCode: code,
+              ...(error instanceof PortfolioAnalystProviderError && error.diagnosticCode
+                ? { failureDetail: error.diagnosticCode } : {}),
+            },
+          });
+          options.conversations.savePortfolioAnalystConversation(nextConversation);
+          return json({ conversation: nextConversation });
+        }
         if (error instanceof PortfolioAnalystContextError) {
           return json(
             { error: "Analyst context is too large.", code: "context-too-large" },
@@ -369,8 +462,8 @@ export function createPortfolioAnalystHandlers(
         ...(agentAudit ? { agentAudit } : {}),
         disclaimer: "AI-generated factual explanation · Not investment advice",
       };
-      const nextConversation = appendPortfolioAnalystTurn({ ...conversation, language: body.language }, {
-        id: createId(),
+      const nextConversation = finishTurn({
+        id: pendingTurnId ?? createId(),
         question: requestQuestion(body),
         createdAt: generatedAt,
         report: result,
@@ -421,6 +514,7 @@ function getProductionHandlers() {
         ),
         readSourceAccounts: () => database.readSourceAccounts(),
         conversations: database,
+        memory: database,
         deleteImage: (attachment) => createLocalPortfolioAnalystImageStore().delete(attachment),
         getImportDraft: (id) => database.getImportDraft(id),
       },

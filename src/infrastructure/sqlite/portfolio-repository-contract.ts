@@ -3,6 +3,7 @@ import type { PriceSourceBinding, PriceSourceRefreshStatus } from "@/application
 import type {
   PortfolioAnalystConversationStore,
 } from "@/application/portfolio-analyst-conversation";
+import type { PortfolioAnalystMemoryStore } from "@/application/portfolio-analyst-memory";
 import type { PortfolioNarrativeReport } from "@/application/portfolio-narrative";
 import type {
   ConfirmedImportRecord,
@@ -52,7 +53,7 @@ export interface ConfirmImportCommand {
   review: ImportDraftReview;
 }
 
-export interface PortfolioDatabase extends PortfolioAnalystConversationStore {
+export interface PortfolioDatabase extends PortfolioAnalystConversationStore, PortfolioAnalystMemoryStore {
   saveImportDraft(draft: ImportDraftInput): void;
   getImportDraft(id: string): StoredImportDraft | undefined;
   discardImportDraft(id: string): boolean;

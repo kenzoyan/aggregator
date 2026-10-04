@@ -5,6 +5,7 @@ import type {
   PortfolioAnalystTools,
 } from "@/application/portfolio-analyst-contract";
 import type { PortfolioAnalystHistoryMessage } from "@/application/portfolio-analyst-conversation";
+import type { PortfolioAnalystMemory } from "@/application/portfolio-analyst-memory";
 import type { Period } from "@/application/portfolio-read-model";
 
 export const portfolioAnalystToolNames = [
@@ -60,6 +61,7 @@ export interface PortfolioAnalystAgentTurn {
   language: PortfolioAnalystLanguage;
   includeHoldingNames: boolean;
   defaultPeriod: Period;
+  memories?: readonly PortfolioAnalystMemory[];
   factsAsOf?: string;
   signal?: AbortSignal;
   onPhase?: (phase: "reading-current-facts" | "generating-answer") => void;
@@ -82,4 +84,10 @@ export type PortfolioAnalystAgentResult =
 
 export interface PortfolioAnalystAgentRuntime {
   runTurn(input: PortfolioAnalystAgentTurn): Promise<PortfolioAnalystAgentResult>;
+  generateMemoryProposal?(input: {
+    content: string;
+    language: PortfolioAnalystLanguage;
+    existingMemories: readonly Pick<PortfolioAnalystMemory, "content">[];
+    signal?: AbortSignal;
+  }): Promise<{ kind: "preference"; content: string } | { kind: "unsupported" | "duplicate" }>;
 }

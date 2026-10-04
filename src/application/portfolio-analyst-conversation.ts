@@ -8,7 +8,13 @@ import {
   portfolioAnalystLimitationLabel,
 } from "@/application/portfolio-analyst-presentation";
 
-const MAX_MODEL_HISTORY_TURNS = 3;
+const MAX_MODEL_HISTORY_TURNS = 5;
+const MAX_HISTORY_USER_CHARS = 600;
+const MAX_HISTORY_ASSISTANT_CHARS = 1_400;
+
+function boundedHistoryText(value: string, maxChars: number): string {
+  return value.length > maxChars ? `${value.slice(0, maxChars)}…` : value;
+}
 
 export interface PortfolioAnalystImageAttachment {
   id: string;
@@ -28,6 +34,13 @@ export interface PortfolioAnalystImageAnswer {
 
 export interface PortfolioAnalystChatReply {
   assistantText: string;
+  requestStatus?: "pending";
+  failureCode?: string;
+  failureDetail?: string;
+  memoryProposal?: {
+    content: string;
+    status: "pending" | "saved" | "cancelled";
+  };
   imageAction?: {
     sourceTurnId: string;
     stage: "intent" | "account";
@@ -214,6 +227,47 @@ export function appendPortfolioAnalystTurn(
   };
 }
 
+export function replacePortfolioAnalystTurn(
+  conversation: PortfolioAnalystConversation,
+  turn: PortfolioAnalystConversationTurn,
+  now: string,
+): PortfolioAnalystConversation {
+  if (!conversation.turns.some((item) => item.id === turn.id)) {
+    throw new Error("The conversation turn was not found.");
+  }
+  return {
+    ...conversation,
+    updatedAt: now,
+    turns: conversation.turns.map((item) => item.id === turn.id ? turn : item),
+  };
+}
+
+export function resolvePortfolioAnalystMemoryProposal(
+  conversation: PortfolioAnalystConversation,
+  turnId: string,
+  status: "saved" | "cancelled",
+  now: string,
+): PortfolioAnalystConversation {
+  const turn = conversation.turns.find((item) => item.id === turnId);
+  if (!turn?.chat?.memoryProposal || turn.chat.memoryProposal.status !== "pending") {
+    throw new Error("Pending memory proposal was not found.");
+  }
+  return {
+    ...conversation,
+    updatedAt: now,
+    turns: conversation.turns.map((item) => item.id !== turnId || !item.chat ? item : {
+      ...item,
+      chat: {
+        ...item.chat,
+        assistantText: status === "saved"
+          ? (conversation.language === "zh-CN" ? "已保存这条记忆。你可以在设置中管理。" : "Memory saved. You can manage it in Settings.")
+          : (conversation.language === "zh-CN" ? "这条记忆没有保存。" : "This memory was not saved."),
+        memoryProposal: { ...item.chat.memoryProposal!, status },
+      },
+    }),
+  };
+}
+
 export function appendPortfolioAnalystImportImageTurn(
   conversation: PortfolioAnalystConversation,
   input: {
@@ -246,6 +300,7 @@ export function createPortfolioAnalystHistory(
   conversation: PortfolioAnalystConversation,
 ): PortfolioAnalystHistoryMessage[] {
   const exchanges = conversation.turns.flatMap((turn) => {
+    if (turn.chat?.memoryProposal || turn.chat?.failureCode || turn.chat?.requestStatus === "pending") return [];
     if (turn.importImage) return [];
     if (turn.imageAnswer && turn.imageAnswer.status && turn.imageAnswer.status !== "complete") return [];
     if (!conversation.includeHoldingNames && (turn.chat || turn.imageAnswer)) return [];
@@ -277,8 +332,8 @@ export function createPortfolioAnalystHistory(
     .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
     .slice(-MAX_MODEL_HISTORY_TURNS);
   const history: PortfolioAnalystHistoryMessage[] = recent.flatMap((exchange) => [
-    { role: "user" as const, text: exchange.userText },
-    { role: "assistant" as const, text: exchange.assistantText, factsAsOf: exchange.factsAsOf },
+    { role: "user" as const, text: boundedHistoryText(exchange.userText, MAX_HISTORY_USER_CHARS) },
+    { role: "assistant" as const, text: boundedHistoryText(exchange.assistantText, MAX_HISTORY_ASSISTANT_CHARS), factsAsOf: exchange.factsAsOf },
   ]);
   const recentImport = conversation.importActivities.at(-1);
   const latestExchangeAt = recent.at(-1)?.createdAt;

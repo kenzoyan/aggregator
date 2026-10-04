@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 
 import type { PortfolioAnalystConversation } from "@/application/portfolio-analyst-conversation";
+import { PortfolioMemorySettings } from "@/components/portfolio-memory-settings";
 import {
   defaultPortfolioAnalystPreferences,
   readPortfolioAnalystPreferences,
@@ -91,6 +92,7 @@ export function PortfolioSettings() {
         <p className="settings-loading">Loading settings…</p>
       ) : (
         <div className="settings-sections">
+          <PortfolioMemorySettings />
           <section className="settings-card" aria-labelledby="settings-general-heading">
             <div className="settings-card-heading">
               <div>

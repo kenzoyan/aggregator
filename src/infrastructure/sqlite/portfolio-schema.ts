@@ -2,7 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 
 import { legacyPartialSnapshotWarningMarker } from "@/domain/imports";
 
-export const portfolioSchemaVersion = 10;
+export const portfolioSchemaVersion = 12;
 
 export class LegacyPortfolioDatabaseError extends Error {
   constructor() {
@@ -44,6 +44,26 @@ const portfolioAnalystConversationsSchema = `
 
   CREATE INDEX IF NOT EXISTS portfolio_analyst_conversations_latest
     ON portfolio_analyst_conversations(updated_at DESC);
+`;
+
+const portfolioAnalystMemorySchema = `
+  CREATE TABLE IF NOT EXISTS portfolio_analyst_memory (
+    kind TEXT PRIMARY KEY CHECK (kind = 'performance-answer-order'),
+    value TEXT NOT NULL CHECK (value IN ('eur-first', 'percent-first')),
+    source TEXT NOT NULL CHECK (source IN ('chat', 'settings')),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+`;
+
+const portfolioAnalystMemoriesSchema = `
+  CREATE TABLE IF NOT EXISTS portfolio_analyst_memories (
+    id TEXT PRIMARY KEY,
+    content TEXT NOT NULL,
+    source TEXT NOT NULL CHECK (source IN ('chat', 'settings')),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
 `;
 
 const marketIntelligenceSchema = `
@@ -223,6 +243,7 @@ export function initializePortfolioSchema(database: DatabaseSync) {
 
         ${portfolioNarrativesSchema}
         ${portfolioAnalystConversationsSchema}
+        ${portfolioAnalystMemoriesSchema}
         ${marketIntelligenceSchema}
       `);
       database.exec("COMMIT");
@@ -404,6 +425,42 @@ export function initializePortfolioSchema(database: DatabaseSync) {
         }
       }
       database.exec("UPDATE schema_metadata SET version = 10");
+      database.exec("COMMIT");
+    } catch (error) {
+      database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+  const memoryRow = database.prepare(
+    "SELECT version FROM schema_metadata LIMIT 1",
+  ).get() as { version: number } | undefined;
+  if (memoryRow?.version === 10) {
+    database.exec("BEGIN IMMEDIATE");
+    try {
+      database.exec(`${portfolioAnalystMemorySchema} UPDATE schema_metadata SET version = 11;`);
+      database.exec("COMMIT");
+    } catch (error) {
+      database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+  const memoryListRow = database.prepare(
+    "SELECT version FROM schema_metadata LIMIT 1",
+  ).get() as { version: number } | undefined;
+  if (memoryListRow?.version === 11) {
+    database.exec("BEGIN IMMEDIATE");
+    try {
+      database.exec(`
+        ${portfolioAnalystMemoriesSchema}
+        INSERT INTO portfolio_analyst_memories (id, content, source, created_at, updated_at)
+        SELECT 'migrated-answer-order',
+          CASE value WHEN 'eur-first' THEN 'When both are available, show the EUR change before the percentage.'
+            ELSE 'When both are available, show the percentage before the EUR change.' END,
+          source, created_at, updated_at
+        FROM portfolio_analyst_memory;
+        DROP TABLE portfolio_analyst_memory;
+        UPDATE schema_metadata SET version = 12;
+      `);
       database.exec("COMMIT");
     } catch (error) {
       database.exec("ROLLBACK");

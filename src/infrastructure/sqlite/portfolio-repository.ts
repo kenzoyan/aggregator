@@ -4,6 +4,7 @@ import { createImportPortfolioRepository } from "@/infrastructure/sqlite/import-
 import { createMarketDataRepository } from "@/infrastructure/sqlite/market-data-repository";
 import { createMarketIntelligenceBriefRepository } from "@/infrastructure/sqlite/market-intelligence-brief-repository";
 import { createPortfolioAnalystConversationRepository } from "@/infrastructure/sqlite/portfolio-analyst-conversation-repository";
+import { createPortfolioAnalystMemoryRepository } from "@/infrastructure/sqlite/portfolio-analyst-memory-repository";
 import { createPortfolioNarrativeRepository } from "@/infrastructure/sqlite/portfolio-narrative-repository";
 import { createPriceSourceBindingRepository } from "@/infrastructure/sqlite/price-source-binding-repository";
 import type { PortfolioDatabase } from "@/infrastructure/sqlite/portfolio-repository-contract";
@@ -26,6 +27,7 @@ export function createPortfolioDatabase(filename: string): PortfolioDatabase {
   }
   const portfolioAnalystConversations =
     createPortfolioAnalystConversationRepository(database);
+  const portfolioAnalystMemory = createPortfolioAnalystMemoryRepository(database);
   const marketIntelligenceBriefs =
     createMarketIntelligenceBriefRepository(database);
   const portfolioNarratives = createPortfolioNarrativeRepository(database);
@@ -42,6 +44,7 @@ export function createPortfolioDatabase(filename: string): PortfolioDatabase {
     ...portfolioNarratives,
     ...marketIntelligenceBriefs,
     ...portfolioAnalystConversations,
+    ...portfolioAnalystMemory,
 
     close() {
       database.close();

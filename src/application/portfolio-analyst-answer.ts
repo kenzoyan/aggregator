@@ -71,7 +71,7 @@ export const portfolioAnalystAnswerCandidateSchema = z.object({
   factsAsOf: z.string().min(1).max(64),
   answer: claimSchema(800),
   claims: z.array(claimSchema(400)).max(6),
-  limitations: z.array(limitationSchema).max(4),
+  limitations: z.array(limitationSchema).max(8),
   proposedUpdate: z.union([...factualUpdateSchemaValues, z.null()]),
 }).strict();
 

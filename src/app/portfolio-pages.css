@@ -320,6 +320,28 @@
 .settings-fields label > span { font-size: 12px; font-weight: 650; }
 .settings-fields label > small { min-height: 30px; color: var(--muted); font-size: 9px; line-height: 1.45; }
 .settings-fields select { width: 100%; min-height: 42px; margin-top: 5px; padding: 9px 32px 9px 11px; border: 1px solid #d7d4ca; border-radius: 8px; background: var(--surface); color: var(--ink); font-size: 12px; }
+.settings-memory-table-wrap { overflow-x: auto; border: 1px solid #e4e1d8; border-radius: 10px; }
+.settings-memory-table { width: 100%; border-collapse: collapse; text-align: left; }
+.settings-memory-table th { padding: 10px 12px; background: #f8f6f0; color: var(--muted); font-size: 10px; font-weight: 650; }
+.settings-memory-table td { padding: 11px 12px; border-top: 1px solid #e4e1d8; font-size: 12px; line-height: 1.45; vertical-align: middle; }
+.settings-memory-table td:first-child { width: 60%; overflow-wrap: anywhere; }
+.settings-memory-table td:nth-child(2) { min-width: 145px; color: var(--muted); white-space: nowrap; }
+.settings-memory-table small { display: block; color: var(--muted); font-size: 10px; }
+.settings-memory-table td:last-child { width: 1%; white-space: nowrap; }
+.settings-memory-row-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.settings-memory-row-actions button, .settings-memory-add { padding: 5px 8px; border: 0; border-radius: 6px; background: transparent; color: var(--accent); font-size: 11px; font-weight: 650; cursor: pointer; }
+.settings-memory-add { margin-top: 12px; padding: 7px 0; }
+.settings-memory-row-actions button:hover, .settings-memory-add:hover { text-decoration: underline; }
+.settings-memory-editor small, .settings-memory-count { color: var(--muted); font-size: 10px; }
+.settings-memory-editor { display: grid; gap: 8px; margin-top: 16px; }
+.settings-memory-editor label { font-size: 12px; font-weight: 650; }
+.settings-memory-editor textarea { width: 100%; min-height: 80px; padding: 10px; border: 1px solid #d7d4ca; border-radius: 8px; background: var(--surface); color: var(--ink); font: inherit; font-size: 12px; resize: vertical; }
+.settings-memory-actions, .settings-memory-confirm { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
+.settings-memory-actions button, .settings-memory-confirm button { padding: 8px 12px; border: 1px solid #d7d4ca; border-radius: 8px; background: var(--surface); color: var(--ink); font-size: 11px; font-weight: 650; cursor: pointer; }
+.settings-memory-actions button:disabled, .settings-memory-confirm button:disabled { opacity: .5; cursor: not-allowed; }
+.settings-memory-confirm { padding: 12px; border: 1px solid #e2d5b8; border-radius: 9px; background: #f8f2e5; }
+.settings-memory-confirm p, .settings-memory-confirm blockquote { flex-basis: 100%; margin: 0; }
+.settings-memory-count { margin: 16px 0 0; }
 .settings-provider-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .settings-provider-option { display: flex; align-items: center; gap: 12px; min-height: 72px; padding: 15px 16px; border: 1px solid #dfdcd2; border-radius: 11px; background: #faf8f3; cursor: pointer; }
 .settings-provider-option.selected { border-color: #8aa99d; background: #eef3ee; box-shadow: inset 0 0 0 1px rgba(37,79,67,.12); }

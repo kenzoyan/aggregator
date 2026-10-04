@@ -65,7 +65,7 @@ flowchart LR
 
 The dashboard checks prices at most once per `Europe/Helsinki` day when a non-empty portfolio loads. **Refresh prices** triggers an explicit retry. If a provider fails, the last successful local price remains available. A manual dated NAV or price can be entered for an existing holding.
 
-Portfolio Agent answers use fresh, bounded facts and validate evidence before a completed answer is saved. Account creation and screenshot imports still require owner confirmation. Screenshots sent in Agent chat are saved in the ignored private `data/agent-images/` directory and referenced by the local conversation so they remain visible after reload. Screenshots submitted through the separate Import page are still temporary. External market watch searches approved official sources only when requested.
+Portfolio Agent answers use fresh, bounded facts and validate evidence before a completed answer is saved. The model sees up to five recent exchanges with bounded text. Up to five short, explicitly confirmed memories are saved separately from the conversation and loaded for ordinary questions. An explicit chat memory request is rewritten by a separate no-tool model call, shown in the right review panel, and saved only after confirmation; the original chat message remains in the conversation. Generation failures never save the raw request as memory. Memories can be reviewed, edited, or deleted in Settings. Failed model answers are retained as conversation turns so the user's question remains visible. Account creation and screenshot imports still require owner confirmation. Screenshots sent in Agent chat are saved in the ignored private `data/agent-images/` directory and referenced by the local conversation so they remain visible after reload. Screenshots submitted through the separate Import page are still temporary. External market watch searches approved official sources only when requested.
 
 ## 🧭 Navigate the app
 
@@ -103,7 +103,7 @@ The regular test suite mocks cloud boundaries and uses synthetic data. An opt-in
 
 ### Local data and upgrades
 
-Portfolio records live in the ignored `data/invest-assets-monitor.sqlite` database. The existing filename is retained when the project is renamed so local portfolios remain available. Existing v2–v9 databases upgrade to schema v10 in place. A disposable pre-v2 test database is not migrated; if startup identifies one, stop the app and move `data/invest-assets-monitor.sqlite*` out of the active path before restarting. If `PORTFOLIO_DB_FILENAME` is customized, use that basename instead. Keep the moved file locally until you no longer need it.
+Portfolio records live in the ignored `data/invest-assets-monitor.sqlite` database. The existing filename is retained when the project is renamed so local portfolios remain available. Existing v2–v11 databases upgrade to schema v12 in place. A disposable pre-v2 test database is not migrated; if startup identifies one, stop the app and move `data/invest-assets-monitor.sqlite*` out of the active path before restarting. If `PORTFOLIO_DB_FILENAME` is customized, use that basename instead. Keep the moved file locally until you no longer need it.
 
 ## 🔒 Privacy and boundaries
 

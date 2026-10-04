@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { useEffect, useRef, useState } from "react";
 
 import type { PortfolioAnalystConversation } from "@/application/portfolio-analyst-conversation";
+import { parseMemoryRequest } from "@/application/portfolio-analyst-memory";
 import { pendingScreenshotImportTarget, resumableImageContext } from "@/application/agent-image-intent";
 import { consumePortfolioAnalystImageStream } from "@/application/portfolio-analyst-image-stream";
 import type {
@@ -110,6 +111,8 @@ export function PortfolioAnalyst({
   const [loading, setLoading] = useState(false);
   const [importBusy, setImportBusy] = useState(false);
   const [error, setError] = useState<string>();
+  const [memoryReviewBusy, setMemoryReviewBusy] = useState(false);
+  const [memoryReviewError, setMemoryReviewError] = useState("");
   const [importAttachments, setImportAttachments] = useState<AgentImageAttachmentState<File>>(
     () => createAgentImageAttachmentState<File>(),
   );
@@ -237,6 +240,10 @@ export function PortfolioAnalyst({
       void sendImageMessage(submission);
       return;
     }
+    if (parseMemoryRequest(submission.text)) {
+      void runAnalyst(submission.text);
+      return;
+    }
     if (activeReview) {
       void submitImportMessage(activeReview.draftId, submission.text);
       return;
@@ -255,6 +262,28 @@ export function PortfolioAnalyst({
       return;
     }
     void runAnalyst(submission.text);
+  }
+
+  async function resolveMemoryProposal(action: "save" | "cancel", turnId: string) {
+    if (!conversation || memoryReviewBusy) return;
+    setMemoryReviewBusy(true);
+    setMemoryReviewError("");
+    try {
+      const response = await fetch("/api/portfolio/analyst/memory", {
+        method: action === "save" ? "PUT" : "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(action === "save"
+          ? { conversationId: conversation.id, turnId, confirm: true }
+          : { conversationId: conversation.id, turnId, action: "cancel" }),
+      });
+      const result = await response.json() as { conversation?: PortfolioAnalystConversation; error?: string };
+      if (!response.ok || !result.conversation) throw new Error(result.error ?? "Memory review could not be completed.");
+      setConversation(result.conversation);
+    } catch (cause) {
+      setMemoryReviewError(cause instanceof Error ? cause.message : "Memory review could not be completed.");
+    } finally {
+      setMemoryReviewBusy(false);
+    }
   }
 
   async function sendImageMessage(
@@ -633,6 +662,11 @@ export function PortfolioAnalyst({
           streamFinished = true;
           completedConversation = event.conversation;
           if (!screenshotCount) setConversation(event.conversation);
+          if (event.conversation.turns.at(-1)?.chat?.memoryProposal) {
+            setSelectedEvidenceId(undefined);
+            setMemoryReviewError("");
+            window.requestAnimationFrame(() => document.getElementById("agent-review")?.scrollIntoView({ block: "nearest", behavior: "smooth" }));
+          }
           setPendingTurn(undefined);
           return;
         }
@@ -739,6 +773,7 @@ export function PortfolioAnalyst({
   const activeDraft = activeReview && importDrafts[activeReview.draftId];
   const activeDateRequest = activeDraft && nextImportDateFollowUp(activeDraft);
   const selectedEvidenceTurn = conversation?.turns.find((turn) => turn.id === selectedEvidenceId && turn.report);
+  const pendingMemoryTurn = conversation?.turns.findLast((turn) => turn.chat?.memoryProposal?.status === "pending");
 
   return (
     <div
@@ -909,7 +944,22 @@ export function PortfolioAnalyst({
         </div>
         </div>
       </aside>
-      {reviewHost && selectedEvidenceTurn?.report && createPortal(
+      {reviewHost && pendingMemoryTurn?.chat?.memoryProposal && createPortal(
+        <section className="home-review-panel home-memory-review" aria-label="Review memory">
+          <div className="home-review-panel-heading">
+            <div><p className="eyebrow">MEMORY REVIEW</p><h2>{language === "zh-CN" ? "确认这条记忆" : "Confirm this memory"}</h2></div>
+          </div>
+          <p>{language === "zh-CN" ? "确认后，这条偏好会用于以后的一般提问。它不会更改持仓数据。" : "After confirmation, this preference can guide future answers. It will not change portfolio facts."}</p>
+          <blockquote>{pendingMemoryTurn.chat.memoryProposal.content}</blockquote>
+          {memoryReviewError && <p role="alert" className="error-message">{memoryReviewError}</p>}
+          <div className="home-memory-review-actions">
+            <button type="button" disabled={memoryReviewBusy} onClick={() => void resolveMemoryProposal("save", pendingMemoryTurn.id)}>{memoryReviewBusy ? "Working…" : language === "zh-CN" ? "确认保存" : "Save memory"}</button>
+            <button type="button" disabled={memoryReviewBusy} onClick={() => void resolveMemoryProposal("cancel", pendingMemoryTurn.id)}>{language === "zh-CN" ? "不保存" : "Do not save"}</button>
+          </div>
+        </section>,
+        reviewHost,
+      )}
+      {reviewHost && !pendingMemoryTurn && selectedEvidenceTurn?.report && createPortal(
         <section id="agent-sources-panel" className="home-review-panel home-sources-panel" aria-label="Sources for the selected answer" tabIndex={-1}>
           <div className="home-review-panel-heading">
             <div>
@@ -929,7 +979,7 @@ export function PortfolioAnalyst({
         </section>,
         reviewHost,
       )}
-      {reviewHost && !selectedEvidenceTurn && activeReview && activeDraft && createPortal(
+      {reviewHost && !pendingMemoryTurn && !selectedEvidenceTurn && activeReview && activeDraft && createPortal(
         <section className="home-review-panel" aria-label={`Review ${activeReview.targetLabel} import`}>
           <div className="home-review-panel-heading">
             <div><p className="eyebrow">IMPORT REVIEW</p><h2>Review {activeReview.targetLabel}</h2></div>

@@ -189,12 +189,18 @@ describe("/api/portfolio/analyst", () => {
       }],
     });
     let runtimeCalled = false;
+    let receivedHistory: unknown;
     const handlers = createPortfolioAnalystHandlers({
       models: { openai: "gpt-synthetic", deepseek: "deepseek-synthetic" },
       defaultProvider: "openai",
-      agentRuntimes: { openai: { async runTurn() {
+      agentRuntimes: { openai: { async runTurn(input) {
         runtimeCalled = true;
-        throw new Error("No current evidence was produced for a courtesy message.");
+        receivedHistory = input.history;
+        return {
+          kind: "conversation" as const,
+          reply: "You're welcome. What would you like to discuss next?",
+          audit: { runtime: "pi-agent-core" as const, modelTurns: 1, stopReason: "completed" as const, toolCalls: [] },
+        };
       } } },
     }, {
       readCurrentPortfolio: portfolio,
@@ -214,11 +220,14 @@ describe("/api/portfolio/analyst", () => {
     }));
 
     expect(response.status).toBe(200);
-    expect(runtimeCalled).toBe(false);
+    expect(runtimeCalled).toBe(true);
+    expect(receivedHistory).toEqual(expect.arrayContaining([
+      expect.objectContaining({ role: "user", text: "cancel import" }),
+    ]));
     expect(store.readLatestPortfolioAnalystConversation()?.turns.at(-1)).toMatchObject({
       id: "courtesy-turn",
       question,
-      chat: { assistantText: "You're welcome." },
+      chat: { assistantText: "You're welcome. What would you like to discuss next?" },
     });
     },
   );
@@ -621,9 +630,12 @@ describe("/api/portfolio/analyst", () => {
   it("persists a conversation and supplies bounded history to a follow-up", async () => {
     const store = conversationStore();
     const receivedHistory: unknown[] = [];
+    const receivedMemory: unknown[] = [];
+    let savedMemory = "Keep answers brief.";
     const deletedImageIds: string[] = [];
     const fake = runtime(async (context, turn) => {
       receivedHistory.push(turn.history);
+      receivedMemory.push(turn.memories);
       return answer(context);
     }, "period");
     const ids = ["conversation-1", "turn-1", "turn-2"];
@@ -634,6 +646,15 @@ describe("/api/portfolio/analyst", () => {
     }, {
       readCurrentPortfolio: portfolio,
       conversations: store,
+      memory: {
+        listPortfolioAnalystMemories: () => savedMemory ? [{
+          id: "memory-1", content: savedMemory, source: "chat",
+          createdAt: "2026-09-09T10:00:00.000Z", updatedAt: "2026-09-09T10:00:00.000Z",
+        }] : [],
+        readPortfolioAnalystMemory: () => undefined,
+        savePortfolioAnalystMemory: (memory) => { savedMemory = memory.content; },
+        deletePortfolioAnalystMemory: () => { savedMemory = ""; },
+      },
       deleteImage: async (attachment) => { deletedImageIds.push(attachment.id); },
       createId: () => ids.shift()!,
       now: () => "2026-09-09T10:05:00.000Z",
@@ -651,6 +672,8 @@ describe("/api/portfolio/analyst", () => {
     expect(firstBody.conversation.id).toBe("conversation-1");
     expect(firstBody.conversation.turns).toHaveLength(1);
 
+    savedMemory = "";
+
     const second = await handlers.POST(request({
       provider: "openai",
       conversationId: "conversation-1",
@@ -661,6 +684,7 @@ describe("/api/portfolio/analyst", () => {
       question: "为什么 FX 是正的？",
     }));
     expect(second.status).toBe(200);
+    expect(receivedMemory).toMatchObject([[{ content: "Keep answers brief." }], []]);
     expect(receivedHistory).toEqual([
       [],
       [
@@ -693,6 +717,176 @@ describe("/api/portfolio/analyst", () => {
     expect(deleted.status).toBe(200);
     expect(store.readLatestPortfolioAnalystConversation()).toBeUndefined();
     expect(deletedImageIds).toEqual(["11111111-1111-4111-8111-111111111111"]);
+  });
+
+  it("keeps a memory request as a chat turn and excludes it from model history", async () => {
+    const store = conversationStore();
+    const ids = ["memory-conversation", "memory-turn", "answer-turn"];
+    const histories: unknown[] = [];
+    const fake = runtime(async (context, turn) => {
+      histories.push(turn.history);
+      return answer(context);
+    });
+    const handlers = createPortfolioAnalystHandlers({
+      agentRuntimes: { openai: {
+        ...fake,
+        generateMemoryProposal: async () => ({ kind: "preference" as const, content: "Answer briefly." }),
+      } },
+      models: { openai: "gpt-synthetic", deepseek: "deepseek-synthetic" },
+      defaultProvider: "openai",
+    }, {
+      readCurrentPortfolio: portfolio, conversations: store,
+      createId: () => ids.shift()!, now: () => "2026-10-04T10:00:00.000Z",
+    });
+    const first = await handlers.POST(request({
+      mode: "agent", provider: "openai", language: "en", includeHoldingNames: true,
+      defaultPeriod: "week", question: "Remember: Keep my answers brief.",
+    }));
+    const firstBody = await first.json() as { conversation: PortfolioAnalystConversation };
+    expect(firstBody.conversation.turns[0]).toMatchObject({
+      id: "memory-turn", question: "Remember: Keep my answers brief.",
+      chat: { memoryProposal: { content: "Answer briefly.", status: "pending" } },
+    });
+    expect(store.readLatestPortfolioAnalystConversation()?.turns).toHaveLength(1);
+    expect(histories).toEqual([]);
+
+    await handlers.POST(request({
+      mode: "agent", provider: "openai", language: "en", includeHoldingNames: true,
+      defaultPeriod: "week", conversationId: "memory-conversation", question: "What changed today?",
+    }));
+    expect(histories).toEqual([[]]);
+    expect(store.readLatestPortfolioAnalystConversation()?.turns).toHaveLength(2);
+  });
+
+  it("keeps a memory request when generation fails and does not offer raw text for saving", async () => {
+    const store = conversationStore();
+    const ids = ["memory-conversation", "memory-turn"];
+    const handlers = createPortfolioAnalystHandlers({
+      agentRuntimes: { openai: {
+        ...runtime(),
+        generateMemoryProposal: async () => {
+          throw new PortfolioAnalystProviderError("provider-unavailable", "OpenAI", "timeout");
+        },
+      } },
+      models: { openai: "gpt-synthetic", deepseek: "deepseek-synthetic" },
+      defaultProvider: "openai",
+    }, {
+      readCurrentPortfolio: portfolio, conversations: store,
+      createId: () => ids.shift()!, now: () => "2026-10-04T10:00:00.000Z",
+    });
+    const response = await handlers.POST(request({
+      mode: "agent", provider: "openai", language: "en", includeHoldingNames: true,
+      defaultPeriod: "week", question: "Remember to answer me shortly",
+    }));
+    expect(response.status).toBe(200);
+    expect(store.readLatestPortfolioAnalystConversation()?.turns).toMatchObject([{
+      question: "Remember to answer me shortly",
+      chat: { failureCode: "provider-unavailable", failureDetail: "timeout" },
+    }]);
+    expect(store.readLatestPortfolioAnalystConversation()?.turns[0].chat?.memoryProposal).toBeUndefined();
+  });
+
+  it("keeps a duplicate request in chat without creating a second memory proposal", async () => {
+    const store = conversationStore();
+    const ids = ["memory-conversation", "memory-turn"];
+    const handlers = createPortfolioAnalystHandlers({
+      agentRuntimes: { openai: {
+        ...runtime(), generateMemoryProposal: async () => ({ kind: "duplicate" as const }),
+      } },
+      models: { openai: "gpt-synthetic", deepseek: "deepseek-synthetic" },
+      defaultProvider: "openai",
+    }, {
+      readCurrentPortfolio: portfolio, conversations: store,
+      createId: () => ids.shift()!, now: () => "2026-10-04T10:00:00.000Z",
+    });
+    const response = await handlers.POST(request({
+      mode: "agent", provider: "openai", language: "en", includeHoldingNames: true,
+      defaultPeriod: "week", question: "Remember to answer me shortly",
+    }));
+    expect(response.status).toBe(200);
+    expect(store.readLatestPortfolioAnalystConversation()?.turns[0]).toMatchObject({
+      question: "Remember to answer me shortly",
+      chat: { assistantText: "A similar memory is already saved, so I did not add another one." },
+    });
+    expect(store.readLatestPortfolioAnalystConversation()?.turns[0].chat?.memoryProposal).toBeUndefined();
+  });
+
+  it("keeps a failed question when a later question is sent", async () => {
+    const store = conversationStore();
+    const ids = ["failure-conversation", "failed-turn", "later-turn"];
+    let calls = 0;
+    const histories: unknown[] = [];
+    const working = runtime(async (context, turn) => {
+      histories.push(turn.history);
+      return answer(context);
+    });
+    const handlers = createPortfolioAnalystHandlers({
+      agentRuntimes: { openai: {
+        runTurn(input) {
+          if (++calls === 1) throw new PortfolioAnalystProviderError("invalid-provider-output", "OpenAI", "unknown-evidence");
+          return working.runTurn(input);
+        },
+      } },
+      models: { openai: "gpt-synthetic", deepseek: "deepseek-synthetic" },
+      defaultProvider: "openai",
+    }, {
+      readCurrentPortfolio: portfolio, conversations: store,
+      createId: () => ids.shift()!, now: () => "2026-10-04T10:00:00.000Z",
+    });
+    const first = await handlers.POST(request({
+      mode: "agent", provider: "openai", language: "en", includeHoldingNames: true,
+      defaultPeriod: "week", question: "Latest NASDAQ news?",
+    }));
+    expect(first.status).toBe(200);
+    expect((await first.json()).conversation.turns[0]).toMatchObject({
+      question: "Latest NASDAQ news?", chat: {
+        failureCode: "invalid-provider-output", failureDetail: "unknown-evidence",
+      },
+    });
+    await handlers.POST(request({
+      mode: "agent", provider: "openai", language: "en", includeHoldingNames: true,
+      defaultPeriod: "week", conversationId: "failure-conversation", question: "How is my portfolio?",
+    }));
+    expect(store.readLatestPortfolioAnalystConversation()?.turns.map((turn) => turn.question))
+      .toEqual(["Latest NASDAQ news?", "How is my portfolio?"]);
+    expect(histories).toEqual([[]]);
+  });
+
+  it("stores a question before model work and replaces its pending turn when finished", async () => {
+    const store = conversationStore();
+    let release!: () => void;
+    const waiting = new Promise<void>((resolve) => { release = resolve; });
+    let entered!: () => void;
+    const enteredRuntime = new Promise<void>((resolve) => { entered = resolve; });
+    const working = runtime();
+    const ids = ["pending-conversation", "pending-turn"];
+    const handlers = createPortfolioAnalystHandlers({
+      agentRuntimes: { openai: { async runTurn(input) {
+        entered();
+        await waiting;
+        return working.runTurn(input);
+      } } },
+      models: { openai: "gpt-synthetic", deepseek: "deepseek-synthetic" },
+      defaultProvider: "openai",
+    }, {
+      readCurrentPortfolio: portfolio, conversations: store,
+      createId: () => ids.shift()!, now: () => "2026-10-04T10:00:00.000Z",
+    });
+    const responsePromise = handlers.POST(request({
+      mode: "agent", provider: "openai", language: "en", includeHoldingNames: true,
+      defaultPeriod: "week", question: "What changed?",
+    }));
+    await enteredRuntime;
+    expect(store.readLatestPortfolioAnalystConversation()?.turns).toMatchObject([{
+      id: "pending-turn", question: "What changed?", chat: { requestStatus: "pending" },
+    }]);
+    release();
+    const response = await responsePromise;
+    expect(response.status).toBe(200);
+    expect(store.readLatestPortfolioAnalystConversation()?.turns).toMatchObject([{
+      id: "pending-turn", question: "What changed?", report: { provider: "openai" },
+    }]);
+    expect(store.readLatestPortfolioAnalystConversation()?.turns).toHaveLength(1);
   });
 
   it("passes recent chat and import replies to an ordinary follow-up", async () => {

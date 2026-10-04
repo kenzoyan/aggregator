@@ -145,9 +145,9 @@ describe("portfolio analyst conversation", () => {
       includeHoldingNames: true,
       now: "2026-09-09T10:00:00.000Z",
     });
-    for (let index = 1; index <= 5; index += 1) {
+    for (let index = 1; index <= 7; index += 1) {
       const turnReport = report(index);
-      if (index === 5) {
+      if (index === 7) {
         turnReport.answer.claims = [{
           text: "补充事实",
           classification: "fact",
@@ -171,7 +171,7 @@ describe("portfolio analyst conversation", () => {
     }
 
     const history = createPortfolioAnalystHistory(conversation);
-    expect(history).toHaveLength(6);
+    expect(history).toHaveLength(10);
     expect(history[0]).toEqual({ role: "user", text: "问题 3" });
     expect(history[1]).toEqual({
       role: "assistant",
@@ -181,14 +181,28 @@ describe("portfolio analyst conversation", () => {
     expect(history.at(-1)).toEqual({
       role: "assistant",
       text: [
-        "回答 5",
+        "回答 7",
         "补充事实",
         "限制: 所选期间仅有部分持仓具备完整数据。",
         "建议但未执行: 补充带日期的市场数据",
       ].join("\n"),
-      factsAsOf: "2026-09-09T10:05:00.000Z",
+      factsAsOf: "2026-09-09T10:07:00.000Z",
     });
     expect(JSON.stringify(history)).not.toContain("changeEur");
+  });
+
+  it("bounds long history text before sending it to the model", () => {
+    const conversation = appendPortfolioAnalystTurn(createPortfolioAnalystConversation({
+      id: "long-conversation", provider: "openai", language: "en",
+      includeHoldingNames: true, now: "2026-09-09T10:00:00.000Z",
+    }), {
+      id: "long-turn", question: "Q".repeat(1_000),
+      createdAt: "2026-09-09T10:01:00.000Z",
+      chat: { assistantText: "A".repeat(2_000) },
+    });
+    const history = createPortfolioAnalystHistory(conversation);
+    expect(history[0].text.length).toBe(601);
+    expect(history[1].text.length).toBe(1_401);
   });
 
   it("keeps the latest image, chat, and import replies in chronological history", () => {

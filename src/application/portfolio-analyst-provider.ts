@@ -1,4 +1,5 @@
 import type { PortfolioAnalystAnswer } from "@/application/portfolio-analyst-answer";
+import type { PortfolioAnalystAnswerValidationCode } from "@/application/portfolio-analyst-answer";
 import type {
   AnalystEvidenceFact,
   PortfolioAnalystContextV1,
@@ -31,6 +32,8 @@ export class PortfolioAnalystProviderError extends Error {
   constructor(
     readonly code: PortfolioAnalystProviderErrorCode,
     providerName: string,
+    readonly diagnosticCode?: PortfolioAnalystAnswerValidationCode | "invalid-json" | "invalid-structure" |
+      "timeout" | "rate-limited" | "authentication" | "request-rejected" | "network" | "unknown",
   ) {
     super(code === "invalid-provider-output"
       ? `${providerName} returned an invalid portfolio analyst answer.`

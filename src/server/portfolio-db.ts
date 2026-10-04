@@ -20,6 +20,10 @@ type CachedPortfolioDatabase = Pick<PortfolioDatabase, "close"> &
     | "discardImportDraft"
     | "readPriceSourceBindings"
     | "savePriceSourceBinding"
+    | "listPortfolioAnalystMemories"
+    | "readPortfolioAnalystMemory"
+    | "savePortfolioAnalystMemory"
+    | "deletePortfolioAnalystMemory"
   >>;
 
 export function ensureCurrentPortfolioDatabase<
@@ -37,7 +41,11 @@ export function ensureCurrentPortfolioDatabase<
     typeof database.saveImportDraftReview === "function" &&
     typeof database.discardImportDraft === "function" &&
     typeof database.readPriceSourceBindings === "function" &&
-    typeof database.savePriceSourceBinding === "function"
+    typeof database.savePriceSourceBinding === "function" &&
+    typeof database.listPortfolioAnalystMemories === "function" &&
+    typeof database.readPortfolioAnalystMemory === "function" &&
+    typeof database.savePortfolioAnalystMemory === "function" &&
+    typeof database.deletePortfolioAnalystMemory === "function"
   ) {
     return database;
   }

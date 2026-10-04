@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 
 import type { MarketIntelligenceBrief } from "@/application/market-intelligence";
 import { createPortfolioDatabase } from "@/infrastructure/sqlite/portfolio-repository";
-import { initializePortfolioSchema } from "@/infrastructure/sqlite/portfolio-schema";
+import { initializePortfolioSchema, portfolioSchemaVersion } from "@/infrastructure/sqlite/portfolio-schema";
 
 describe("market intelligence persistence", () => {
   it("round-trips the latest external market brief", () => {
@@ -32,7 +32,7 @@ describe("market intelligence persistence", () => {
     const database = new DatabaseSync(":memory:");
     database.exec("CREATE TABLE schema_metadata (version INTEGER NOT NULL); INSERT INTO schema_metadata VALUES (6)");
     initializePortfolioSchema(database);
-    expect(database.prepare("SELECT version FROM schema_metadata").get()).toEqual({ version: 10 });
+    expect(database.prepare("SELECT version FROM schema_metadata").get()).toEqual({ version: portfolioSchemaVersion });
     expect(database.prepare(
       "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'market_intelligence_briefs'",
     ).get()).toEqual({ name: "market_intelligence_briefs" });

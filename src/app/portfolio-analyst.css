@@ -202,6 +202,11 @@
 .home-review-panel-heading { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; margin-bottom: 12px; }
 .home-review-panel-heading h2 { font-size: 23px; }
 .home-review-panel-heading > span { color: #667c71; font-size: 11px; }
+.home-memory-review blockquote { margin: 14px 0; padding: 14px 16px; border-left: 3px solid #8aa99d; background: white; color: var(--ink); font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
+.home-memory-review-actions { display: flex; gap: 10px; margin-top: 16px; }
+.home-memory-review-actions button { padding: 9px 13px; border: 1px solid #cbdcd3; border-radius: 8px; background: white; color: var(--ink); font-size: 12px; font-weight: 650; cursor: pointer; }
+.home-memory-review-actions button:first-child { background: #315d4b; color: white; }
+.home-memory-review-actions button:disabled { opacity: .5; cursor: not-allowed; }
 .home-sources-panel { background: #fbfdfb; }
 .home-sources-panel .home-review-panel-heading { align-items: flex-start; }
 .home-sources-question { margin: 8px 0 0; color: #5a7066; font-size: 12px; line-height: 1.5; }
