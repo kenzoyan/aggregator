@@ -750,6 +750,39 @@ describe("Pi model-controlled Portfolio Analyst", () => {
       question: "What changed?", history: [], tools, language: "zh-CN",
       includeHoldingNames: false, defaultPeriod: "week",
     })).rejects.toMatchObject({ code: "invalid-provider-output", diagnosticCode: "unknown-evidence" });
+    expect(modelCall).toBe(3);
+  });
+
+  it("repairs one invalid evidence reference using only current evidence keys", async () => {
+    let modelCall = 0;
+    let repairToolCount = -1;
+    let repairPrompt = "";
+    const streamFn: StreamFn = (_model, piContext) => {
+      modelCall += 1;
+      if (modelCall === 1) return completedStream(assistant([{
+        type: "toolCall", id: "read-1", name: "read_period_drivers", arguments: { period: "week" },
+      }], "toolUse"));
+      if (modelCall === 2) return completedStream(assistant([{ type: "text", text: JSON.stringify({
+        ...answer, answer: { ...answer.answer, evidence: ["made-up"] },
+      }) }], "stop"));
+      repairToolCount = piContext.tools?.length ?? 0;
+      repairPrompt = JSON.stringify(piContext.messages.at(-1));
+      return completedStream(assistant([{ type: "text", text: JSON.stringify(answer) }], "stop"));
+    };
+    const fail = () => { throw new Error("Unexpected tool"); };
+    const tools: PortfolioAnalystTools = {
+      readPeriodDrivers: () => context, readDataQuality: fail, readPortfolioOverview: fail,
+      readAccounts: fail, readAccountHoldings: fail, proposeCreateAccount: fail,
+      prepareAccountImport: fail,
+    };
+    const result = await createPiModelControlledPortfolioAnalyst({ model, streamFn }).runTurn({
+      question: "What changed this week?", history: [], tools, language: "zh-CN",
+      includeHoldingNames: false, defaultPeriod: "week",
+    });
+    expect(result).toMatchObject({ kind: "report", answer: { answer: { evidence: ["call1.period.total"] } } });
+    expect(modelCall).toBe(3);
+    expect(repairToolCount).toBe(0);
+    expect(repairPrompt).toContain("call1.period.total");
   });
 
   it.each([

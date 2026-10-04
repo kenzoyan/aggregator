@@ -565,12 +565,11 @@ class PiModelControlledPortfolioAnalyst implements PortfolioAnalystAgentRuntime 
         throw new Error("The agent did not produce current evidence.");
       }
       const selectedContext = combinePortfolioAnalystContexts(selectedContexts);
-      let candidate;
-      try {
-        const generated = JSON.parse(messageText(latest));
+      const validatedCandidate = (output: string) => {
+        const generated = JSON.parse(output);
         // Snapshot time and limitations are server facts. Keep the trusted values
         // even when the model confuses source dates or paraphrases a limitation.
-        candidate = portfolioAnalystAnswerCandidateSchema.parse(
+        const candidate = portfolioAnalystAnswerCandidateSchema.parse(
           generated && typeof generated === "object" && !Array.isArray(generated)
             ? {
                 ...generated,
@@ -579,11 +578,39 @@ class PiModelControlledPortfolioAnalyst implements PortfolioAnalystAgentRuntime 
               }
             : generated,
         );
-        candidate = validatePortfolioAnalystAnswer({ context: selectedContext, candidate });
+        return validatePortfolioAnalystAnswer({ context: selectedContext, candidate });
+      };
+      let candidate;
+      try {
+        candidate = validatedCandidate(messageText(latest));
       } catch (error) {
         const fallback = createAccountHoldingsFallback(selectedContext);
-        if (!fallback) throw error;
-        candidate = validatePortfolioAnalystAnswer({ context: selectedContext, candidate: fallback });
+        if (fallback) {
+          candidate = validatePortfolioAnalystAnswer({ context: selectedContext, candidate: fallback });
+        } else if (
+          error instanceof PortfolioAnalystAnswerValidationError &&
+          (error.code === "unknown-evidence" || error.code === "duplicate-evidence") &&
+          modelTurns < MAX_MODEL_TURNS && !input.signal?.aborted
+        ) {
+          agent.state.tools = [];
+          streamedJson = "";
+          emittedText = "";
+          await agent.prompt([
+            `Your last answer failed evidence validation (${error.code}).`,
+            `Use only these current Evidence Keys: ${JSON.stringify(selectedContext.facts.map((fact) => fact.key))}.`,
+            "Correct the citations and return the complete answer JSON. Do not add facts, perform actions, or call tools.",
+          ].join("\n"));
+          if (agent.state.errorMessage) {
+            throw new PortfolioAnalystProviderError(
+              "provider-unavailable", this.model.provider,
+              providerFailureDiagnostic(agent.state.errorMessage),
+            );
+          }
+          const revised = [...agent.state.messages].reverse().find((message) => message.role === "assistant");
+          candidate = validatedCandidate(messageText(revised));
+        } else {
+          throw error;
+        }
       }
       return {
         kind: "report" as const,
