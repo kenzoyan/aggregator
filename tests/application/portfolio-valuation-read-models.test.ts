@@ -5,13 +5,7 @@ import {
 } from "@/application/portfolio-current-valuation";
 import {
   createPortfolioHistoryReadModel,
-  type PortfolioPeriodHistory,
 } from "@/application/portfolio-history";
-import {
-  createDashboardReadModel,
-  createPortfolioHistoryReadModel as createLegacyPortfolioHistoryReadModel,
-  type DashboardPeriodHistory,
-} from "@/application/portfolio-dashboard";
 import { buildPortfolioState } from "@/domain/portfolio/ledger";
 
 const openingSnapshot = {
@@ -58,30 +52,6 @@ const marketPrices = [
 ];
 
 describe("portfolio valuation read models", () => {
-  it("preserves the former portfolio-dashboard import surface", () => {
-    const period: PortfolioPeriodHistory = {
-      available: false,
-      change: 0,
-      percent: 0,
-      points: [],
-      dailyChanges: [],
-      valueHistory: {
-        available: false,
-        change: 0,
-        percent: 0,
-        investmentChange: 0,
-        portfolioActivity: 0,
-        activityAvailable: false,
-        timeline: [],
-      },
-    };
-    const legacyPeriod: DashboardPeriodHistory = period;
-
-    expect(createDashboardReadModel).toBe(createCurrentPortfolioValuationReadModel);
-    expect(createLegacyPortfolioHistoryReadModel).toBe(createPortfolioHistoryReadModel);
-    expect(legacyPeriod).toBe(period);
-  });
-
   it("renders a confirmed ETF as ETF instead of collapsing it into another asset type", () => {
     const etfSnapshot = {
       id: "opening-trading212-etf",

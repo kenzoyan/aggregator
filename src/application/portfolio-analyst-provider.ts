@@ -3,27 +3,10 @@ import type {
   AnalystEvidenceFact,
   PortfolioAnalystContextV1,
 } from "@/application/portfolio-analyst-contract";
-import type { PortfolioAnalystHistoryMessage } from "@/application/portfolio-analyst-conversation";
 import type { PortfolioAnalystAgentAudit } from "@/application/portfolio-analyst-agent";
 
 export const portfolioAnalystProviderIds = ["openai", "deepseek"] as const;
 export type PortfolioAnalystProviderId = typeof portfolioAnalystProviderIds[number];
-
-export interface PortfolioAnalystProvider {
-  readonly id: PortfolioAnalystProviderId;
-  readonly model: string;
-  generate(
-    context: PortfolioAnalystContextV1,
-    turn?: PortfolioAnalystGenerationTurn,
-  ): Promise<PortfolioAnalystAnswer>;
-}
-
-export interface PortfolioAnalystGenerationTurn {
-  question: string;
-  history: PortfolioAnalystHistoryMessage[];
-  signal?: AbortSignal;
-  onAnswerTextDelta?: (delta: string) => void;
-}
 
 export interface PortfolioAnalystReport {
   provider: PortfolioAnalystProviderId;

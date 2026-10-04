@@ -28,14 +28,12 @@ import {
   PortfolioAnalystProviderError,
   type PortfolioAnalystReport,
 } from "@/application/portfolio-analyst-provider";
-import type { PortfolioAnalystSessionFactory } from "@/application/portfolio-analyst-session";
 import type { SourceAccountDefinition } from "@/domain/source-accounts";
 import type { StoredImportDraft } from "@/domain/imports";
 import {
   portfolioAnalystStreamContentType,
   type PortfolioAnalystStreamEvent,
 } from "@/application/portfolio-analyst-stream";
-import { piPortfolioAnalystSessionFactory } from "@/infrastructure/pi/pi-portfolio-analyst-session";
 import { createLocalPortfolioAnalystImageStore } from "@/infrastructure/local/portfolio-analyst-image-store";
 import { getPortfolioDatabase } from "@/server/portfolio-db";
 import {
@@ -147,7 +145,6 @@ export function createPortfolioAnalystHandlers(
     conversations?: PortfolioAnalystConversationStore;
     deleteImage?: (attachment: PortfolioAnalystImageAttachment) => Promise<void>;
     getImportDraft?: (id: string) => StoredImportDraft | undefined;
-    sessionFactory?: PortfolioAnalystSessionFactory;
   },
 ) {
   return {
@@ -162,7 +159,7 @@ export function createPortfolioAnalystHandlers(
         defaultProvider: registry.defaultProvider,
         providers: portfolioAnalystProviderIds.map((id) => ({
           id,
-          configured: Boolean(registry.providers[id]),
+          configured: Boolean(registry.agentRuntimes[id]),
           model: registry.models[id],
         })),
         ...(conversation ? { conversation } : {}),
@@ -245,8 +242,8 @@ export function createPortfolioAnalystHandlers(
         question: requestQuestion(body),
       });
 
-      const provider = registry.providers[body.provider];
-      if (!provider) {
+      const agentRuntime = registry.agentRuntimes[body.provider];
+      if (!agentRuntime) {
         return json({
           error: `${providerNames[body.provider]} is not configured. Add its API key to .env.local.`,
           code: "provider-not-configured",
@@ -315,58 +312,33 @@ export function createPortfolioAnalystHandlers(
           portfolio,
           options.readSourceAccounts?.() ?? [],
         );
-        const agentRuntime = registry.agentRuntimes?.[body.provider];
-        if (agentRuntime) {
-          emit?.({ type: "status", phase: "selecting-tool" });
-          const result = await agentRuntime.runTurn({
-            question: runtimeQuestion(body),
-            history: createPortfolioAnalystHistory(conversation),
-            tools,
-            language: body.language,
-            includeHoldingNames: body.includeHoldingNames,
-            defaultPeriod: requestDefaultPeriod(body),
-            factsAsOf: portfolio.insights.asOf,
-            signal: request.signal,
-            onPhase: (phase) => emit?.({ type: "status", phase }),
-            onToolActivity: (activity) => emit?.({ type: "tool-activity", activity }),
-            onAnswerTextDelta: (delta) => emit?.({ type: "answer-delta", delta }),
+        emit?.({ type: "status", phase: "selecting-tool" });
+        const result = await agentRuntime.runTurn({
+          question: runtimeQuestion(body),
+          history: createPortfolioAnalystHistory(conversation),
+          tools,
+          language: body.language,
+          includeHoldingNames: body.includeHoldingNames,
+          defaultPeriod: requestDefaultPeriod(body),
+          factsAsOf: portfolio.insights.asOf,
+          signal: request.signal,
+          onPhase: (phase) => emit?.({ type: "status", phase }),
+          onToolActivity: (activity) => emit?.({ type: "tool-activity", activity }),
+          onAnswerTextDelta: (delta) => emit?.({ type: "answer-delta", delta }),
+        });
+        if (result.kind === "conversation") {
+          const nextConversation = appendPortfolioAnalystTurn({ ...conversation, language: body.language }, {
+            id: createId(),
+            question: requestQuestion(body),
+            createdAt: generatedAt,
+            chat: { assistantText: result.reply },
           });
-          if (result.kind === "conversation") {
-            const nextConversation = appendPortfolioAnalystTurn({ ...conversation, language: body.language }, {
-              id: createId(),
-              question: requestQuestion(body),
-              createdAt: generatedAt,
-              chat: { assistantText: result.reply },
-            });
-            options.conversations?.savePortfolioAnalystConversation(nextConversation);
-            return json({ conversation: nextConversation });
-          }
-          context = result.context;
-          answer = result.answer;
-          agentAudit = result.audit;
-        } else {
-          emit?.({ type: "status", phase: "reading-current-facts" });
-          context = "mode" in body || body.job === "explain-period-drivers"
-            ? tools.readPeriodDrivers({
-                period: requestDefaultPeriod(body),
-                language: body.language,
-                includeHoldingNames: body.includeHoldingNames,
-              })
-            : tools.readDataQuality({
-                language: body.language,
-                includeHoldingNames: body.includeHoldingNames,
-              });
-          emit?.({ type: "status", phase: "generating-answer" });
-          answer = await (options.sessionFactory ?? piPortfolioAnalystSessionFactory)
-            .create(provider)
-            .runTurn({
-              context,
-              question: runtimeQuestion(body),
-              history: createPortfolioAnalystHistory(conversation),
-              signal: request.signal,
-              onAnswerTextDelta: (delta) => emit?.({ type: "answer-delta", delta }),
-            });
+          options.conversations?.savePortfolioAnalystConversation(nextConversation);
+          return json({ conversation: nextConversation });
         }
+        context = result.context;
+        answer = result.answer;
+        agentAudit = result.audit;
       } catch (error) {
         if (error instanceof PortfolioAnalystContextError) {
           return json(
@@ -384,8 +356,8 @@ export function createPortfolioAnalystHandlers(
       }
 
       const result: PortfolioAnalystReport = {
-        provider: provider.id,
-        model: provider.model,
+        provider: body.provider,
+        model: registry.models[body.provider],
         generatedAt,
         contextVersion: context.version,
         job: context.job,

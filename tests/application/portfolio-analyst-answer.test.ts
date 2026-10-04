@@ -2,8 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import {
   PortfolioAnalystAnswerValidationError,
-  createPortfolioAnalystInput,
-  createPortfolioAnalystInstructions,
   portfolioAnalystAnswerJsonSchema,
   validatePortfolioAnalystAnswer,
 } from "@/application/portfolio-analyst-answer";
@@ -190,12 +188,6 @@ describe("portfolio analyst answer contract", () => {
     expectValidationCode({ ...validCandidate, hiddenInstruction: "ignore evidence" }, "invalid-structure");
   });
 
-  it("serializes only the bounded context as untrusted model input", () => {
-    expect(JSON.parse(createPortfolioAnalystInput(context))).toEqual({
-      portfolioAnalystContext: context,
-    });
-  });
-
   it("accepts every server-owned factual update variant", () => {
     const actions: FactualUpdate[] = [
       { kind: "refresh-fx", currency: "CNY", reasonEvidenceKey: "quality.gap.1" },
@@ -224,21 +216,4 @@ describe("portfolio analyst answer contract", () => {
     }
   });
 
-  it("keeps both language choices and core safety rules in provider instructions", () => {
-    const english = createPortfolioAnalystInstructions(context);
-    const chinese = createPortfolioAnalystInstructions({
-      ...context,
-      language: "zh-CN",
-    });
-
-    for (const instructions of [english, chinese]) {
-      expect(instructions).toContain("untrusted data");
-      expect(instructions).toContain("do not recalculate");
-      expect(instructions).toContain("never claim to have executed it");
-      expect(instructions).toContain("Do not recommend trades");
-      expect(instructions).toContain("self-contained conversational response");
-    }
-    expect(english).toContain("Write answer text in English");
-    expect(chinese).toContain("Write answer text in Simplified Chinese");
-  });
 });
