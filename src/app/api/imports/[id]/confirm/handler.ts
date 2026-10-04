@@ -11,7 +11,6 @@ import {
   applyImportDraftReview,
   createImportDraftReadModel,
 } from "@/application/imports/import-draft-read-model";
-import { materializeOpeningSnapshot } from "@/domain/imports";
 import type { PortfolioDatabase } from "@/infrastructure/sqlite/portfolio-repository";
 import { getPortfolioDatabase } from "@/server/portfolio-db";
 
@@ -27,12 +26,15 @@ export function createImportConfirmHandler(input: {
 }) {
   return async function handleImportConfirm(request: Request, id: string) {
     try {
-      const shapedReview = parseImportConfirmationReview(await request.json());
       const existing = input.database.getImportDraft(id);
 
       if (!existing) {
         return NextResponse.json({ error: "Import draft not found." }, { status: 404 });
       }
+      if (existing.sourceKind === "demo") {
+        return NextResponse.json({ error: "Legacy demo drafts can no longer be confirmed." }, { status: 410 });
+      }
+      const shapedReview = parseImportConfirmationReview(await request.json());
       const editableReview = validateImportConfirmationReview(existing, shapedReview);
       const latestAccountSnapshot = input.database.readPortfolioFacts?.().openingSnapshots
         .filter((snapshot) => snapshot.sourceAccountId === existing.sourceAccountId)
@@ -40,7 +42,6 @@ export function createImportConfirmHandler(input: {
       const reviewedDate = editableReview.portfolio.asOf.slice(0, 10);
       const latestDate = latestAccountSnapshot?.asOf.slice(0, 10);
       if (
-        existing.sourceKind !== "demo" &&
         latestDate &&
         reviewedDate < latestDate
       ) {
@@ -61,10 +62,6 @@ export function createImportConfirmHandler(input: {
 
       return NextResponse.json({
         draft: createImportDraftReadModel(confirmed),
-        confirmedSnapshot: materializeOpeningSnapshot(
-          confirmed.sourceAccountId,
-          confirmed.portfolio,
-        ),
       });
     } catch (error) {
       if (error instanceof z.ZodError) {

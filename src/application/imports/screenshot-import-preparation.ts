@@ -15,12 +15,12 @@ import {
 } from "@/domain/imports";
 
 export type PreparedScreenshotImport = ImportDraftInput & {
-  sourceKind: "screenshot" | "demo";
+  sourceKind: "screenshot";
 };
 
 function resolvePositionAccounting(
   position: ScreenshotExtraction["positions"][number],
-  source: "vision" | "demo",
+  source: "vision",
 ): {
   costBasis: DraftValue<string>;
   reportedPriorReturn: DraftValue<string>;
@@ -70,11 +70,10 @@ export function prepareScreenshotImport(input: {
   sourceAccountId: string;
   createdAt: string;
   extraction: ScreenshotExtraction;
-  sourceKind?: "screenshot" | "demo";
 }): PreparedScreenshotImport {
   const extraction = screenshotExtractionSchema.parse(input.extraction);
   const warnings = [...extraction.warnings];
-  const source = input.sourceKind === "demo" ? "demo" as const : "vision" as const;
+  const source = "vision" as const;
   const positions = mergeScreenshotPositions(extraction.positions, warnings);
   const accountAsOf = extraction.asOfYearVisible ? extraction.asOf : null;
   if (!accountAsOf) {
@@ -149,7 +148,7 @@ export function prepareScreenshotImport(input: {
   return {
     id: input.draftId,
     sourceAccountId: input.sourceAccountId,
-    sourceKind: input.sourceKind ?? "screenshot",
+    sourceKind: "screenshot",
     createdAt: input.createdAt,
     confidence: extraction.confidence,
     warnings,

@@ -75,8 +75,7 @@ h1 { margin-bottom: 0; font-family: Georgia, "Times New Roman", serif; font-size
 h2 { margin-bottom: 0; font-family: Georgia, "Times New Roman", serif; font-size: 29px; font-weight: 500; letter-spacing: -.035em; }
 .page-intro { margin: 10px 0 0; color: var(--muted); font-size: 14px; }
 .header-actions { display: flex; align-items: center; gap: 9px; padding-top: 2px; }
-.demo-badge { padding: 8px 11px; background: #ece9de; color: #625f56; border: 1px solid #ddd8ca; border-radius: 8px; font-size: 11px; font-weight: 650; }
-.demo-toggle { border: 0; background: transparent; color: var(--blue); cursor: pointer; font-size: 12px; font-weight: 750; }
+.portfolio-badge { padding: 8px 11px; background: #ece9de; color: #625f56; border: 1px solid #ddd8ca; border-radius: 8px; font-size: 11px; font-weight: 650; }
 .refresh-button { display: inline-flex; align-items: center; gap: 8px; min-height: 40px; padding: 9px 13px; border: 1px solid var(--line); border-radius: 9px; background: rgba(255,254,250,.72); color: #39443f; cursor: pointer; font-size: 12px; font-weight: 620; }
 .refresh-button svg, .primary-button svg { width: 15px; height: 15px; }
 .refresh-button:hover { border-color: #b7b5ab; background: var(--surface); }

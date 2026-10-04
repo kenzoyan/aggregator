@@ -50,7 +50,6 @@
 .empty-portfolio-banner h2 { font-size: 19px; }
 .empty-portfolio-banner p:last-child { margin: 5px 0 0; color: var(--muted); font-size: 12px; }
 .empty-portfolio-actions { display: flex; align-items: center; gap: 10px; white-space: nowrap; }
-.empty-portfolio-actions button { border: 0; background: transparent; color: var(--blue); cursor: pointer; font-size: 12px; font-weight: 750; }
 
 .donut-wrap { display: grid; place-items: center; }
 .donut { width: 148px; aspect-ratio: 1; border-radius: 50%; background: conic-gradient(#2f6ed8 0 32%, #102c52 32% 57%, #0ca77d 57% 84%, #d9aa61 84% 100%); display: grid; place-items: center; position: relative; }

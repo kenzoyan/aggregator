@@ -3,7 +3,6 @@ import { createHash, randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import sharp from "sharp";
 
-import { demoScreenshotExtraction } from "@/application/imports/demo-extraction";
 import { createImportDraftReadModel } from "@/application/imports/import-draft-read-model";
 import {
   attachPortfolioAnalystImport,
@@ -13,7 +12,6 @@ import {
 } from "@/application/portfolio-analyst-conversation";
 import {
   detectedSourceProvider,
-  fixtureVisionExtractor,
   prepareScreenshotImport,
   VisionExtractionError,
   type VisionExtractor,
@@ -102,7 +100,7 @@ export function createAnalyzeImportHandler(input: {
       const sourceTurnId = form.get("sourceTurnId");
       const chatImport = conversationId !== null || sourceTurnId !== null;
 
-      if (mode !== "image" && mode !== "demo") {
+      if (mode !== "image") {
         return errorResponse("Choose an image import mode.", 400);
       }
 
@@ -190,62 +188,58 @@ export function createAnalyzeImportHandler(input: {
         mimeType: "image/jpeg" | "image/png" | "image/webp";
       }> = [];
 
-      if (mode === "demo") {
-        extractor = fixtureVisionExtractor(demoScreenshotExtraction);
+      if (sourceAccount.updateMethod !== "screenshot") {
+        return errorResponse(
+          "Image import is available for screenshot-based accounts.",
+          422,
+        );
+      }
+      if (chatContext) {
+        if (!input.images) return errorResponse("Saved images are unavailable.", 503);
+        const attachments = chatContext.attachments ?? [];
+        if (attachments.length === 0 || attachments.length > MAX_IMAGE_COUNT ||
+          attachments.some((attachment) => attachment.byteLength > MAX_IMAGE_BYTES) ||
+          attachments.reduce((total, attachment) => total + attachment.byteLength, 0) > MAX_TOTAL_IMAGE_BYTES) {
+          return errorResponse("Saved images exceed the import limit.", 413);
+        }
+        const stored = await Promise.all(attachments.map(async (attachment) =>
+          input.images!.read(attachment)
+        ));
+        if (stored.some((bytes, index) => !bytes || bytes.byteLength !== attachments[index]?.byteLength)) {
+          return errorResponse("A saved screenshot could not be loaded.", 409);
+        }
+        images = attachments.map((attachment, index) => ({
+          image: stored[index]!, mimeType: attachment.mimeType,
+        }));
       } else {
-        if (sourceAccount.updateMethod !== "screenshot") {
+        const selectedImages = form.getAll("images")
+          .filter((value): value is File => value instanceof File);
+        const legacyImage = form.get("image");
+        const files = selectedImages.length > 0
+          ? selectedImages
+          : legacyImage instanceof File ? [legacyImage] : [];
+        if (files.length === 0) return errorResponse("Choose at least one screenshot.", 400);
+        if (files.length > MAX_IMAGE_COUNT) return errorResponse(`Choose no more than ${MAX_IMAGE_COUNT} screenshots.`, 413);
+        if (files.some((file) => !supportedTypes.has(file.type))) return errorResponse("Only JPEG, PNG and WebP images are supported.", 415);
+        if (files.some((file) => file.size > MAX_IMAGE_BYTES)) return errorResponse("Each image must be 10 MB or smaller.", 413);
+        if (files.reduce((total, file) => total + file.size, 0) > MAX_TOTAL_IMAGE_BYTES) return errorResponse("The selected images must total 30 MB or less.", 413);
+        images = await Promise.all(files.map(async (file) => ({
+          image: new Uint8Array(await file.arrayBuffer()),
+          mimeType: file.type as typeof images[number]["mimeType"],
+        })));
+      }
+      if (images.some(({ image }) => image.length === 0)) {
+        return errorResponse("Screenshots cannot be empty.", 400);
+      }
+      for (const image of images) {
+        if (!await isDecodableImage(image.image, image.mimeType)) {
           return errorResponse(
-            "Image import is available for screenshot-based accounts.",
-            422,
+            "A selected file does not match its JPEG, PNG or WebP format.",
+            415,
           );
         }
-        if (chatContext) {
-          if (!input.images) return errorResponse("Saved images are unavailable.", 503);
-          const attachments = chatContext.attachments ?? [];
-          if (attachments.length === 0 || attachments.length > MAX_IMAGE_COUNT ||
-            attachments.some((attachment) => attachment.byteLength > MAX_IMAGE_BYTES) ||
-            attachments.reduce((total, attachment) => total + attachment.byteLength, 0) > MAX_TOTAL_IMAGE_BYTES) {
-            return errorResponse("Saved images exceed the import limit.", 413);
-          }
-          const stored = await Promise.all(attachments.map(async (attachment) =>
-            input.images!.read(attachment)
-          ));
-          if (stored.some((bytes, index) => !bytes || bytes.byteLength !== attachments[index]?.byteLength)) {
-            return errorResponse("A saved screenshot could not be loaded.", 409);
-          }
-          images = attachments.map((attachment, index) => ({
-            image: stored[index]!, mimeType: attachment.mimeType,
-          }));
-        } else {
-          const selectedImages = form.getAll("images")
-            .filter((value): value is File => value instanceof File);
-          const legacyImage = form.get("image");
-          const files = selectedImages.length > 0
-            ? selectedImages
-            : legacyImage instanceof File ? [legacyImage] : [];
-          if (files.length === 0) return errorResponse("Choose at least one screenshot.", 400);
-          if (files.length > MAX_IMAGE_COUNT) return errorResponse(`Choose no more than ${MAX_IMAGE_COUNT} screenshots.`, 413);
-          if (files.some((file) => !supportedTypes.has(file.type))) return errorResponse("Only JPEG, PNG and WebP images are supported.", 415);
-          if (files.some((file) => file.size > MAX_IMAGE_BYTES)) return errorResponse("Each image must be 10 MB or smaller.", 413);
-          if (files.reduce((total, file) => total + file.size, 0) > MAX_TOTAL_IMAGE_BYTES) return errorResponse("The selected images must total 30 MB or less.", 413);
-          images = await Promise.all(files.map(async (file) => ({
-            image: new Uint8Array(await file.arrayBuffer()),
-            mimeType: file.type as typeof images[number]["mimeType"],
-          })));
-        }
-        if (images.some(({ image }) => image.length === 0)) {
-          return errorResponse("Screenshots cannot be empty.", 400);
-        }
-        for (const image of images) {
-          if (!await isDecodableImage(image.image, image.mimeType)) {
-            return errorResponse(
-              "A selected file does not match its JPEG, PNG or WebP format.",
-              415,
-            );
-          }
-        }
-        extractor = input.createExtractor();
       }
+      extractor = input.createExtractor();
 
       const extraction = await extractor.extract({
         images,
@@ -276,7 +270,6 @@ export function createAnalyzeImportHandler(input: {
         sourceAccountId,
         createdAt: now,
         extraction: reviewedExtraction,
-        sourceKind: mode === "demo" ? "demo" : "screenshot",
       });
       try {
         input.database.saveImportDraft(draft);
@@ -291,7 +284,7 @@ export function createAnalyzeImportHandler(input: {
         draft: createImportDraftReadModel(storedDraft),
         ...(linked ? { conversation: linked } : {}),
         extraction: reviewedExtraction,
-        visionProvider: mode === "demo" ? "demo" : "openai",
+        visionProvider: "openai",
       });
     } catch (error) {
       if (error instanceof VisionExtractionError) {

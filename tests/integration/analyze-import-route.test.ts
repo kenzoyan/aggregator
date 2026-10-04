@@ -96,6 +96,27 @@ function multiImageRequest(sourceAccountId = "danske-main") {
 }
 
 describe("POST /api/imports/analyze", () => {
+  it("rejects the removed synthetic demo mode", async () => {
+    const store = database();
+    const extract = vi.fn();
+    const handler = createAnalyzeImportHandler({
+      database: store,
+      createExtractor: () => ({ extract }),
+      newId: () => "unused",
+      now: () => "2026-07-23T12:00:00.000Z",
+    });
+    const form = new FormData();
+    form.set("sourceAccountId", "alipay-main");
+    form.set("mode", "demo");
+
+    const response = await handler(new Request("http://localhost/api/imports/analyze", {
+      method: "POST", body: form,
+    }));
+
+    expect(response.status).toBe(400);
+    expect(extract).not.toHaveBeenCalled();
+    expect(store.saveImportDraft).not.toHaveBeenCalled();
+  });
   it("recovers a saved chat draft after linking fails without analyzing twice", async () => {
     const store = database();
     const extract = vi.fn(async () => extraction);

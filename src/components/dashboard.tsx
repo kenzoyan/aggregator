@@ -14,10 +14,7 @@ import {
   type CSSProperties,
 } from "react";
 
-import {
-  demoHoldings,
-  periodData,
-} from "@/application/demo-dashboard";
+import { periodLabels } from "@/application/portfolio-period-labels";
 import { shouldShowPortfolioValueTrend } from "@/application/portfolio-chart-presentation";
 import type {
   FxOverviewReadModel,
@@ -31,11 +28,6 @@ import {
   comparableSparklineModels,
   type ComparableSparklineModel,
 } from "@/application/sparkline-model";
-import {
-  demoPortfolioStorageKey,
-  parseDemoPortfolioRecord,
-  toDemoDashboardHoldings,
-} from "@/application/demo-portfolio";
 import type { MarketRefreshResult } from "@/application/market-refresh";
 import { PortfolioAnalyst } from "@/components/portfolio-analyst";
 import { PortfolioInsights } from "@/components/portfolio-insights";
@@ -193,17 +185,6 @@ function DailyChangeBars({
   );
 }
 
-function scaleDemoValueTrend(total: number, change: number, points: number[]) {
-  if (points.length < 2) return [total];
-  const first = points[0]!;
-  const last = points.at(-1)!;
-  const baseline = total - change;
-  if (first === last) {
-    return points.map((_, index) => baseline + change * index / (points.length - 1));
-  }
-  return points.map((point) => baseline + (point - first) / (last - first) * change);
-}
-
 function Change({ value, percent }: { value: number; percent: number }) {
   const positive = value >= 0;
   return (
@@ -227,8 +208,6 @@ export function Dashboard() {
   const [chartMode, setChartMode] = useState<ChartMode>("daily-change");
   const [selectedDailyDate, setSelectedDailyDate] = useState<string>();
   const [source, setSource] = useState(allAccounts);
-  const [demoEnabled, setDemoEnabled] = useState(false);
-  const [reviewedDemoHoldings, setReviewedDemoHoldings] = useState<HoldingReadModel[]>();
   const [loading, setLoading] = useState(true);
   const [portfolioLoadError, setPortfolioLoadError] = useState<string>();
   const [localPortfolio, setLocalPortfolio] = useState<PortfolioOverviewReadModel>();
@@ -266,34 +245,15 @@ export function Dashboard() {
   }
 
   useEffect(() => {
-    try {
-      const savedDemo = parseDemoPortfolioRecord(window.localStorage.getItem(demoPortfolioStorageKey));
-      if (savedDemo) setReviewedDemoHoldings(toDemoDashboardHoldings(savedDemo));
-    } catch {
-      // The built-in sample remains available if private browsing blocks local storage.
-    }
     const controller = new AbortController();
-    const showingDemo = new URLSearchParams(window.location.search).get("demo") === "1";
-    setDemoEnabled(showingDemo);
     loadLocalPortfolio(controller.signal)
-      .then((hasPortfolioData) => hasPortfolioData && !showingDemo
+      .then((hasPortfolioData) => hasPortfolioData
         ? refreshPrices("automatic", controller.signal)
         : undefined)
       .catch(() => undefined)
       .finally(() => setLoading(false));
     return () => controller.abort();
   }, []);
-
-  function setDemoMode(enabled: boolean) {
-    setDemoEnabled(enabled);
-    const url = new URL(window.location.href);
-    if (enabled) {
-      url.searchParams.set("demo", "1");
-    } else {
-      url.searchParams.delete("demo");
-    }
-    window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
-  }
 
   async function refreshPrices(
     mode: "manual" | "automatic" = "manual",
@@ -333,29 +293,19 @@ export function Dashboard() {
     }
   }
 
-  const isLocal = Boolean(localPortfolio) && !demoEnabled;
-  const hasVisiblePortfolio = isLocal || demoEnabled;
-  const usingReviewedDemo = demoEnabled && Boolean(reviewedDemoHoldings);
-  const activeDemoHoldings = reviewedDemoHoldings ?? demoHoldings;
-  const holdings = demoEnabled ? activeDemoHoldings : localPortfolio?.holdings ?? [];
-  const localHistory = isLocal ? localPortfolio?.history[period] : undefined;
-  const current = isLocal
-    ? {
-        ...periodData[period],
-        change: localHistory?.change ?? 0,
-        percent: localHistory?.percent ?? 0,
-        points: localHistory?.points ?? [],
-      }
-    : demoEnabled && !usingReviewedDemo
-      ? periodData[period]
-      : { ...periodData[period], change: 0, percent: 0, points: [50, 50, 50, 50, 50, 50] };
-  const total = isLocal
-    ? localPortfolio?.totalValueEur ?? 0
-    : holdings.reduce((sum, holding) => sum + holding.eurValue, 0);
+  const isLocal = Boolean(localPortfolio);
+  const holdings = localPortfolio?.holdings ?? [];
+  const localHistory = localPortfolio?.history[period];
+  const current = {
+    label: periodLabels[period],
+    change: localHistory?.change ?? 0,
+    percent: localHistory?.percent ?? 0,
+  };
+  const total = localPortfolio?.totalValueEur ?? 0;
   const filtered = source === allAccounts ? holdings : holdings.filter((holding) => holding.source === source);
   const comparableHoldingSparklines = comparableSparklineModels(
     filtered.flatMap((holding) =>
-      isLocal && holding.history?.[period]?.available
+      holding.history?.[period]?.available
         ? [{ id: holding.id, points: holding.history[period].points }]
         : []
     ),
@@ -364,37 +314,9 @@ export function Dashboard() {
   const latestMarketResult = localPortfolio?.marketData.latestResult;
   const marketRefreshHistory = localPortfolio?.marketData.refreshHistory ?? [];
   const eurCnyOverview = localFxOverview;
-  const demoValuePoints = scaleDemoValueTrend(total, current.change, current.points);
-  const demoDailyChanges = current.points.slice(1).map((point, index) => ({
-    asOf: `Day ${index + 1}`,
-    change: point - current.points[index]!,
-  }));
-  const dailyChanges = isLocal
-    ? localHistory?.dailyChanges ?? []
-    : demoEnabled && !usingReviewedDemo
-      ? demoDailyChanges
-      : [];
+  const dailyChanges = localHistory?.dailyChanges ?? [];
   const dailyHistoryAvailable = dailyChanges.length > 0;
-  const demoValueTimeline = demoValuePoints.map((value, index) => ({
-    asOf: `Day ${index + 1}`,
-    valueEur: value,
-    investmentChangeEur: index === 0 ? 0 : value - demoValuePoints[index - 1]!,
-    portfolioActivityEur: 0,
-    holdingActivities: [],
-  }));
-  const valueHistory = isLocal
-    ? localHistory?.valueHistory
-    : demoEnabled && !usingReviewedDemo
-      ? {
-          available: demoValuePoints.length > 1,
-          change: current.change,
-          percent: current.percent,
-          investmentChange: current.change,
-          portfolioActivity: 0,
-          activityAvailable: true,
-          timeline: demoValueTimeline,
-        }
-      : undefined;
+  const valueHistory = localHistory?.valueHistory;
   const showValueTrend = shouldShowPortfolioValueTrend(period, valueHistory?.timeline ?? []);
   const persistedMarketMessage = latestMarketResult
     ? latestMarketResult.failed > 0
@@ -420,12 +342,7 @@ export function Dashboard() {
             <p className="page-intro">A clear view of your holdings and performance, measured in euros.</p>
           </div>
           <div className="header-actions">
-            <span className="demo-badge">{isLocal ? "Local data" : portfolioLoadError ? "Load failed" : demoEnabled ? "Demo data" : loading ? "Loading" : "No portfolio"}</span>
-            {!isLocal && (
-              <button className="demo-toggle" type="button" onClick={() => setDemoMode(!demoEnabled)}>
-                {demoEnabled ? "Exit demo" : "Explore demo"}
-              </button>
-            )}
+            <span className="portfolio-badge">{isLocal ? "Local data" : portfolioLoadError ? "Load failed" : loading ? "Loading" : "No portfolio"}</span>
             {isLocal && (
               <button
                 className="refresh-button"
@@ -453,19 +370,18 @@ export function Dashboard() {
           </section>
         )}
 
-        {!loading && !portfolioLoadError && !hasVisiblePortfolio && (
+        {!loading && !portfolioLoadError && !isLocal && (
           <section className="empty-portfolio-banner">
             <div>
               <span><Image src="/brand/aggrigator-icon-192.png" alt="" width={48} height={48} /></span>
               <div>
                 <p className="eyebrow">YOUR PORTFOLIO IS EMPTY</p>
                 <h2>Start with a screenshot, manual entry or Trading 212</h2>
-                <p>Demo values stay separate and never become part of your local portfolio.</p>
+                <p>Confirmed imports will appear here after review.</p>
               </div>
             </div>
             <div className="empty-portfolio-actions">
               <Link className="primary-button" href="/imports">Add my assets</Link>
-              <button type="button" onClick={() => setDemoMode(true)}>View synthetic demo</button>
             </div>
           </section>
         )}
@@ -476,13 +392,7 @@ export function Dashboard() {
           <article className="balance-card">
             <div className="card-heading">
               <span>Portfolio value</span>
-              <span className="coverage">{isLocal
-                ? `${holdings.length} valued positions`
-                : usingReviewedDemo
-                  ? `${holdings.length} confirmed demo positions`
-                  : demoEnabled
-                    ? "10 / 12 valued today"
-                    : "No confirmed positions"}</span>
+              <span className="coverage">{isLocal ? `${holdings.length} valued positions` : "No confirmed positions"}</span>
             </div>
             <strong className="total-value">{eur.format(total)}</strong>
             <p className="subtle">EUR base currency · original currencies retained</p>
@@ -492,9 +402,9 @@ export function Dashboard() {
                 <button type="button" className={chartMode === "value" ? "selected" : ""} onClick={() => setChartMode("value")} aria-pressed={chartMode === "value"} disabled={period === "today"}>Total value</button>
               </div>
               <div className="period-tabs" role="group" aria-label="Select chart period">
-                {(Object.keys(periodData) as Period[]).map((key) => (
+                {(Object.keys(periodLabels) as Period[]).map((key) => (
                   <button key={key} className={period === key ? "selected" : ""} onClick={() => { setPeriod(key); if (key === "today") setChartMode("daily-change"); setSelectedDailyDate(undefined); }} aria-pressed={period === key}>
-                    {periodData[key].label}
+                    {periodLabels[key]}
                   </button>
                 ))}
               </div>
@@ -512,10 +422,8 @@ export function Dashboard() {
                 </div>
               ) : chartMode === "value" ? (
                 <div><span>{current.label} value movement</span><strong className="pending-change">Waiting for another valuation</strong><small>Total value history starts with two dated records</small></div>
-              ) : !hasVisiblePortfolio ? (
+              ) : !isLocal ? (
                 <div><span>{current.label} change</span><strong className="pending-change">No data yet</strong><small>Import a confirmed snapshot to begin</small></div>
-              ) : usingReviewedDemo ? (
-                <div><span>{current.label} change</span><strong className="pending-change">Waiting for the next demo snapshot</strong><small>Your confirmed demo holdings are shown below</small></div>
               ) : isLocal && !localHistory?.available ? (
                 <div><span>{current.label} change</span><strong className="pending-change">Waiting for another dated NAV</strong><small>Starts after two dated prices are recorded</small></div>
               ) : (
@@ -529,7 +437,7 @@ export function Dashboard() {
                   </small>
                   {localHistory?.coverage === "partial" && (
                     <small className="partial-range-note">
-                      Since tracking began · full {periodData[period].label.toLowerCase()} baseline pending
+                      Since tracking began · full {periodLabels[period].toLowerCase()} baseline pending
                     </small>
                   )}
                   {isLocal && period === "today" && (
@@ -548,16 +456,16 @@ export function Dashboard() {
                   <small className="performance-history-note">Investment performance · capital flows excluded</small>
                 </div>
               )}
-              <span className="market-note">{isLocal ? `ECB rates ${localPortfolio?.fxAsOf}` : usingReviewedDemo ? "Confirmed demo review" : demoEnabled ? "Synthetic valuation" : "EUR base currency"}<br />{isLocal
+              <span className="market-note">{isLocal ? `ECB rates ${localPortfolio?.fxAsOf}` : "EUR base currency"}<br />{isLocal
                 ? localPortfolio?.marketData.lastRefreshedAt
                   ? `Prices checked ${localPortfolio.marketData.lastRefreshedAt.slice(0, 16).replace("T", " ")}`
                   : "Prices still use confirmed imports"
-                : usingReviewedDemo ? "Stored only in this browser" : demoEnabled ? "Some funds await NAV" : "No demo data mixed in"}</span>
+                : "No price history yet"}</span>
             </div>
             {chartMode === "value" && valueHistory?.available && showValueTrend ? (
               <PortfolioValueChart
                 negative={valueHistory.change < 0}
-                label={`${periodData[period].label} total portfolio value trend`}
+                label={`${periodLabels[period]} total portfolio value trend`}
                 timeline={valueHistory.timeline}
               />
             ) : chartMode === "value" && period === "today" ? null : chartMode === "value" ? (
@@ -569,15 +477,15 @@ export function Dashboard() {
                 changes={dailyChanges}
                 selectedAsOf={selectedDailyDate}
                 onSelect={setSelectedDailyDate}
-                label={`${periodData[period].label} capital-flow-adjusted investment changes`}
+                label={`${periodLabels[period]} capital-flow-adjusted investment changes`}
               />
             )}
           </article>
         </section>
 
         <section className="data-status-bar" aria-label="Data status">
-          <span><i className="status-indicator current" />{isLocal ? "Local ledger" : usingReviewedDemo ? "Confirmed demo" : demoEnabled ? "Synthetic demo" : "Ledger ready"}</span>
-          <span title={isLocal ? refreshMessage ?? persistedMarketMessage : undefined}><i className="status-indicator market" />{isLocal ? refreshMessage ?? persistedMarketMessage : demoEnabled ? "Missing values stay unknown" : "No price history yet"}</span>
+          <span><i className="status-indicator current" />{isLocal ? "Local ledger" : "Ledger ready"}</span>
+          <span title={isLocal ? refreshMessage ?? persistedMarketMessage : undefined}><i className="status-indicator market" />{isLocal ? refreshMessage ?? persistedMarketMessage : "No price history yet"}</span>
           <span><i className="status-indicator fx" />{eurCnyOverview ? `€1 = ¥${fxRate.format(eurCnyOverview.currentRate)} · ECB ${eurCnyOverview.asOf}` : isLocal ? "CNY rate unavailable" : "ECB rates with local data"}</span>
         </section>
 
@@ -663,7 +571,7 @@ export function Dashboard() {
                   )}
                 </div>
                 <div className="change-cell">
-                  {isLocal ? holding.history?.[period]?.available ? (
+                  {holding.history?.[period]?.available ? (
                     <div className="holding-change">
                       <div className="holding-performance-copy">
                         <Change
@@ -687,8 +595,6 @@ export function Dashboard() {
                         ? "No recent daily price · select 7 days"
                         : "Record another dated NAV / price"}
                     </small></span>
-                  ) : (
-                    <Change value={holding.changeEur} percent={holding.changePercent} />
                   )}
                 </div>
               </article>

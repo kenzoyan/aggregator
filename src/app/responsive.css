@@ -18,7 +18,7 @@
   .main-content { margin-left: 0; padding: 22px 16px 100px; }
   .topbar { align-items: flex-start; margin-bottom: 20px; }
   .topbar h1 { font-size: 28px; }
-  .demo-badge { display: none; }
+  .portfolio-badge { display: none; }
   .primary-button { padding: 10px 13px; }
   .balance-card { padding: 22px 20px 18px; border-radius: 19px; }
   .total-value { font-size: 38px; }

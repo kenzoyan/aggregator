@@ -11,6 +11,28 @@ import {
 } from "@/domain/imports";
 
 describe("POST /api/imports/:id/confirm", () => {
+  it("refuses a legacy demo draft without changing portfolio state", async () => {
+    const stored: StoredImportDraft = {
+      id: "legacy-demo", sourceAccountId: "alipay-main", sourceKind: "demo",
+      createdAt: "2026-07-19T10:00:00.000Z", confidence: "high", warnings: [],
+      portfolio: draftPortfolioFromOpeningSnapshot({
+        id: "legacy-demo-snapshot", sourceAccountId: "alipay-main",
+        asOf: "2026-07-19T00:00:00.000Z", positions: [],
+      }, "demo"),
+      status: "draft",
+    };
+    const confirmImport = vi.fn();
+    const response = await createImportConfirmHandler({
+      database: { getImportDraft: () => stored, confirmImport },
+      newId: () => "unused", now: () => "2026-07-19T10:01:00.000Z",
+    })(new Request("http://localhost/api/imports/legacy-demo/confirm", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify(createImportDraftReadModel(stored)),
+    }), stored.id);
+
+    expect(response.status).toBe(410);
+    expect(confirmImport).not.toHaveBeenCalled();
+  });
   it("does not claim an older screenshot replaced newer confirmed holdings", async () => {
     const stored: StoredImportDraft = {
       id: "draft-stale-screenshot",

@@ -22,7 +22,7 @@ Track holdings, prices, FX effects and portfolio history without giving the app 
 | **Portfolio Agent** | Ask questions about bounded local portfolio facts with cited evidence. Optional cloud features run only with configured provider credentials. |
 | **External market watch** | Request an official-source calendar of upcoming macro releases on demand, separate from portfolio facts. |
 
-**Designed for one owner on desktop web.** It monitors investments; it does not place trades or provide investment advice. A fresh database is empty. **Explore demo** shows synthetic data without saving it to your portfolio.
+**Designed for one owner on desktop web.** It monitors investments; it does not place trades or provide investment advice. A fresh database is empty until an import is reviewed and confirmed.
 
 ## 🚀 Quick start
 
@@ -34,9 +34,7 @@ cp .env.example .env.local
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000). No API key is required to explore the synthetic demo or enter holdings manually. The first real portfolio record is created only after an import is reviewed and confirmed.
-
-To exercise the full import flow with synthetic data, choose **Update assets → No API key? Try the demo**.
+Open [http://localhost:3000](http://localhost:3000). No API key is required to enter holdings manually. The first portfolio record is created only after an import is reviewed and confirmed.
 
 ### Optional connections
 

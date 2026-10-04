@@ -4,10 +4,6 @@ import Link from "next/link";
 import { useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from "react";
 
 import {
-  createDemoPortfolioRecord,
-  demoPortfolioStorageKey,
-} from "@/application/demo-portfolio";
-import {
   createImportDraftConfirmationPayload,
   type ImportDraftReadModel,
 } from "@/application/imports/import-draft-read-model";
@@ -145,28 +141,22 @@ export function AssetImportWorkflow() {
     }
   }
 
-  async function analyze(mode: "image" | "demo") {
-    setOperationLabel(mode === "image"
-      ? "Analyzing with OpenAI…"
-      : "Loading demo…");
+  async function analyze() {
+    setOperationLabel("Analyzing with OpenAI…");
     try {
       await requestDraft(async () => {
         const form = new FormData();
         form.set("sourceAccountId", sourceAccountId);
-        form.set("mode", mode);
-        if (mode === "image") {
-          if (files.length === 0) throw new Error("Choose at least one screenshot first.");
-          files.forEach((file) => form.append("images", file));
-        }
+        form.set("mode", "image");
+        if (files.length === 0) throw new Error("Choose at least one screenshot first.");
+        files.forEach((file) => form.append("images", file));
 
         return fetch("/api/imports/analyze", {
           method: "POST",
           body: form,
         });
       }, "Image analysis failed.", () => {
-        if (mode === "image") {
-          setAnalyzedScreenshotSignature(screenshotSelectionSignature(files));
-        }
+        setAnalyzedScreenshotSignature(screenshotSelectionSignature(files));
       });
     } finally {
       setOperationLabel("");
@@ -282,24 +272,10 @@ export function AssetImportWorkflow() {
       });
       const payload = (await response.json()) as {
         draft?: ImportDraftView;
-        confirmedSnapshot?: Parameters<typeof createDemoPortfolioRecord>[0]["snapshot"];
         error?: string;
       };
       if (!response.ok || !payload.draft) {
         throw new Error(payload.error ?? "Confirmation failed.");
-      }
-      if (payload.draft.sourceKind === "demo" && payload.confirmedSnapshot) {
-        try {
-          window.localStorage.setItem(
-            demoPortfolioStorageKey,
-            JSON.stringify(createDemoPortfolioRecord({
-              confirmedAt: payload.draft.confirmedAt ?? new Date().toISOString(),
-              snapshot: payload.confirmedSnapshot,
-            })),
-          );
-        } catch {
-          // Confirmation still succeeds when private browsing blocks local storage.
-        }
       }
       setDraft(payload.draft);
       setFiles([]);
@@ -391,21 +367,13 @@ export function AssetImportWorkflow() {
               className="primary-button action-button"
               type="button"
               disabled={busy || files.length === 0 || !imageImportSupported}
-              onClick={() => analyze("image")}
+              onClick={() => analyze()}
             >
               {busy && operationLabel
                 ? operationLabel
                 : screenshotsChangedSinceAnalysis
                   ? "Analyze again"
                   : "Analyze with OpenAI"}
-            </button>
-            <button
-              className="text-button"
-              type="button"
-              disabled={busy || !selectedAccount}
-              onClick={() => analyze("demo")}
-            >
-              Try the synthetic demo
             </button>
             <button
               className="text-button"
@@ -466,15 +434,8 @@ export function AssetImportWorkflow() {
             <div className="confirmed-state">
               <span>✓</span>
               <h2>Import confirmed</h2>
-              <p>{draft.sourceKind === "demo"
-                ? "Demo review completed. These holdings are saved in your browser's separate demo area and never added to your real portfolio."
-                : "Prior return was retained as pre-monitoring history. Current value was not treated as new principal."}</p>
-              <Link
-                className="primary-button"
-                href={draft.sourceKind === "demo" ? "/?demo=1" : "/"}
-              >
-                {draft.sourceKind === "demo" ? "View demo overview" : "View portfolio overview"}
-              </Link>
+              <p>Prior return was retained as pre-monitoring history. Current value was not treated as new principal.</p>
+              <Link className="primary-button" href="/">View portfolio overview</Link>
             </div>
           )}
 

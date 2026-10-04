@@ -1,8 +1,3 @@
-import {
-  screenshotExtractionSchema,
-  type ScreenshotExtraction,
-  type VisionExtractor,
-} from "@/application/imports/vision-extraction-contract";
 import type { SourceProvider } from "@/domain/source-accounts";
 
 export {
@@ -28,16 +23,4 @@ export function detectedSourceProvider(
   return sourceProviderPatterns.find(([, pattern]) =>
     pattern.test(accountName)
   )?.[0];
-}
-
-export function fixtureVisionExtractor(
-  result: ScreenshotExtraction,
-): VisionExtractor {
-  const validated = screenshotExtractionSchema.parse(result);
-
-  return {
-    async extract() {
-      return structuredClone(validated);
-    },
-  };
 }

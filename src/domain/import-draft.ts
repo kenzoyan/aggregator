@@ -1,5 +1,6 @@
 import type { AssetType, MoneyInput } from "@/domain/portfolio/types";
 
+// Keep the retired demo value readable so older local drafts remain isolated.
 export const importSourceKinds = [
   "screenshot",
   "trading-212",

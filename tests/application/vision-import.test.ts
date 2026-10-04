@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  fixtureVisionExtractor,
   prepareScreenshotImport,
   type ScreenshotExtraction,
 } from "@/application/imports/vision-extractor";
@@ -39,20 +38,6 @@ const extracted: ScreenshotExtraction = {
 };
 
 describe("screenshot import seam", () => {
-  it("can use a deterministic fixture without calling a cloud service", async () => {
-    const extractor = fixtureVisionExtractor(extracted);
-
-    await expect(
-      extractor.extract({
-        images: [{
-          image: new Uint8Array([1, 2, 3]),
-          mimeType: "image/jpeg",
-        }],
-        sourceAccountHint: "Synthetic Provider",
-      }),
-    ).resolves.toEqual(extracted);
-  });
-
   it("preserves reported history and uses whole-holding mode when units are absent", () => {
     const draft = prepareScreenshotImport({
       draftId: "draft-alipay-1",
