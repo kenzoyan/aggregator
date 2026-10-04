@@ -192,6 +192,7 @@ describe("POST /api/imports/analyze", () => {
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
+      outcome: "review-required",
       visionProvider: "openai",
       draft: {
         id: "draft-vision",
@@ -367,6 +368,29 @@ describe("POST /api/imports/analyze", () => {
       },
     });
     expect(store.saveImportDraft).toHaveBeenCalledOnce();
+  });
+
+  it("does not flag a matching legacy generic account as a source mismatch", async () => {
+    const account: SourceAccountDefinition = {
+      ...createSourceAccountDefinition({ id: "wechat-generic", accountType: "微信" }),
+      provider: "generic",
+    };
+    const store = database([account]);
+    const handler = createAnalyzeImportHandler({
+      database: store,
+      createExtractor: () => ({ extract: async () => ({ ...extraction, accountName: "微信" }) }),
+      newId: () => "synthetic-id",
+      now: () => "2026-07-23T12:00:00.000Z",
+    });
+
+    const response = await handler(imageRequest(account.id));
+    const payload = await response.json() as {
+      draft: { confidence: string; warnings: string[] };
+    };
+
+    expect(response.status).toBe(200);
+    expect(payload.draft.confidence).toBe("high");
+    expect(payload.draft.warnings.some((warning) => warning.includes("may not match"))).toBe(false);
   });
 
   it("does not send connector accounts through image extraction", async () => {

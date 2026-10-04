@@ -37,6 +37,7 @@ export async function POST(request: Request) {
     });
     database.saveImportDraft(draft);
     return NextResponse.json({
+      outcome: "review-required",
       draft: createImportDraftReadModel(database.getImportDraft(draft.id)!),
     });
   } catch (error) {

@@ -157,9 +157,15 @@
 .review-meta { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; color: var(--muted); font-size: 11px; }
 .review-date { display: flex; align-items: center; gap: 8px; }
 .review-date input { padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: white; color: var(--ink); font: inherit; }
-.review-date-help { margin: -3px 0 12px; color: #8a641a; font-size: 11px; }
+.review-date-help { margin: 0 0 8px; color: #8a641a; font-size: 11px; }
+.review-date-explanation { margin: 0 0 10px; color: var(--muted); font-size: 10px; line-height: 1.45; }
 .confidence { padding: 6px 9px; border-radius: 999px; font-weight: 800; }.confidence.high { background: #e7f6f0; color: #087856; }.confidence.medium { background: #fff4dd; color: #93620f; }.confidence.low { background: #fdecee; color: #a7444d; }.confidence.manual { background: #eef1f5; color: #536174; }
-.warning-list { margin-bottom: 16px; padding: 10px 13px; border-radius: 12px; background: #fff7e8; color: #815d1e; }.warning-list p { margin: 4px 0; font-size: 11px; line-height: 1.45; }
+.warning-list { margin-bottom: 16px; border: 1px solid #dce3e0; border-radius: 12px; background: #fafaf7; color: #52675f; }
+.warning-list summary { padding: 10px 13px; cursor: pointer; font-size: 11px; font-weight: 750; }
+.warning-list summary:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+.warning-list[open] summary { border-bottom: 1px solid #dce3e0; }
+.warning-list > div { padding: 8px 13px 11px; }
+.warning-list p { margin: 4px 0; font-size: 11px; line-height: 1.45; }
 .reconciliation-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 14px; padding: 12px 14px; border: 1px solid #dce5ec; border-radius: 12px; background: #f8fafc; }
 .reconciliation-summary > div { display: grid; gap: 2px; margin-right: auto; }.reconciliation-summary strong { font-size: 12px; }.reconciliation-summary small { color: var(--muted); font-size: 9px; }
 .reconciliation-summary > span { padding: 5px 8px; border-radius: 999px; background: #eaf0f8; color: #45617f; font-size: 9px; font-weight: 800; }

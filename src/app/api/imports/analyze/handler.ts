@@ -177,6 +177,7 @@ export function createAnalyzeImportHandler(input: {
       if (existingChatDraft) {
         const linked = attachChatDraft(existingChatDraft);
         return NextResponse.json({
+          outcome: "review-required",
           draft: createImportDraftReadModel(existingChatDraft),
           conversation: linked,
           visionProvider: "openai",
@@ -251,8 +252,11 @@ export function createAnalyzeImportHandler(input: {
         sourceAccountHint: sourceAccount.label,
       });
       const detectedProvider = detectedSourceProvider(extraction.accountName);
-      const providerMismatchWarning = detectedProvider &&
-        detectedProvider !== sourceAccount.provider
+      const selectedProvider = sourceAccount.provider === "generic"
+        ? detectedSourceProvider(sourceAccount.accountType) ?? detectedSourceProvider(sourceAccount.label)
+        : sourceAccount.provider;
+      const providerMismatchWarning = detectedProvider && selectedProvider &&
+        detectedProvider !== selectedProvider
         ? `Image analysis labeled this account as ${extraction.accountName}, which may not match the selected ${sourceAccount.label} account. Verify the source account before confirming.`
         : undefined;
       const reviewedExtraction = providerMismatchWarning
@@ -283,6 +287,7 @@ export function createAnalyzeImportHandler(input: {
       const linked = attachChatDraft(storedDraft);
 
       return NextResponse.json({
+        outcome: "review-required",
         draft: createImportDraftReadModel(storedDraft),
         ...(linked ? { conversation: linked } : {}),
         extraction: reviewedExtraction,

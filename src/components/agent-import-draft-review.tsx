@@ -37,13 +37,14 @@ export function AgentImportDraftReview({
           <span className={`confidence ${draft.confidence}`}>{draft.confidence}</span>
         </div>
         {draft.warnings.length > 0 && (
-          <ul className="analyst-import-warnings">
-            {draft.warnings.map((warning, index) => <li key={`${index}:${warning}`}>
+          <details className="analyst-import-warnings">
+            <summary>{language === "zh-CN" ? `其他审核提示（${draft.warnings.length}）` : `Additional review notes (${draft.warnings.length})`}</summary>
+            <ul>{draft.warnings.map((warning, index) => <li key={`${index}:${warning}`}>
               {language === "zh-CN" && warning === partialImportPreservationWarning
                 ? "本次仅更新识别到的持仓；其他已确认持仓保持不变。"
                 : warning}
-            </li>)}
-          </ul>
+            </li>)}</ul>
+          </details>
         )}
         <dl className="analyst-import-draft-facts">
           <div>
@@ -58,8 +59,11 @@ export function AgentImportDraftReview({
                       value={draft.portfolio.asOf.slice(0, 10)}
                       onChange={(event) => onEdit({ type: "update-as-of", value: event.target.value })}
                     />
+                    <small className="analyst-import-date-description">
+                      {language === "zh-CN" ? "这是账户中持仓的估值日期，不是上传截图的日期。" : "When the account valued these holdings, not when you uploaded the screenshot."}
+                    </small>
                     {!draft.portfolio.asOf && <small className="analyst-import-date-help">
-                      {language === "zh-CN" ? "请选择包含年份的日期后再确认" : "Choose a date including the year before confirming"}
+                      {language === "zh-CN" ? "请在来源账户核对并填写包含年份的日期后再确认" : "Check the source account and enter the date with its year before confirming"}
                     </small>}
                   </>
                 )}</dd>

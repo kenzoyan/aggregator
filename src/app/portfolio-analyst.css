@@ -128,12 +128,16 @@
 .analyst-import-draft-summary { display: grid; gap: 11px; }
 .analyst-import-draft-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .analyst-import-draft-heading strong { font-size: 10px; }
-.analyst-import-warnings { display: grid; gap: 4px; margin: 0; padding: 9px 10px 9px 24px; border-radius: 9px; background: #fff7e8; color: #8a641a; font-size: 8px; line-height: 1.45; }
+.analyst-import-warnings { margin: 0; border: 1px solid #dce3e0; border-radius: 9px; background: #fafaf7; color: #52675f; font-size: 8px; line-height: 1.45; }
+.analyst-import-warnings summary { padding: 9px 10px; cursor: pointer; font-weight: 750; }
+.analyst-import-warnings summary:focus-visible { outline: 2px solid #376f5b; outline-offset: 2px; }
+.analyst-import-warnings ul { display: grid; gap: 4px; margin: 0; padding: 4px 10px 10px 24px; }
 .analyst-import-draft-facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; margin: 0; }
 .analyst-import-draft-facts > div { display: grid; gap: 3px; padding: 8px; border: 1px solid #dce6e1; border-radius: 8px; background: #fafcfb; }
 .analyst-import-draft-facts dt { color: #7a8d85; font-size: 7px; font-weight: 800; text-transform: uppercase; }
 .analyst-import-draft-facts dd { margin: 0; color: #2e463d; font-size: 9px; overflow-wrap: anywhere; }
 .analyst-import-date-help { display: block; margin-top: 4px; color: #8a641a; font-size: 8px; line-height: 1.4; }
+.analyst-import-date-description { display: block; margin-top: 4px; color: #73867d; font-size: 8px; line-height: 1.4; }
 .analyst-import-cash-fields { display: flex; gap: 4px; }
 .analyst-import-cash-fields input { min-width: 0; width: 65%; padding: 5px; border: 1px solid #cbdad3; border-radius: 6px; font: inherit; }
 .analyst-import-cash-fields input:last-child { width: 35%; text-transform: uppercase; }

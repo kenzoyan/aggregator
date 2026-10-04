@@ -17,6 +17,7 @@ import {
 } from "@/application/imports/import-review-editor";
 import type { SourceAccountView } from "@/application/source-account-status";
 import { ScreenshotPreviewTray } from "@/components/screenshot-preview-tray";
+import { parseImportStartResult } from "@/components/import-start-result";
 import { resolveRequestedSourceAccountId } from "@/components/source-account-selection";
 import {
   maximumScreenshotCount,
@@ -129,12 +130,14 @@ export function AssetImportWorkflow() {
     setNotice("");
     try {
       const response = await request();
-      const payload = (await response.json()) as { draft?: ImportDraftView; error?: string };
-      if (!response.ok || !payload.draft) {
-        throw new Error(payload.error ?? fallbackError);
+      const result = parseImportStartResult(await response.json(), response.ok, fallbackError);
+      if (result.outcome === "market-data-only") {
+        setDraft(undefined);
+        setNotice(result.message);
+        return;
       }
-      setDraft(payload.draft);
-      onLoaded?.(payload.draft);
+      setDraft(result.draft);
+      onLoaded?.(result.draft);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : fallbackError);
     } finally {
@@ -171,38 +174,11 @@ export function AssetImportWorkflow() {
   }
 
   async function syncTrading212() {
-    setBusy(true);
-    setError("");
-    setNotice("");
-    try {
-      const response = await fetch("/api/imports/trading212", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ sourceAccountId }),
-      });
-      const payload = (await response.json()) as {
-        outcome?: "review-required" | "market-data-only";
-        draft?: ImportDraftView;
-        message?: string;
-        error?: string;
-      };
-      if (!response.ok) {
-        throw new Error(payload.error ?? "Trading 212 sync failed.");
-      }
-      if (payload.outcome === "market-data-only") {
-        setDraft(undefined);
-        setNotice(payload.message ?? "Prices updated. No holding changes need review.");
-        return;
-      }
-      if (!payload.draft) {
-        throw new Error(payload.error ?? "Trading 212 sync failed.");
-      }
-      setDraft(payload.draft);
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Trading 212 sync failed.");
-    } finally {
-      setBusy(false);
-    }
+    await requestDraft(() => fetch("/api/imports/trading212", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ sourceAccountId }),
+    }), "Trading 212 sync failed.");
   }
 
   async function startManualEntry() {
@@ -516,14 +492,21 @@ export function AssetImportWorkflow() {
                   />
                 </label>
               </div>
-              {!draft.portfolio.asOf && <p className="review-date-help">Choose the correct date, including year, before confirming.</p>}
+              <p className="review-date-explanation">
+                This is when the account valued these holdings, not when you uploaded the screenshot.
+              </p>
+              {!draft.portfolio.asOf && <p className="review-date-help">Check the source account and enter the valuation date with its year before confirming.</p>}
               {draft.sourceKind === "screenshot" && draft.portfolio.holdings.some((holding) => holding.observedPrice && !holding.priceAsOf) && (
                 <p className="review-date-help">Enter a NAV / price date including the year for each priced holding.</p>
               )}
+              {draft.sourceKind === "screenshot" && draft.confidence === "low" && (
+                <p className="review-date-help">Image reading is uncertain. Check the account, holdings and amounts before confirming.</p>
+              )}
               {draft.warnings.length > 0 && (
-                <div className="warning-list">
-                  {draft.warnings.map((warning, index) => <p key={`${warning}-${index}`}>◷ {warning}</p>)}
-                </div>
+                <details className="warning-list">
+                  <summary>Additional review notes ({draft.warnings.length})</summary>
+                  <div>{draft.warnings.map((warning, index) => <p key={`${warning}-${index}`}>{warning}</p>)}</div>
+                </details>
               )}
               {draft.reconciliation && (
                 <div className="reconciliation-summary">
