@@ -4,7 +4,6 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { parseMemoryRequest } from "@/application/portfolio-analyst-memory";
 import { appendPortfolioAnalystTurn, createPortfolioAnalystConversation, createPortfolioAnalystHistory } from "@/application/portfolio-analyst-conversation";
 import { createPortfolioAnalystMemoryHandlers } from "@/app/api/portfolio/analyst/memory/handler";
 import { createPortfolioDatabase } from "@/infrastructure/sqlite/portfolio-repository";
@@ -19,17 +18,6 @@ const request = (method: string, body: unknown) => new Request("http://localhost
 });
 
 describe("confirmed analyst memories", () => {
-  it("extracts only explicit, short memory requests", () => {
-    expect(parseMemoryRequest("记住：解释业绩时先说 EUR 变化。"))
-      .toBe("解释业绩时先说 EUR 变化。");
-    expect(parseMemoryRequest("Remember: Keep answers brief."))
-      .toBe("Keep answers brief.");
-    expect(parseMemoryRequest("请记住我喜欢简短回答"))
-      .toBe("我喜欢简短回答");
-    expect(parseMemoryRequest("记住：我的密码是 123")).toBe("unsupported");
-    expect(parseMemoryRequest("EUR 变化是多少？")).toBeUndefined();
-  });
-
   it("bounds the list at five confirmed memories", async () => {
     const database = createPortfolioDatabase(":memory:");
     let index = 0;
@@ -76,7 +64,13 @@ describe("confirmed analyst memories", () => {
     const conversation = database.readPortfolioAnalystConversation(conversationId)!;
     expect(conversation.turns).toHaveLength(2);
     expect(conversation.turns.map((turn) => turn.chat?.memoryProposal?.status)).toEqual(["saved", "cancelled"]);
-    expect(createPortfolioAnalystHistory(conversation)).toEqual([]);
+    expect(conversation.turns.map((turn) => turn.chat?.assistantText)).toEqual(["Review on the right.", "Review on the right."]);
+    expect(createPortfolioAnalystHistory(conversation)).toMatchObject([
+      { role: "user", text: "Remember: Keep answers brief." },
+      { role: "assistant", text: "Review on the right.\nMemory review: saved." },
+      { role: "user", text: "Remember: Use headings." },
+      { role: "assistant", text: "Review on the right.\nMemory review: cancelled." },
+    ]);
     expect(database.listPortfolioAnalystMemories()).toHaveLength(1);
     database.close();
   });

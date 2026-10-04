@@ -16,13 +16,6 @@ export interface PortfolioAnalystMemoryStore {
   deletePortfolioAnalystMemory(id: string): void;
 }
 
-export function parseMemoryRequest(text: string): string | "unsupported" | undefined {
-  const match = text.trim().match(/^(?:请)?记住[：:,，\s]*(.+)$|^(?:please\s+)?remember[\s:,]+(.+)$/is);
-  if (!match) return undefined;
-  const content = (match[1] ?? match[2]).trim();
-  return validMemoryContent(content) ? content : "unsupported";
-}
-
 export function validMemoryContent(content: string): boolean {
   return content.length > 0 && content.length <= MAX_PORTFOLIO_ANALYST_MEMORY_CHARS &&
     !/[\r\n]/.test(content) &&

@@ -719,7 +719,7 @@ describe("/api/portfolio/analyst", () => {
     expect(deletedImageIds).toEqual(["11111111-1111-4111-8111-111111111111"]);
   });
 
-  it("keeps a memory request as a chat turn and excludes it from model history", async () => {
+  it("keeps an Agent memory proposal as a chat turn and excludes pending review from history", async () => {
     const store = conversationStore();
     const ids = ["memory-conversation", "memory-turn", "answer-turn"];
     const histories: unknown[] = [];
@@ -727,10 +727,19 @@ describe("/api/portfolio/analyst", () => {
       histories.push(turn.history);
       return answer(context);
     });
+    let calls = 0;
     const handlers = createPortfolioAnalystHandlers({
       agentRuntimes: { openai: {
-        ...fake,
-        generateMemoryProposal: async () => ({ kind: "preference" as const, content: "Answer briefly." }),
+        runTurn(input) {
+          if (++calls === 1) return Promise.resolve({
+            kind: "conversation" as const,
+            reply: "I put the rewritten memory in the review panel on the right.",
+            memoryProposal: { content: "Answer briefly." },
+            audit: { runtime: "pi-agent-core" as const, modelTurns: 3,
+              stopReason: "completed" as const, toolCalls: [] },
+          });
+          return fake.runTurn(input);
+        },
       } },
       models: { openai: "gpt-synthetic", deepseek: "deepseek-synthetic" },
       defaultProvider: "openai",
@@ -756,6 +765,7 @@ describe("/api/portfolio/analyst", () => {
     }));
     expect(histories).toEqual([[]]);
     expect(store.readLatestPortfolioAnalystConversation()?.turns).toHaveLength(2);
+    expect(calls).toBe(2);
   });
 
   it("keeps a memory request when generation fails and does not offer raw text for saving", async () => {
@@ -763,8 +773,7 @@ describe("/api/portfolio/analyst", () => {
     const ids = ["memory-conversation", "memory-turn"];
     const handlers = createPortfolioAnalystHandlers({
       agentRuntimes: { openai: {
-        ...runtime(),
-        generateMemoryProposal: async () => {
+        async runTurn() {
           throw new PortfolioAnalystProviderError("provider-unavailable", "OpenAI", "timeout");
         },
       } },
@@ -791,7 +800,14 @@ describe("/api/portfolio/analyst", () => {
     const ids = ["memory-conversation", "memory-turn"];
     const handlers = createPortfolioAnalystHandlers({
       agentRuntimes: { openai: {
-        ...runtime(), generateMemoryProposal: async () => ({ kind: "duplicate" as const }),
+        async runTurn() {
+          return {
+            kind: "conversation" as const,
+            reply: "A similar memory is already saved, so I did not add another one.",
+            audit: { runtime: "pi-agent-core" as const, modelTurns: 3,
+              stopReason: "completed" as const, toolCalls: [] },
+          };
+        },
       } },
       models: { openai: "gpt-synthetic", deepseek: "deepseek-synthetic" },
       defaultProvider: "openai",

@@ -32,7 +32,6 @@ import {
 import type { SourceAccountDefinition } from "@/domain/source-accounts";
 import type { StoredImportDraft } from "@/domain/imports";
 import type { PortfolioAnalystMemoryStore } from "@/application/portfolio-analyst-memory";
-import { parseMemoryRequest } from "@/application/portfolio-analyst-memory";
 import {
   portfolioAnalystStreamContentType,
   type PortfolioAnalystStreamEvent,
@@ -286,66 +285,6 @@ export function createPortfolioAnalystHandlers(
         now: generatedAt,
       });
 
-      const memoryRequest = "mode" in body && !body.screenshotCount
-        ? parseMemoryRequest(body.question)
-        : undefined;
-      if ("mode" in body && memoryRequest) {
-        const turnId = createId();
-        const startingConversation = appendPortfolioAnalystTurn({ ...conversation, language: body.language }, {
-          id: turnId, question: body.question, createdAt: generatedAt,
-          chat: {
-            assistantText: body.language === "zh-CN" ? "正在整理记忆……" : "Preparing a memory…",
-            requestStatus: "pending",
-          },
-        });
-        options.conversations?.savePortfolioAnalystConversation(startingConversation);
-        let proposal: Awaited<ReturnType<NonNullable<typeof agentRuntime.generateMemoryProposal>>> = { kind: "unsupported" };
-        let generationError: unknown;
-        if (memoryRequest !== "unsupported") {
-          try {
-            if (!agentRuntime.generateMemoryProposal) {
-              throw new PortfolioAnalystProviderError("provider-unavailable", body.provider);
-            }
-            proposal = await agentRuntime.generateMemoryProposal({
-              content: memoryRequest, language: body.language,
-              existingMemories: options.memory?.listPortfolioAnalystMemories() ?? [],
-              signal: request.signal,
-            });
-          } catch (error) {
-            generationError = error;
-          }
-        }
-        const assistantText = generationError
-          ? (body.language === "zh-CN"
-            ? "这次未能整理记忆。你的消息已保留，请稍后重试。"
-            : "I couldn't prepare that memory. Your message is saved; please try again.")
-          : proposal.kind === "duplicate"
-            ? (body.language === "zh-CN" ? "已有同义的记忆，没有重复保存。" : "A similar memory is already saved, so I did not add another one.")
-          : proposal.kind === "unsupported"
-            ? (body.language === "zh-CN"
-              ? "这条内容不能保存为记忆。请只写一条 200 字以内的回答偏好，不要包含密码、密钥或财务记录。"
-              : "I can't save that as memory. Use one answer preference under 200 characters, without secrets or financial records.")
-            : (body.language === "zh-CN"
-              ? "我已将整理后的记忆放在右侧供你审核。确认前不会保存。"
-              : "I put the rewritten memory in the review panel on the right. It will not be saved until you confirm.");
-        const nextConversation = replacePortfolioAnalystTurn(startingConversation, {
-          id: turnId, question: body.question, createdAt: generatedAt,
-          chat: {
-            assistantText,
-            ...(generationError ? {
-              failureCode: generationError instanceof PortfolioAnalystProviderError
-                ? generationError.code : "provider-unavailable",
-              ...(generationError instanceof PortfolioAnalystProviderError && generationError.diagnosticCode
-                ? { failureDetail: generationError.diagnosticCode } : {}),
-            } : proposal.kind !== "preference" ? {} : {
-              memoryProposal: { content: proposal.content, status: "pending" as const },
-            }),
-          },
-        }, options.now?.() ?? new Date().toISOString());
-        options.conversations?.savePortfolioAnalystConversation(nextConversation);
-        return json({ conversation: nextConversation });
-      }
-
       const pendingTurnId = "mode" in body && options.conversations ? createId() : undefined;
       if (pendingTurnId) {
         conversation = appendPortfolioAnalystTurn({ ...conversation, language: body.language }, {
@@ -384,6 +323,7 @@ export function createPortfolioAnalystHandlers(
           includeHoldingNames: body.includeHoldingNames,
           defaultPeriod: requestDefaultPeriod(body),
           memories: options.memory?.listPortfolioAnalystMemories(),
+          hasPendingMemoryProposal: conversation.turns.some((turn) => turn.chat?.memoryProposal?.status === "pending"),
           factsAsOf: portfolio.insights.asOf,
           signal: request.signal,
           onPhase: (phase) => emit?.({ type: "status", phase }),
@@ -395,7 +335,12 @@ export function createPortfolioAnalystHandlers(
             id: pendingTurnId ?? createId(),
             question: requestQuestion(body),
             createdAt: generatedAt,
-            chat: { assistantText: result.reply },
+            chat: {
+              assistantText: result.reply,
+              ...(result.memoryProposal ? {
+                memoryProposal: { content: result.memoryProposal.content, status: "pending" as const },
+              } : {}),
+            },
           });
           options.conversations?.savePortfolioAnalystConversation(nextConversation);
           return json({ conversation: nextConversation });

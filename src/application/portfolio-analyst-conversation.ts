@@ -259,9 +259,6 @@ export function resolvePortfolioAnalystMemoryProposal(
       ...item,
       chat: {
         ...item.chat,
-        assistantText: status === "saved"
-          ? (conversation.language === "zh-CN" ? "已保存这条记忆。你可以在设置中管理。" : "Memory saved. You can manage it in Settings.")
-          : (conversation.language === "zh-CN" ? "这条记忆没有保存。" : "This memory was not saved."),
         memoryProposal: { ...item.chat.memoryProposal!, status },
       },
     }),
@@ -300,7 +297,7 @@ export function createPortfolioAnalystHistory(
   conversation: PortfolioAnalystConversation,
 ): PortfolioAnalystHistoryMessage[] {
   const exchanges = conversation.turns.flatMap((turn) => {
-    if (turn.chat?.memoryProposal || turn.chat?.failureCode || turn.chat?.requestStatus === "pending") return [];
+    if (turn.chat?.memoryProposal?.status === "pending" || turn.chat?.failureCode || turn.chat?.requestStatus === "pending") return [];
     if (turn.importImage) return [];
     if (turn.imageAnswer && turn.imageAnswer.status && turn.imageAnswer.status !== "complete") return [];
     if (!conversation.includeHoldingNames && (turn.chat || turn.imageAnswer)) return [];
@@ -308,10 +305,13 @@ export function createPortfolioAnalystHistory(
       ? historicalAssistantText(turn.report)
       : turn.imageAnswer?.text ?? turn.chat?.assistantText ?? "";
     if (!assistantText.trim()) return [];
+    const memoryReview = turn.chat?.memoryProposal?.status;
     return [{
       createdAt: turn.createdAt,
       userText: turn.question.trim() || "Shared an image",
-      assistantText,
+      assistantText: memoryReview === "saved" || memoryReview === "cancelled"
+        ? `${assistantText}\nMemory review: ${memoryReview}.`
+        : assistantText,
       factsAsOf: turn.report?.factsAsOf ?? turn.imageAnswer?.generatedAt ?? turn.createdAt,
     }];
   });

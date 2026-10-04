@@ -5,7 +5,6 @@ import { createPortal } from "react-dom";
 import { useEffect, useRef, useState } from "react";
 
 import type { PortfolioAnalystConversation } from "@/application/portfolio-analyst-conversation";
-import { parseMemoryRequest } from "@/application/portfolio-analyst-memory";
 import { pendingScreenshotImportTarget, resumableImageContext } from "@/application/agent-image-intent";
 import { consumePortfolioAnalystImageStream } from "@/application/portfolio-analyst-image-stream";
 import type {
@@ -238,10 +237,6 @@ export function PortfolioAnalyst({
     if (!submission) return;
     if (submission.screenshots.length > 0) {
       void sendImageMessage(submission);
-      return;
-    }
-    if (parseMemoryRequest(submission.text)) {
-      void runAnalyst(submission.text);
       return;
     }
     if (activeReview) {

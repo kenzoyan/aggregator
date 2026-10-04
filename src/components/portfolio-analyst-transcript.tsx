@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import type { PortfolioAnalystAnswer } from "@/application/portfolio-analyst-answer";
 import type {
   PortfolioAnalystAgentAudit,
+  PortfolioAnalystToolAudit,
   PortfolioAnalystToolActivity,
   PortfolioAnalystToolName,
 } from "@/application/portfolio-analyst-agent";
@@ -116,6 +117,8 @@ export function SavedConversationEntries({
             </>}
           </div> : entry.turn.chat ? <div className="analyst-primary-answer analyst-assistant-message">
             <p>{entry.turn.chat.assistantText || (language === "zh-CN" ? "正在查看图片…" : "Reading your image…")}</p>
+            {entry.turn.chat.memoryProposal?.status === "saved" && <small>{language === "zh-CN" ? "记忆已保存。" : "Memory saved."}</small>}
+            {entry.turn.chat.memoryProposal?.status === "cancelled" && <small>{language === "zh-CN" ? "记忆未保存。" : "Memory not saved."}</small>}
             {entry.turn.id === conversation.turns.at(-1)?.id && entry.turn.chat.imageAction?.accountId &&
               !conversation.importActivities.some((activity) =>
                 activity.sourceTurnId === entry.turn.chat?.imageAction?.sourceTurnId ||
@@ -281,6 +284,8 @@ function analystToolLabel(
     propose_create_account: "账户创建提议",
     prepare_account_import: "资产导入准备",
     search_web: "网络搜索",
+    read_memories: "已保存的记忆",
+    propose_memory: "记忆提议",
   } : {
     read_period_drivers: "period performance",
     read_data_quality: "data quality",
@@ -290,6 +295,8 @@ function analystToolLabel(
     propose_create_account: "account creation proposal",
     prepare_account_import: "asset import preparation",
     search_web: "web research",
+    read_memories: "saved memories",
+    propose_memory: "memory proposal",
   };
   return labels[name];
 }
@@ -304,6 +311,25 @@ function analystToolScope(
     ? { today: "今日", week: "7 天", month: "30 天" }
     : { today: "today's", week: "7-day", month: "30-day" };
   return `${periods[input.period]}${language === "zh-CN" ? "" : " "}${analystToolLabel(name, language)}`;
+}
+
+function completedToolLabel(
+  name: PortfolioAnalystToolName,
+  input: PortfolioAnalystToolAudit["input"],
+  language: PortfolioAnalystLanguage,
+  evidenceCount: number,
+  memoryCount?: number,
+): string {
+  if (name === "read_memories") {
+    if (memoryCount === undefined) return language === "zh-CN" ? "已读取保存的记忆" : "Read saved memories";
+    return language === "zh-CN"
+      ? `已读取 ${memoryCount} 条已保存记忆`
+      : `Read ${memoryCount} saved ${memoryCount === 1 ? "memory" : "memories"}`;
+  }
+  if (name === "propose_memory") return language === "zh-CN" ? "已检查记忆提议" : "Checked memory proposal";
+  return language === "zh-CN"
+    ? `已读取 ${analystToolScope(name, input, language)} · ${evidenceCount} 条当前事实`
+    : `Read ${analystToolScope(name, input, language)} · ${evidenceCount} current facts`;
 }
 
 export function AgentActivityTimeline({
@@ -332,9 +358,7 @@ export function AgentActivityTimeline({
         ? audit.toolCalls.map((call) => (
             <li className={call.status === "completed" ? "done" : call.status} key={call.toolCallId}>
               <i aria-hidden="true" />{call.status === "completed"
-                ? (language === "zh-CN"
-                    ? `已读取 ${analystToolScope(call.name, call.input, language)} · ${call.evidenceKeys.length} 条当前事实`
-                    : `Read ${analystToolScope(call.name, call.input, language)} · ${call.evidenceKeys.length} current facts`)
+                ? completedToolLabel(call.name, call.input, language, call.evidenceKeys.length, call.memoryCount)
                 : call.status === "blocked"
                   ? (language === "zh-CN" ? `已停止额外读取：${analystToolScope(call.name, call.input, language)}` : `Stopped extra read: ${analystToolScope(call.name, call.input, language)}`)
                   : (language === "zh-CN" ? `读取失败：${analystToolScope(call.name, call.input, language)}` : `Failed to read ${analystToolScope(call.name, call.input, language)}`)}
@@ -349,9 +373,7 @@ export function AgentActivityTimeline({
                 ? (language === "zh-CN"
                     ? `正在读取 ${analystToolScope(activity.name, activity.input, language)}……`
                     : `Reading ${analystToolScope(activity.name, activity.input, language)}…`)
-                : (language === "zh-CN"
-                    ? `已读取 ${analystToolScope(activity.name, activity.input, language)} · ${activity.evidenceCount} 条当前事实`
-                    : `Read ${analystToolScope(activity.name, activity.input, language)} · ${activity.evidenceCount} current facts`)}
+                : completedToolLabel(activity.name, activity.input, language, activity.evidenceCount, activity.memoryCount)}
             </li>
           ))}
     </ol>

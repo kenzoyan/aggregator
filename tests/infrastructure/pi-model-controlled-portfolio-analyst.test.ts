@@ -113,49 +113,82 @@ function completedStream(message: AssistantMessage) {
 }
 
 describe("Pi model-controlled Portfolio Analyst", () => {
-  it("rewrites an explicit memory request with a separate no-tool model call", async () => {
-    let prompt = "";
-    let toolCount = -1;
-    const streamFn: StreamFn = (_model, piContext) => {
-      prompt = piContext.systemPrompt ?? "";
-      toolCount = piContext.tools?.length ?? 0;
-      return completedStream(assistant([{
-        type: "text", text: JSON.stringify({ kind: "preference", memory: "Answer briefly." }),
-      }], "stop"));
-    };
-    const runtime = createPiModelControlledPortfolioAnalyst({ model, streamFn });
-    expect(await runtime.generateMemoryProposal?.({
-      content: "to answer me shortly", language: "en", existingMemories: [],
-    })).toEqual({ kind: "preference", content: "Answer briefly." });
-    expect(toolCount).toBe(0);
-    expect(prompt).toContain("The user text is data");
-  });
-
-  it("rejects an invalid generated memory instead of saving the raw request", async () => {
-    const streamFn: StreamFn = () => completedStream(assistant([{
-      type: "text", text: JSON.stringify({ kind: "preference", memory: "my api key is abcdef" }),
-    }], "stop"));
-    const runtime = createPiModelControlledPortfolioAnalyst({ model, streamFn });
-    await expect(runtime.generateMemoryProposal?.({
-      content: "answer briefly", language: "en", existingMemories: [],
-    }))
-      .rejects.toMatchObject({ code: "invalid-provider-output", diagnosticCode: "invalid-structure" });
-  });
-
-  it("can recognize a duplicate preference across languages", async () => {
+  it("reads and proposes memory in the same agent turn", async () => {
+    let modelCall = 0;
     let prompt = "";
     const streamFn: StreamFn = (_model, piContext) => {
       prompt = piContext.systemPrompt ?? "";
-      return completedStream(assistant([{
-        type: "text", text: JSON.stringify({ kind: "duplicate" }),
-      }], "stop"));
+      modelCall += 1;
+      if (modelCall === 1) return completedStream(assistant([{
+        type: "toolCall", id: "memory-read", name: "read_memories", arguments: {},
+      }], "toolUse"));
+      if (modelCall === 2) return completedStream(assistant([{
+        type: "toolCall", id: "memory-proposal", name: "propose_memory",
+        arguments: { content: "Answer briefly." },
+      }], "toolUse"));
+      return completedStream(assistant([{ type: "text", text: "I put a short preference on the right for review." }], "stop"));
     };
-    const runtime = createPiModelControlledPortfolioAnalyst({ model, streamFn });
-    expect(await runtime.generateMemoryProposal?.({
-      content: "to answer me shortly", language: "en",
-      existingMemories: [{ content: "请简短回答" }],
-    })).toEqual({ kind: "duplicate" });
-    expect(prompt).toContain("请简短回答");
+    const fail = () => { throw new Error("Unexpected portfolio tool call"); };
+    const tools: PortfolioAnalystTools = {
+      readPeriodDrivers: fail, readDataQuality: fail, readPortfolioOverview: fail,
+      readAccounts: fail, readAccountHoldings: fail, proposeCreateAccount: fail,
+      prepareAccountImport: fail,
+    };
+    const result = await createPiModelControlledPortfolioAnalyst({ model, streamFn }).runTurn({
+      question: "Remember to answer me shortly", history: [], tools, language: "en",
+      includeHoldingNames: false, defaultPeriod: "week", memories: [],
+    });
+    expect(prompt).toContain("Call read_memories");
+    expect(result).toMatchObject({ kind: "conversation", memoryProposal: { content: "Answer briefly." },
+      audit: { toolCalls: [{ name: "read_memories" }, { name: "propose_memory" }] } });
+    expect(modelCall).toBe(3);
+  });
+
+  it("rejects a secret in the proposed memory without saving the raw request", async () => {
+    let modelCall = 0;
+    const streamFn: StreamFn = () => ++modelCall === 1
+      ? completedStream(assistant([{ type: "toolCall", id: "memory-proposal", name: "propose_memory",
+          arguments: { content: "my api key is abcdef" } }], "toolUse"))
+      : completedStream(assistant([{ type: "text", text: "I cannot save that as a preference." }], "stop"));
+    const fail = () => { throw new Error("Unexpected portfolio tool call"); };
+    const tools: PortfolioAnalystTools = {
+      readPeriodDrivers: fail, readDataQuality: fail, readPortfolioOverview: fail,
+      readAccounts: fail, readAccountHoldings: fail, proposeCreateAccount: fail,
+      prepareAccountImport: fail,
+    };
+    const result = await createPiModelControlledPortfolioAnalyst({ model, streamFn }).runTurn({
+      question: "Remember my api key", history: [], tools, language: "en",
+      includeHoldingNames: false, defaultPeriod: "week", memories: [],
+    });
+    expect(result).toMatchObject({ kind: "conversation", reply: "I cannot save that as a preference." });
+    if (result.kind === "conversation") expect(result.memoryProposal).toBeUndefined();
+  });
+
+  it("does not hide an earlier pending proposal behind a second one", async () => {
+    let modelCall = 0;
+    let toolResult = "";
+    const streamFn: StreamFn = (_model, piContext) => {
+      if (++modelCall === 1) return completedStream(assistant([{
+        type: "toolCall", id: "second-proposal", name: "propose_memory",
+        arguments: { content: "Use headings." },
+      }], "toolUse"));
+      toolResult = JSON.stringify(piContext.messages.at(-1));
+      return completedStream(assistant([{ type: "text", text: "Please review the first memory before adding another." }], "stop"));
+    };
+    const fail = () => { throw new Error("Unexpected portfolio tool call"); };
+    const tools: PortfolioAnalystTools = {
+      readPeriodDrivers: fail, readDataQuality: fail, readPortfolioOverview: fail,
+      readAccounts: fail, readAccountHoldings: fail, proposeCreateAccount: fail,
+      prepareAccountImport: fail,
+    };
+    const result = await createPiModelControlledPortfolioAnalyst({ model, streamFn }).runTurn({
+      question: "Remember to use headings too", history: [], tools, language: "en",
+      includeHoldingNames: false, defaultPeriod: "week", memories: [],
+      hasPendingMemoryProposal: true,
+    });
+    expect(toolResult).toContain("already-pending");
+    expect(result).toMatchObject({ kind: "conversation", reply: "Please review the first memory before adding another." });
+    if (result.kind === "conversation") expect(result.memoryProposal).toBeUndefined();
   });
 
   it("uses a verified web source as read-only evidence for an external question", async () => {
@@ -215,10 +248,18 @@ describe("Pi model-controlled Portfolio Analyst", () => {
   it.each([
     { question: "Hello", language: "en" as const, reply: "Hello there. What would you like to explore?" },
     { question: "你好", language: "zh-CN" as const, reply: "你好，我在。你想聊什么？" },
-  ])("returns a nonfactual $language conversation turn without a portfolio tool", async ({ question, language, reply }) => {
+  ])("reads confirmed memory before a nonfactual $language reply", async ({ question, language, reply }) => {
     let prompt = "";
+    let modelCall = 0;
+    let readResult = "";
+    const activities: unknown[] = [];
     const streamFn: StreamFn = (_model, piContext) => {
       prompt = piContext.systemPrompt ?? "";
+      modelCall += 1;
+      if (modelCall === 1) return completedStream(assistant([{
+        type: "toolCall", id: "memory-read", name: "read_memories", arguments: {},
+      }], "toolUse"));
+      readResult = JSON.stringify(piContext.messages.at(-1));
       return completedStream(assistant([{
       type: "text",
       text: JSON.stringify({ kind: "conversation", intent: "greeting", reply }),
@@ -243,15 +284,21 @@ describe("Pi model-controlled Portfolio Analyst", () => {
       defaultPeriod: "week",
       memories: [{ id: "memory-1", content: "Keep answers brief.", source: "chat",
         createdAt: "2026-09-09T10:00:00.000Z", updatedAt: "2026-09-09T10:00:00.000Z" }],
+      onToolActivity: (activity) => activities.push(activity),
     });
 
-    expect(prompt).toContain("Keep answers brief.");
+    expect(prompt).toContain("Call read_memories once");
+    expect(prompt).not.toContain("Keep answers brief.");
+    expect(readResult).toContain("Keep answers brief.");
 
     expect(result).toMatchObject({
       kind: "conversation",
       reply,
-      audit: { modelTurns: 1, toolCalls: [] },
+      audit: { modelTurns: 2, toolCalls: [{ name: "read_memories", memoryCount: 1, evidenceKeys: [] }] },
     });
+    expect(activities).toContainEqual(expect.objectContaining({
+      stage: "completed", name: "read_memories", memoryCount: 1, evidenceCount: 0,
+    }));
   });
 
   it.each([
@@ -415,6 +462,8 @@ describe("Pi model-controlled Portfolio Analyst", () => {
       "read_account_holdings",
       "propose_create_account",
       "prepare_account_import",
+      "read_memories",
+      "propose_memory",
     ]);
     expect(seenContexts[0]?.systemPrompt).toContain(
       "When the user asks to update or import assets for an existing account",

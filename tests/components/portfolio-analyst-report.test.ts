@@ -198,6 +198,28 @@ describe("Portfolio Analyst report hierarchy", () => {
     expect(persisted.match(/<li/g)).toHaveLength(1);
   });
 
+  it("counts saved memories as memories in streamed and persisted activity", () => {
+    const streamed = renderToStaticMarkup(createElement(AgentActivityTimeline, {
+      activities: [{
+        stage: "completed", toolCallId: "memory-read", name: "read_memories",
+        input: {}, evidenceCount: 0, memoryCount: 2,
+      }],
+      language: "en", phase: "generating-answer",
+    }));
+    const persisted = renderToStaticMarkup(createElement(AgentActivityTimeline, {
+      audit: {
+        runtime: "pi-agent-core", modelTurns: 2, stopReason: "completed",
+        toolCalls: [{ toolCallId: "memory-read", name: "read_memories", input: {},
+          status: "completed", evidenceKeys: [], memoryCount: 2 }],
+      },
+      language: "en", phase: "completed",
+    }));
+    expect(streamed).toContain("2 saved memories");
+    expect(persisted).toContain("2 saved memories");
+    expect(streamed).not.toContain("current facts");
+    expect(persisted).not.toContain("current facts");
+  });
+
   it("renders the same limitation for two period evidence keys without duplicate React keys", () => {
     const limitations = [{
       code: "portfolio-activity-cause-unknown" as const,

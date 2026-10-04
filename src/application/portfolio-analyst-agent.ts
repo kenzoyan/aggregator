@@ -17,6 +17,8 @@ export const portfolioAnalystToolNames = [
   "propose_create_account",
   "prepare_account_import",
   "search_web",
+  "read_memories",
+  "propose_memory",
 ] as const;
 
 export type PortfolioAnalystToolName = typeof portfolioAnalystToolNames[number];
@@ -28,6 +30,7 @@ export interface PortfolioAnalystToolAudit {
   status: "completed" | "blocked" | "failed";
   factsAsOf?: string;
   evidenceKeys: string[];
+  memoryCount?: number;
   errorCode?: "tool-budget-exceeded" | "tool-execution-failed";
 }
 
@@ -50,8 +53,9 @@ export type PortfolioAnalystToolActivity =
       toolCallId: string;
       name: PortfolioAnalystToolName;
       input: PortfolioAnalystToolAudit["input"];
-      factsAsOf: string;
+      factsAsOf?: string;
       evidenceCount: number;
+      memoryCount?: number;
     };
 
 export interface PortfolioAnalystAgentTurn {
@@ -62,6 +66,7 @@ export interface PortfolioAnalystAgentTurn {
   includeHoldingNames: boolean;
   defaultPeriod: Period;
   memories?: readonly PortfolioAnalystMemory[];
+  hasPendingMemoryProposal?: boolean;
   factsAsOf?: string;
   signal?: AbortSignal;
   onPhase?: (phase: "reading-current-facts" | "generating-answer") => void;
@@ -79,15 +84,10 @@ export type PortfolioAnalystAgentResult =
   | {
       kind: "conversation";
       reply: string;
+      memoryProposal?: { content: string };
       audit: PortfolioAnalystAgentAudit;
     };
 
 export interface PortfolioAnalystAgentRuntime {
   runTurn(input: PortfolioAnalystAgentTurn): Promise<PortfolioAnalystAgentResult>;
-  generateMemoryProposal?(input: {
-    content: string;
-    language: PortfolioAnalystLanguage;
-    existingMemories: readonly Pick<PortfolioAnalystMemory, "content">[];
-    signal?: AbortSignal;
-  }): Promise<{ kind: "preference"; content: string } | { kind: "unsupported" | "duplicate" }>;
 }
