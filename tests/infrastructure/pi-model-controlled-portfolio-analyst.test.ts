@@ -595,15 +595,47 @@ describe("Pi model-controlled Portfolio Analyst", () => {
     ]);
   });
 
-  it("does not turn a failed tool read into a no-evidence chat reply", async () => {
+  it("returns a read-limit result so the Agent can finish after a blocked call", async () => {
     let modelCall = 0;
-    const streamFn: StreamFn = () => {
+    let reads = 0;
+    let blockedResult = "";
+    const streamFn: StreamFn = (_model, piContext) => {
       modelCall += 1;
+      if (modelCall <= 5) return completedStream(assistant([{
+        type: "toolCall", id: `read-${modelCall}`, name: "read_data_quality", arguments: {},
+      }], "toolUse"));
+      blockedResult = JSON.stringify(piContext.messages.at(-1));
+      return completedStream(assistant([{ type: "text", text: JSON.stringify(answer) }], "stop"));
+    };
+    const fail = () => { throw new Error("Unexpected tool"); };
+    const tools: PortfolioAnalystTools = {
+      readDataQuality: () => { reads += 1; return context; },
+      readPeriodDrivers: fail, readPortfolioOverview: fail,
+      readAccounts: fail, readAccountHoldings: fail,
+      proposeCreateAccount: fail, prepareAccountImport: fail,
+    };
+    const result = await createPiModelControlledPortfolioAnalyst({ model, streamFn }).runTurn({
+      question: "Read repeatedly", history: [], tools, language: "zh-CN",
+      includeHoldingNames: false, defaultPeriod: "week",
+    });
+    expect(result.kind).toBe("report");
+    expect(reads).toBe(4);
+    expect(blockedResult).toContain("tool-budget-exceeded");
+    expect(modelCall).toBe(6);
+  });
+
+  it("lets the Agent explain a failed read without inventing current facts", async () => {
+    let modelCall = 0;
+    let failureResult = "";
+    const activities: unknown[] = [];
+    const streamFn: StreamFn = (_model, piContext) => {
+      modelCall += 1;
+      if (modelCall > 1) failureResult = JSON.stringify(piContext.messages.at(-1));
       return modelCall === 1
         ? completedStream(assistant([{
             type: "toolCall", id: "failed-read", name: "read_data_quality", arguments: {},
           }], "toolUse"))
-        : completedStream(assistant([{ type: "text", text: "I can help with that." }], "stop"));
+        : completedStream(assistant([{ type: "text", text: "I couldn't read the current data quality, so I can't verify its freshness yet." }], "stop"));
     };
     const tools: PortfolioAnalystTools = {
       readPeriodDrivers: () => { throw new Error("wrong tool"); },
@@ -615,10 +647,86 @@ describe("Pi model-controlled Portfolio Analyst", () => {
       prepareAccountImport: () => { throw new Error("wrong tool"); },
     };
 
-    await expect(createPiModelControlledPortfolioAnalyst({ model, streamFn }).runTurn({
+    const result = await createPiModelControlledPortfolioAnalyst({ model, streamFn }).runTurn({
       question: "Is my data current?",
       history: [], tools, language: "en", includeHoldingNames: false, defaultPeriod: "week",
-    })).rejects.toMatchObject({ code: "invalid-provider-output" });
+      onToolActivity: (activity) => activities.push(activity),
+    });
+    expect(result).toMatchObject({
+      kind: "conversation",
+      reply: "I couldn't read the current data quality, so I can't verify its freshness yet.",
+      audit: { toolCalls: [{ name: "read_data_quality", status: "failed", errorCode: "tool-execution-failed" }] },
+    });
+    expect(failureResult).toContain("tool-execution-failed");
+    expect(JSON.parse(failureResult)).toMatchObject({ isError: true });
+    expect(failureResult).not.toContain("Synthetic read failed");
+    expect(activities).toMatchObject([
+      { stage: "started", name: "read_data_quality" },
+      { stage: "failed", name: "read_data_quality", errorCode: "tool-execution-failed" },
+    ]);
+  });
+
+  it("continues from a failed read to a successful evidenced answer", async () => {
+    let modelCall = 0;
+    const streamFn: StreamFn = () => {
+      modelCall += 1;
+      if (modelCall === 1) return completedStream(assistant([{
+        type: "toolCall", id: "failed-quality", name: "read_data_quality", arguments: {},
+      }], "toolUse"));
+      if (modelCall === 2) return completedStream(assistant([{
+        type: "toolCall", id: "working-period", name: "read_period_drivers", arguments: { period: "week" },
+      }], "toolUse"));
+      return completedStream(assistant([{ type: "text", text: JSON.stringify({
+        ...answer,
+        answer: { ...answer.answer,
+          text: "本周上涨 10 欧元。数据质量读取失败，因此无法核实数据是否最新。" },
+      }) }], "stop"));
+    };
+    const fail = () => { throw new Error("Synthetic internal failure"); };
+    const tools: PortfolioAnalystTools = {
+      readDataQuality: fail, readPeriodDrivers: () => context,
+      readPortfolioOverview: fail, readAccounts: fail, readAccountHoldings: fail,
+      proposeCreateAccount: fail, prepareAccountImport: fail,
+    };
+    const result = await createPiModelControlledPortfolioAnalyst({ model, streamFn }).runTurn({
+      question: "What changed this week?", history: [], tools, language: "zh-CN",
+      includeHoldingNames: false, defaultPeriod: "week",
+    });
+    expect(result).toMatchObject({
+      kind: "report",
+      answer: { answer: { text: "本周上涨 10 欧元。数据质量读取失败，因此无法核实数据是否最新。",
+        evidence: ["call1.period.total"] } },
+      audit: { toolCalls: [
+        { name: "read_data_quality", status: "failed", evidenceKeys: [] },
+        { name: "read_period_drivers", status: "completed", evidenceKeys: ["call1.period.total"] },
+      ] },
+    });
+    expect(modelCall).toBe(3);
+  });
+
+  it("gives the Agent a safe timeout reason without exposing the tool exception", async () => {
+    let modelCall = 0;
+    let toolResult = "";
+    const streamFn: StreamFn = (_model, piContext) => {
+      if (++modelCall === 1) return completedStream(assistant([{
+        type: "toolCall", id: "timed-out-read", name: "read_data_quality", arguments: {},
+      }], "toolUse"));
+      toolResult = JSON.stringify(piContext.messages.at(-1));
+      return completedStream(assistant([{ type: "text", text: "The data check timed out. Please try again." }], "stop"));
+    };
+    const fail = () => { throw new Error("Request timed out: private internal endpoint"); };
+    const tools: PortfolioAnalystTools = {
+      readDataQuality: fail, readPeriodDrivers: fail, readPortfolioOverview: fail,
+      readAccounts: fail, readAccountHoldings: fail, proposeCreateAccount: fail,
+      prepareAccountImport: fail,
+    };
+    const result = await createPiModelControlledPortfolioAnalyst({ model, streamFn }).runTurn({
+      question: "Is my data current?", history: [], tools, language: "en",
+      includeHoldingNames: false, defaultPeriod: "week",
+    });
+    expect(result).toMatchObject({ kind: "conversation", audit: { toolCalls: [{ errorCode: "tool-timeout" }] } });
+    expect(toolResult).toContain("tool-timeout");
+    expect(toolResult).not.toContain("private internal endpoint");
   });
 
   it("keeps a safe diagnostic code when a generated answer cites missing evidence", async () => {

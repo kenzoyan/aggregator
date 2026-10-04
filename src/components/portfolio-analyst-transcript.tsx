@@ -366,14 +366,18 @@ export function AgentActivityTimeline({
           ))
         : latestStreamedCalls.map((activity) => (
             <li
-              className={activity.stage === "completed" ? "done" : interrupted ? "failed" : "active"}
+              className={activity.stage === "completed" ? "done" : activity.stage === "failed" || interrupted ? "failed" : "active"}
               key={activity.toolCallId}
             >
               <i aria-hidden="true" />{activity.stage === "started"
                 ? (language === "zh-CN"
                     ? `正在读取 ${analystToolScope(activity.name, activity.input, language)}……`
                     : `Reading ${analystToolScope(activity.name, activity.input, language)}…`)
-                : completedToolLabel(activity.name, activity.input, language, activity.evidenceCount, activity.memoryCount)}
+                : activity.stage === "failed"
+                  ? (language === "zh-CN"
+                      ? `读取失败：${analystToolScope(activity.name, activity.input, language)}`
+                      : `Failed to read ${analystToolScope(activity.name, activity.input, language)}`)
+                  : completedToolLabel(activity.name, activity.input, language, activity.evidenceCount, activity.memoryCount)}
             </li>
           ))}
     </ol>

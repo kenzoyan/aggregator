@@ -23,6 +23,14 @@ export const portfolioAnalystToolNames = [
 
 export type PortfolioAnalystToolName = typeof portfolioAnalystToolNames[number];
 
+export type PortfolioAnalystToolFailureCode =
+  | "tool-execution-failed"
+  | "tool-timeout"
+  | "tool-rate-limited"
+  | "tool-authentication"
+  | "tool-request-rejected"
+  | "tool-network-failed";
+
 export interface PortfolioAnalystToolAudit {
   toolCallId: string;
   name: PortfolioAnalystToolName;
@@ -31,7 +39,7 @@ export interface PortfolioAnalystToolAudit {
   factsAsOf?: string;
   evidenceKeys: string[];
   memoryCount?: number;
-  errorCode?: "tool-budget-exceeded" | "tool-execution-failed";
+  errorCode?: "tool-budget-exceeded" | PortfolioAnalystToolFailureCode;
 }
 
 export interface PortfolioAnalystAgentAudit {
@@ -56,6 +64,13 @@ export type PortfolioAnalystToolActivity =
       factsAsOf?: string;
       evidenceCount: number;
       memoryCount?: number;
+    }
+  | {
+      stage: "failed";
+      toolCallId: string;
+      name: PortfolioAnalystToolName;
+      input: PortfolioAnalystToolAudit["input"];
+      errorCode: PortfolioAnalystToolFailureCode;
     };
 
 export interface PortfolioAnalystAgentTurn {
