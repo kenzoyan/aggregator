@@ -756,7 +756,7 @@ export function PortfolioAnalyst({
           <div className="portfolio-agent-identity">
             <Image src="/brand/aggrigator-icon-192.png" alt="" width={42} height={42} />
             <div>
-              <h2 id="portfolio-analyst-title">Alligator</h2>
+              <h2 id="portfolio-analyst-title">Aggrigator</h2>
               <p>Your portfolio companion. Ask me anything or send a screenshot.</p>
             </div>
           </div>

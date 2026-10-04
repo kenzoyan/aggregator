@@ -105,7 +105,7 @@ The regular test suite mocks cloud boundaries and uses synthetic data. An opt-in
 
 ### Local data and upgrades
 
-Portfolio records live in the ignored `data/invest-assets-monitor.sqlite` database. Existing v2–v7 databases upgrade to schema v8 in place. A disposable pre-v2 test database is not migrated; if startup identifies one, stop the app and move `data/invest-assets-monitor.sqlite*` out of the active path before restarting. If `PORTFOLIO_DB_FILENAME` is customized, use that basename instead. Keep the moved file locally until you no longer need it.
+Portfolio records live in the ignored `data/invest-assets-monitor.sqlite` database. The existing filename is retained when the project is renamed so local portfolios remain available. Existing v2–v9 databases upgrade to schema v10 in place. A disposable pre-v2 test database is not migrated; if startup identifies one, stop the app and move `data/invest-assets-monitor.sqlite*` out of the active path before restarting. If `PORTFOLIO_DB_FILENAME` is customized, use that basename instead. Keep the moved file locally until you no longer need it.
 
 ## 🔒 Privacy and boundaries
 
