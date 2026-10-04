@@ -69,6 +69,27 @@ const report = {
 } as PortfolioAnalystReport;
 
 describe("Portfolio Analyst report hierarchy", () => {
+  it("shows verified external citations as clickable links in the answer", () => {
+    const external = {
+      ...report,
+      job: "research-web" as const,
+      answer: { ...report.answer, answer: { ...report.answer.answer, evidence: ["call1.web.1"] } },
+      evidence: [{
+        key: "call1.web.1", kind: "web-research-source" as const,
+        label: "External source" as const,
+        title: "Official product page",
+        url: "https://www.cmfchina.com/fund",
+        summary: "The manager lists the C share class.",
+        retrievedAt: "2026-10-04T10:00:00.000Z",
+        provenance: "openai-web-search" as const,
+      }],
+    } as PortfolioAnalystReport;
+    const markup = renderToStaticMarkup(createElement(AnalystReport, { report: external }));
+    expect(markup).toContain('href="https://www.cmfchina.com/fund"');
+    expect(markup).toContain("Official product page");
+    expect(markup).toContain('rel="noopener noreferrer"');
+  });
+
   it("explains a failed answer by its safe failure code", () => {
     expect(pendingPhaseLabel("failed", "en", "invalid-provider-output"))
       .toContain("couldn't verify the model's answer");

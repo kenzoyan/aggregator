@@ -2,7 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 
 import { legacyPartialSnapshotWarningMarker } from "@/domain/imports";
 
-export const portfolioSchemaVersion = 8;
+export const portfolioSchemaVersion = 10;
 
 export class LegacyPortfolioDatabaseError extends Error {
   constructor() {
@@ -80,6 +80,25 @@ const sourceAccountsSchema = `
     ('wechat-main', 'WeChat Wealth Management', 'wechatwealthmanagement', 'wechat', 'WeChat Wealth Management', 'WeChat', 'screenshot'),
     ('danske-main', 'Danske Bank', 'danskebank', 'danske', 'Danske Bank', 'Danske', 'screenshot'),
     ('trading212-main', 'Trading 212', 'trading212', 'trading212', 'Trading 212', 'Trading 212', 'trading-212');
+`;
+
+const priceSourceBindingsSchema = (withStatus: boolean) => `
+  CREATE TABLE IF NOT EXISTS price_source_bindings (
+    source_account_id TEXT NOT NULL,
+    instrument_id TEXT NOT NULL,
+    instrument_name TEXT NOT NULL,
+    instrument_code TEXT NOT NULL,
+    currency TEXT NOT NULL,
+    share_class TEXT NOT NULL,
+    provider TEXT NOT NULL CHECK (provider = 'eastmoney'),
+    identity_url TEXT NOT NULL,
+    confirmed_at TEXT NOT NULL,
+    ${withStatus ? `last_checked_at TEXT,
+    last_outcome TEXT CHECK (last_outcome IN ('updated', 'unchanged', 'failed')),
+    latest_price_as_of TEXT,
+    last_failure_category TEXT,` : ""}
+    PRIMARY KEY (source_account_id, instrument_id)
+  );
 `;
 
 function tableExists(database: DatabaseSync, table: string): boolean {
@@ -200,6 +219,7 @@ export function initializePortfolioSchema(database: DatabaseSync) {
         );
 
         ${sourceAccountsSchema}
+        ${priceSourceBindingsSchema(true)}
 
         ${portfolioNarrativesSchema}
         ${portfolioAnalystConversationsSchema}
@@ -339,8 +359,51 @@ export function initializePortfolioSchema(database: DatabaseSync) {
     try {
       database.exec(`
         ${sourceAccountsSchema}
-        UPDATE schema_metadata SET version = ${portfolioSchemaVersion};
+        UPDATE schema_metadata SET version = 8;
       `);
+      database.exec("COMMIT");
+    } catch (error) {
+      database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+  const priceSourceBindingsRow = database.prepare(
+    "SELECT version FROM schema_metadata LIMIT 1",
+  ).get() as { version: number } | undefined;
+  if (priceSourceBindingsRow?.version === 8) {
+    database.exec("BEGIN IMMEDIATE");
+    try {
+      database.exec(`
+        ${priceSourceBindingsSchema(false)}
+        UPDATE schema_metadata SET version = 9;
+      `);
+      database.exec("COMMIT");
+    } catch (error) {
+      database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+  const priceSourceStatusRow = database.prepare(
+    "SELECT version FROM schema_metadata LIMIT 1",
+  ).get() as { version: number } | undefined;
+  if (priceSourceStatusRow?.version === 9) {
+    const existingColumns = new Set((database.prepare(
+      "PRAGMA table_info(price_source_bindings)",
+    ).all() as Array<{ name: string }>).map((column) => column.name));
+    const statusColumns = [
+      ["last_checked_at", "TEXT"],
+      ["last_outcome", "TEXT CHECK (last_outcome IN ('updated', 'unchanged', 'failed'))"],
+      ["latest_price_as_of", "TEXT"],
+      ["last_failure_category", "TEXT"],
+    ] as const;
+    database.exec("BEGIN IMMEDIATE");
+    try {
+      for (const [name, definition] of statusColumns) {
+        if (!existingColumns.has(name)) {
+          database.exec(`ALTER TABLE price_source_bindings ADD COLUMN ${name} ${definition}`);
+        }
+      }
+      database.exec("UPDATE schema_metadata SET version = 10");
       database.exec("COMMIT");
     } catch (error) {
       database.exec("ROLLBACK");

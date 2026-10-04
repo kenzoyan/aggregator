@@ -51,6 +51,7 @@ function portfolio(): PortfolioOverviewReadModel & { insights: PortfolioInsights
         reportedPriorReturn: "private return",
         currentPrice: "private price",
         currentPriceAsOf: "2026-09-08",
+        currentPriceSource: "synthetic-source",
         priceHistory: [],
       },
       history: {

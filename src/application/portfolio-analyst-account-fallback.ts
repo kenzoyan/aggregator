@@ -34,8 +34,8 @@ export function createAccountHoldingsFallback(
   const details = holdings.map((holding, index) => {
     const holdingName = holding.name ?? (chinese ? `资产 ${index + 1}` : `Holding ${index + 1}`);
     return chinese
-      ? `${holdingName}：${holding.originalValue}（约 ${euro.format(holding.valueEur)}），估值日期 ${holding.asOf}。`
-      : `${holdingName}: ${holding.originalValue} (about ${euro.format(holding.valueEur)}), valued ${holding.asOf}.`;
+      ? `${holdingName}：${holding.originalValue}（约 ${euro.format(holding.valueEur)}），${holding.unitPrice ? `已保存单价 ${holding.unitPrice} ${holding.currency}，价格日期 ${holding.priceAsOf ?? holding.asOf}，来源 ${holding.priceSource ?? "未注明"}；` : ""}估值日期 ${holding.asOf}。`
+      : `${holdingName}: ${holding.originalValue} (about ${euro.format(holding.valueEur)}), ${holding.unitPrice ? `saved unit price ${holding.unitPrice} ${holding.currency} as of ${holding.priceAsOf ?? holding.asOf} from ${holding.priceSource ?? "unspecified source"}; ` : ""}valued ${holding.asOf}.`;
   });
   const more = summary.holdingCount > holdings.length
     ? (chinese ? "其余资产可在账户页面查看。" : "See the account page for the remaining holdings.")

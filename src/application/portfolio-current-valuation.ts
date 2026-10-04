@@ -324,6 +324,7 @@ export function createCurrentPortfolioValuationReadModel(
                   : {}),
                 currentPrice: resolvedPrice.unitPrice,
                 currentPriceAsOf: resolvedPrice.asOf.slice(0, 10),
+                currentPriceSource: resolvedPrice.source,
                 priceHistory: holdingPriceHistory(
                   sourcePosition,
                   snapshots,

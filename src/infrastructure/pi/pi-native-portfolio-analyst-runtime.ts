@@ -5,6 +5,7 @@ import { openaiProvider } from "@earendil-works/pi-ai/providers/openai";
 
 import type { PortfolioAnalystAgentRuntime } from "@/application/portfolio-analyst-agent";
 import type { PortfolioAnalystProviderId } from "@/application/portfolio-analyst-provider";
+import type { WebResearch } from "@/application/portfolio-web-research";
 import { createPiModelControlledPortfolioAnalyst } from "@/infrastructure/pi/pi-model-controlled-portfolio-analyst";
 
 function fallbackModel(
@@ -19,7 +20,7 @@ function fallbackModel(
     baseUrl: provider === "openai"
       ? "https://api.openai.com/v1"
       : "https://api.deepseek.com",
-    reasoning: provider === "openai" && modelId.startsWith("gpt-5"),
+    reasoning: provider === "openai" && /^gpt-[56]/.test(modelId),
     input: ["text"],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     contextWindow: 32_000,
@@ -32,6 +33,7 @@ export function createPiNativePortfolioAnalystRuntime(input: {
   model: string;
   apiKey: string;
   fetch?: typeof globalThis.fetch;
+  webResearch?: WebResearch;
 }): PortfolioAnalystAgentRuntime {
   if (input.provider === "openai") {
     const provider = openaiProvider();
@@ -49,7 +51,7 @@ export function createPiNativePortfolioAnalystRuntime(input: {
         cacheRetention: "none",
       },
     );
-    return createPiModelControlledPortfolioAnalyst({ model, streamFn });
+    return createPiModelControlledPortfolioAnalyst({ model, streamFn, webResearch: input.webResearch });
   }
 
   const provider = deepseekProvider();

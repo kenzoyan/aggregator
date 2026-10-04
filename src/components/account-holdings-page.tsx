@@ -1,10 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 
 import { formatSignedOriginalMoney } from "@/application/money-format";
 import { portfolioCalendarDate } from "@/application/portfolio-calendar";
+import type { PriceSourceBinding, PriceSourceCandidate } from "@/application/price-source-discovery";
 import type { HoldingPriceHistoryReadModel, Period, PortfolioOverviewReadModel } from "@/application/portfolio-read-model";
 import type { SourceAccountsPageReadModel } from "@/application/source-account-status";
 import { selectAccountHolding } from "@/components/account-holding-selection";
@@ -12,6 +13,15 @@ import { HoldingPerformanceChart } from "@/components/holding-performance-chart"
 
 const eur = new Intl.NumberFormat("en-FI", { style: "currency", currency: "EUR" });
 const periods: Record<Period, string> = { today: "Today", week: "7 days", month: "30 days" };
+type QuotedPriceSourceCandidate = PriceSourceCandidate & {
+  quoteAvailable: boolean;
+  price?: string;
+  priceAsOf?: string;
+};
+type PriceSourceLookup = {
+  binding: PriceSourceBinding | null;
+  candidates: QuotedPriceSourceCandidate[];
+};
 
 function signedEur(value: number) {
   return `${value >= 0 ? "+" : "−"}${eur.format(Math.abs(value))}`;
@@ -57,6 +67,12 @@ export function AccountHoldingsPage({ accountId, requestedHoldingId }: {
   const [priceDate, setPriceDate] = useState("");
   const [savingPrice, setSavingPrice] = useState(false);
   const [priceError, setPriceError] = useState("");
+  const [priceSourceLookup, setPriceSourceLookup] = useState<PriceSourceLookup>();
+  const [priceSourceLoading, setPriceSourceLoading] = useState(false);
+  const [priceSourceSaving, setPriceSourceSaving] = useState(false);
+  const [priceSourceRefreshing, setPriceSourceRefreshing] = useState(false);
+  const [priceSourceError, setPriceSourceError] = useState("");
+  const activePriceSourceHolding = useRef("");
 
   async function loadData(signal?: AbortSignal) {
     const portfolioResponse = await fetch("/api/portfolio", { cache: "no-store", signal });
@@ -100,6 +116,86 @@ export function AccountHoldingsPage({ accountId, requestedHoldingId }: {
   const detailed = portfolio?.holdings.find((item) => item.id === selected?.id && item.sourceAccountId === accountId);
   const performance = detailed?.history?.[period];
   const accountValue = holdings.reduce((total, item) => total + (item.eurValue ?? 0), 0);
+  const priceSourceEligible = Boolean(
+    selected?.instrumentId && selected.category === "Fund" &&
+    selected.currency === "CNY" && !/^\d{6}$/.test(selected.symbol),
+  );
+
+  useEffect(() => {
+    activePriceSourceHolding.current = `${accountId}:${selected?.instrumentId ?? ""}`;
+  }, [accountId, selected?.instrumentId]);
+
+  useEffect(() => {
+    setPriceSourceLookup(undefined);
+    setPriceSourceError("");
+    if (!priceSourceEligible || !selected?.instrumentId) return;
+    const controller = new AbortController();
+    setPriceSourceLoading(true);
+    const params = new URLSearchParams({ sourceAccountId: accountId, instrumentId: selected.instrumentId });
+    fetch(`/api/market-data/price-source?${params}`, { cache: "no-store", signal: controller.signal })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Price sources could not be checked.");
+        return response.json() as Promise<PriceSourceLookup>;
+      })
+      .then((result) => { if (!controller.signal.aborted) setPriceSourceLookup(result); })
+      .catch(() => { if (!controller.signal.aborted) setPriceSourceError("Price sources could not be checked."); })
+      .finally(() => { if (!controller.signal.aborted) setPriceSourceLoading(false); });
+    return () => controller.abort();
+  }, [accountId, selected?.instrumentId, priceSourceEligible]);
+
+  async function confirmPriceSource(candidate: QuotedPriceSourceCandidate) {
+    if (!selected?.instrumentId || !candidate.quoteAvailable) return;
+    const holdingKey = `${accountId}:${selected.instrumentId}`;
+    setPriceSourceSaving(true);
+    setPriceSourceError("");
+    try {
+      const response = await fetch("/api/market-data/price-source", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          sourceAccountId: accountId,
+          instrumentId: selected.instrumentId,
+          candidateId: candidate.id,
+        }),
+      });
+      const payload = await response.json() as { binding?: PriceSourceBinding; error?: string };
+      if (!response.ok || !payload.binding) throw new Error(payload.error ?? "Price source could not be saved.");
+      if (activePriceSourceHolding.current === holdingKey) {
+        setPriceSourceLookup({ binding: payload.binding, candidates: [] });
+      }
+    } catch (error) {
+      if (activePriceSourceHolding.current === holdingKey) {
+        setPriceSourceError(error instanceof Error ? error.message : "Price source could not be saved.");
+      }
+    } finally {
+      setPriceSourceSaving(false);
+    }
+  }
+
+  async function refreshConfirmedPriceSource() {
+    if (!selected?.instrumentId || !priceSourceLookup?.binding) return;
+    const holdingKey = `${accountId}:${selected.instrumentId}`;
+    setPriceSourceRefreshing(true);
+    setPriceSourceError("");
+    try {
+      const response = await fetch("/api/market-data/refresh", { method: "POST" });
+      if (!response.ok) throw new Error("Market prices could not be refreshed.");
+      const params = new URLSearchParams({ sourceAccountId: accountId, instrumentId: selected.instrumentId });
+      const lookup = await fetch(`/api/market-data/price-source?${params}`, { cache: "no-store" });
+      if (!lookup.ok) throw new Error("The price source status could not be loaded.");
+      const result = await lookup.json() as PriceSourceLookup;
+      if (activePriceSourceHolding.current === holdingKey) {
+        setPriceSourceLookup(result);
+        await loadData();
+      }
+    } catch (error) {
+      if (activePriceSourceHolding.current === holdingKey) {
+        setPriceSourceError(error instanceof Error ? error.message : "Market prices could not be refreshed.");
+      }
+    } finally {
+      setPriceSourceRefreshing(false);
+    }
+  }
 
   async function savePrice(event: FormEvent) {
     event.preventDefault();
@@ -192,6 +288,34 @@ export function AccountHoldingsPage({ accountId, requestedHoldingId }: {
               </>}
               {selected.asOf && <div><dt>Valued as of</dt><dd>{selected.asOf}</dd></div>}
             </dl>
+            {priceSourceEligible && <section className="price-source-review" aria-label="Price source discovery">
+              <div className="drawer-section-heading"><div><p className="eyebrow">PRICE SOURCE</p><h3>Find automatic NAV updates</h3></div></div>
+              {priceSourceLoading && <p role="status">Checking verified sources…</p>}
+              {priceSourceError && <p className="error-message" role="alert">{priceSourceError}</p>}
+              {priceSourceLookup?.binding && <div className="price-source-confirmed">
+                <p>Confirmed: {priceSourceLookup.binding.provider} · {priceSourceLookup.binding.instrumentCode} · {priceSourceLookup.binding.shareClass} share class.</p>
+                <p role="status">{priceSourceLookup.binding.lastRefresh
+                  ? `Last checked ${priceSourceLookup.binding.lastRefresh.checkedAt}: ${priceSourceLookup.binding.lastRefresh.outcome}${priceSourceLookup.binding.lastRefresh.failureCategory ? ` (${priceSourceLookup.binding.lastRefresh.failureCategory})` : ""}. ${priceSourceLookup.binding.lastRefresh.latestPriceAsOf ? `Latest saved NAV date: ${priceSourceLookup.binding.lastRefresh.latestPriceAsOf}.` : ""}`
+                  : "Awaiting the first price check."}</p>
+                <button type="button" disabled={priceSourceRefreshing} onClick={refreshConfirmedPriceSource}>
+                  {priceSourceRefreshing ? "Checking…" : "Check NAV now"}
+                </button>
+              </div>}
+              {priceSourceLookup?.candidates.map((candidate) => <div className="price-source-candidate" key={candidate.id}>
+                <strong>{candidate.name}</strong>
+                <p>Source: {candidate.provider} · Code: {candidate.instrumentCode} · Currency: {candidate.currency} · Share class: {candidate.shareClass}</p>
+                <p>{candidate.quoteAvailable
+                  ? `Recent NAV: ${candidate.price} ${candidate.currency} · ${candidate.priceAsOf}`
+                  : "A recent NAV is unavailable. Confirmation is paused."}</p>
+                <a href={candidate.identityUrl} target="_blank" rel="noreferrer">Check the fund manager’s product page</a>
+                <button type="button" disabled={!candidate.quoteAvailable || priceSourceSaving}
+                  onClick={() => confirmPriceSource(candidate)}>
+                  {priceSourceSaving ? "Confirming…" : "Confirm this price source"}
+                </button>
+              </div>)}
+              {priceSourceLookup && !priceSourceLookup.binding && priceSourceLookup.candidates.length === 0 &&
+                <p>No verified price source candidate is available for this holding yet.</p>}
+            </section>}
             {detailed?.history && <section className="drawer-performance">
               <div className="drawer-section-heading"><div><p className="eyebrow">MONITORED PERFORMANCE</p><h3>{periods[period]}</h3></div><div className="period-tabs drawer-period-tabs" role="group" aria-label="Select holding period">
                 {(Object.keys(periods) as Period[]).map((key) => <button key={key} type="button" className={period === key ? "selected" : ""} aria-pressed={period === key} onClick={() => setPeriod(key)}>{periods[key]}</button>)}

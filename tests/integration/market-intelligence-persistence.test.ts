@@ -32,7 +32,7 @@ describe("market intelligence persistence", () => {
     const database = new DatabaseSync(":memory:");
     database.exec("CREATE TABLE schema_metadata (version INTEGER NOT NULL); INSERT INTO schema_metadata VALUES (6)");
     initializePortfolioSchema(database);
-    expect(database.prepare("SELECT version FROM schema_metadata").get()).toEqual({ version: 8 });
+    expect(database.prepare("SELECT version FROM schema_metadata").get()).toEqual({ version: 10 });
     expect(database.prepare(
       "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'market_intelligence_briefs'",
     ).get()).toEqual({ name: "market_intelligence_briefs" });

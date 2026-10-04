@@ -58,6 +58,15 @@ export function createMarketDataRepository(
     ORDER BY completed_at DESC, id DESC
     LIMIT 10
   `);
+  const updatePriceSourceStatus = database.prepare(`
+    UPDATE price_source_bindings SET
+      last_checked_at = ?,
+      last_outcome = ?,
+      latest_price_as_of = COALESCE(?, latest_price_as_of),
+      last_failure_category = ?
+    WHERE source_account_id = ? AND instrument_id = ?
+      AND instrument_code = ? AND provider = ?
+  `);
 
   function readMarketPrices(): MarketPriceObservation[] {
     const rows = selectMarketPrices.all() as unknown as Array<{
@@ -171,6 +180,18 @@ export function createMarketDataRepository(
             input.refresh.unchanged,
             input.refresh.failed,
             JSON.stringify(input.refresh.failures),
+          );
+        }
+        for (const status of input.priceSourceStatuses ?? []) {
+          updatePriceSourceStatus.run(
+            status.checkedAt,
+            status.outcome,
+            status.latestPriceAsOf ?? null,
+            status.failureCategory ?? null,
+            status.sourceAccountId,
+            status.instrumentId,
+            status.instrumentCode,
+            status.provider,
           );
         }
         database.exec("COMMIT");

@@ -68,6 +68,11 @@ function accountHoldingsContext(input: {
         } : {}),
         category: holding.category,
         ...(holding.detail?.quantity ? { quantity: holding.detail.quantity } : {}),
+        ...(holding.detail ? {
+          unitPrice: holding.detail.currentPrice,
+          priceAsOf: holding.detail.currentPriceAsOf,
+          priceSource: holding.detail.currentPriceSource,
+        } : {}),
         currency: holding.currency,
         originalValue: holding.originalValue,
         valueEur: holding.eurValue,

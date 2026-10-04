@@ -63,6 +63,9 @@
 .analyst-agent-activity li small { grid-column: 2; color: #84958e; font-size: 8px; font-weight: 600; }
 @keyframes analyst-activity-pulse { 50% { box-shadow: 0 0 0 4px rgba(39,144,107,.12); } }
 .analyst-primary-answer { margin-top: 7px; }
+.analyst-web-sources { display: grid; gap: 5px; margin: 12px 0 0; padding: 10px 0 0 17px; border-top: 1px solid #e4ebe8; font-size: 11px; }
+.analyst-web-sources a, .portfolio-analyst-evidence a { color: #236c56; text-decoration: underline; text-underline-offset: 2px; }
+.analyst-web-sources a:focus-visible, .portfolio-analyst-evidence a:focus-visible { outline: 2px solid #175f49; outline-offset: 2px; }
 .analyst-facts-evidence { margin-top: 7px; }
 .analyst-facts-evidence-body { padding: 0 2px 9px; }
 .analyst-sources-button { display: inline-flex; align-items: center; gap: 6px; margin-top: 9px; padding: 5px 8px; border: 1px solid #d1e1d9; border-radius: 7px; background: #f1f7f3; color: #315f50; cursor: pointer; font-size: 10px; font-weight: 750; }

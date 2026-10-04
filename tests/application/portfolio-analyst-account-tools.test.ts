@@ -27,7 +27,10 @@ const accountPortfolio = {
     eurValue: 120,
     freshness: "fresh",
     asOf: "2026-09-16",
-    detail: { quantity: "2" },
+    detail: {
+      quantity: "2", currentPrice: "60", currentPriceAsOf: "2026-09-15",
+      currentPriceSource: "synthetic-market-feed",
+    },
   }, {
     id: "other-holding",
     sourceAccountId: "other-account",
@@ -49,7 +52,10 @@ describe("portfolio analyst account tools", () => {
 
     expect(context.facts).toEqual([
       expect.objectContaining({ kind: "account-holdings-summary", found: true, holdingCount: 1, totalValueEur: 120 }),
-      expect.objectContaining({ kind: "account-holding", name: "Synthetic Fund", quantity: "2", valueEur: 120 }),
+      expect.objectContaining({
+        kind: "account-holding", name: "Synthetic Fund", quantity: "2", valueEur: 120,
+        unitPrice: "60", priceAsOf: "2026-09-15", priceSource: "synthetic-market-feed",
+      }),
     ]);
     expect(context.allowedActions).toEqual([]);
   });

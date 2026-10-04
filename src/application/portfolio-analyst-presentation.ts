@@ -151,6 +151,9 @@ export function portfolioAnalystEvidenceValue(
         fact.symbol,
         fact.category,
         fact.quantity ? `${language === "zh-CN" ? "数量" : "Quantity"} ${fact.quantity}` : undefined,
+        fact.unitPrice
+          ? `${language === "zh-CN" ? "已保存单价" : "Saved unit price"} ${fact.unitPrice} ${fact.currency} · ${fact.priceAsOf ?? fact.asOf} · ${fact.priceSource ?? "unknown source"}`
+          : undefined,
         fact.originalValue,
         eur.format(fact.valueEur),
         fact.freshness,
@@ -170,5 +173,11 @@ export function portfolioAnalystEvidenceValue(
         : language === "zh-CN"
           ? `未找到 ${fact.requestedAccountType}`
           : `${fact.requestedAccountType} was not found`;
+    case "web-research-source":
+      return `${fact.title} · ${fact.summary} · ${fact.retrievedAt}`;
+    case "web-research-status":
+      return fact.state === "unavailable"
+        ? (language === "zh-CN" ? "搜索服务暂不可用。" : "Web search is temporarily unavailable.")
+        : (language === "zh-CN" ? "没有找到可核对的官方来源。" : "No verifiable official source was found.");
   }
 }

@@ -17,6 +17,7 @@ export interface HoldingDetailReadModel {
   averageCost?: string;
   currentPrice: string;
   currentPriceAsOf: string;
+  currentPriceSource: string;
   priceHistory: HoldingPriceHistoryReadModel[];
 }
 

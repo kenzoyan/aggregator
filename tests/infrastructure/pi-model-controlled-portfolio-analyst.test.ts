@@ -113,6 +113,57 @@ function completedStream(message: AssistantMessage) {
 }
 
 describe("Pi model-controlled Portfolio Analyst", () => {
+  it("uses a verified web source as read-only evidence for an external question", async () => {
+    let modelCall = 0;
+    const streamFn: StreamFn = () => {
+      modelCall += 1;
+      return modelCall === 1
+        ? completedStream(assistant([{
+            type: "toolCall", id: "web-call", name: "search_web",
+            arguments: { query: "Fund C share class" },
+          }], "toolUse"))
+        : completedStream(assistant([{ type: "text", text: JSON.stringify({
+            factsAsOf: context.factsAsOf,
+            answer: { text: "The official page identifies the C share class.", classification: "fact", evidence: ["call1.web.1"] },
+            claims: [], limitations: [], proposedUpdate: null,
+          }) }], "stop"));
+    };
+    const unexpected = () => { throw new Error("Portfolio tool should not be called"); };
+    const tools: PortfolioAnalystTools = {
+      readPeriodDrivers: unexpected,
+      readDataQuality: unexpected,
+      readPortfolioOverview: unexpected,
+      readAccounts: unexpected,
+      readAccountHoldings: unexpected,
+      proposeCreateAccount: unexpected,
+      prepareAccountImport: unexpected,
+    };
+    const searched: string[] = [];
+    const runtime = createPiModelControlledPortfolioAnalyst({
+      model, streamFn,
+      webResearch: { search: async ({ query }) => {
+        searched.push(query);
+        return {
+          status: "completed", retrievedAt: "2026-10-04T10:00:00.000Z",
+          findings: [{ title: "Official product page", url: "https://www.cmfchina.com/fund",
+            summary: "The manager lists the C share class." }],
+        };
+      } },
+    });
+    const result = await runtime.runTurn({
+      question: "What is Fund C's share class?", history: [], tools,
+      language: "en", includeHoldingNames: false, defaultPeriod: "week",
+      factsAsOf: context.factsAsOf,
+    });
+    expect(searched).toEqual(["Fund C share class"]);
+    expect(result).toMatchObject({
+      kind: "report",
+      answer: { answer: { evidence: ["call1.web.1"] }, proposedUpdate: null },
+      context: { job: "research-web", facts: [{ kind: "web-research-source", url: "https://www.cmfchina.com/fund" }] },
+      audit: { toolCalls: [{ name: "search_web", status: "completed" }] },
+    });
+  });
+
   it.each([
     { question: "Hello", language: "en" as const, reply: "Hi! What would you like to know about your portfolio or accounts?" },
     { question: "你好", language: "zh-CN" as const, reply: "你好！想了解投资组合或账户的哪一部分？" },

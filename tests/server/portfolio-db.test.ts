@@ -12,6 +12,8 @@ describe("portfolio database singleton", () => {
       deleteSourceAccount: vi.fn(),
       saveImportDraftReview: vi.fn(),
       discardImportDraft: vi.fn(),
+      readPriceSourceBindings: vi.fn(),
+      savePriceSourceBinding: vi.fn(),
     };
     const create = vi.fn(() => replacement);
 
@@ -32,6 +34,8 @@ describe("portfolio database singleton", () => {
       deleteSourceAccount: vi.fn(),
       saveImportDraftReview: vi.fn(),
       discardImportDraft: vi.fn(),
+      readPriceSourceBindings: vi.fn(),
+      savePriceSourceBinding: vi.fn(),
     };
     const create = vi.fn();
 
@@ -70,6 +74,26 @@ describe("portfolio database singleton", () => {
       saveImportDraftReview: vi.fn(),
     };
     const replacement = { ...current, close: vi.fn(), discardImportDraft: vi.fn() };
+    expect(ensureCurrentPortfolioDatabase(current, () => replacement)).toBe(replacement);
+    expect(close).toHaveBeenCalledOnce();
+  });
+
+  it("replaces a hot-reload instance missing price source bindings", () => {
+    const close = vi.fn();
+    const current = {
+      close,
+      readLatestMarketIntelligenceBrief: vi.fn(),
+      saveMarketIntelligenceBrief: vi.fn(),
+      deleteSourceAccount: vi.fn(),
+      saveImportDraftReview: vi.fn(),
+      discardImportDraft: vi.fn(),
+    };
+    const replacement = {
+      ...current,
+      close: vi.fn(),
+      readPriceSourceBindings: vi.fn(),
+      savePriceSourceBinding: vi.fn(),
+    };
     expect(ensureCurrentPortfolioDatabase(current, () => replacement)).toBe(replacement);
     expect(close).toHaveBeenCalledOnce();
   });

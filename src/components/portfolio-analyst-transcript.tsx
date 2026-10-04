@@ -280,6 +280,7 @@ function analystToolLabel(
     read_account_holdings: "账户持仓",
     propose_create_account: "账户创建提议",
     prepare_account_import: "资产导入准备",
+    search_web: "网络搜索",
   } : {
     read_period_drivers: "period performance",
     read_data_quality: "data quality",
@@ -288,6 +289,7 @@ function analystToolLabel(
     read_account_holdings: "account holdings",
     propose_create_account: "account creation proposal",
     prepare_account_import: "asset import preparation",
+    search_web: "web research",
   };
   return labels[name];
 }
@@ -378,6 +380,7 @@ export function AnalystReport({
   const language = report.language;
   const evidence = new Map(report.evidence.map((fact) => [fact.key, fact]));
   const answer = report.answer;
+  const webSources = report.evidence.filter((fact) => fact.kind === "web-research-source");
   const completedToolCount = report.agentAudit?.toolCalls.filter((call) => call.status === "completed").length ?? 0;
   const periodLabel = report.scope.period
     ? (language === "zh-CN"
@@ -390,6 +393,8 @@ export function AnalystReport({
       ? `${language === "zh-CN" ? "期间表现" : "Performance drivers"} · ${periodLabel ?? (language === "zh-CN" ? "所选期间" : "Selected period")}`
       : report.job === "summarize-portfolio"
         ? (language === "zh-CN" ? "组合概览" : "Portfolio overview")
+        : report.job === "research-web"
+          ? (language === "zh-CN" ? "外部资料" : "External research")
         : report.job === "manage-accounts"
           ? (language === "zh-CN" ? "账户管理" : "Account management")
           : (language === "zh-CN" ? "数据质量诊断" : "Data quality diagnosis");
@@ -398,6 +403,11 @@ export function AnalystReport({
       {!sourcesOnly && <>
       <div className="analyst-primary-answer analyst-assistant-message">
         <AssistantMessageContent text={answer.answer.text} />
+        {webSources.length > 0 && <ul className="analyst-web-sources" aria-label={language === "zh-CN" ? "外部来源" : "External sources"}>
+          {webSources.map((source) => <li key={source.key}>
+            <a href={source.url} target="_blank" rel="noopener noreferrer">{source.title}</a>
+          </li>)}
+        </ul>}
       </div>
       {answer.limitations.length > 0 && (
         <div className="analyst-visible-caveats">
@@ -489,7 +499,9 @@ export function AnalystReport({
               {report.evidence.map((fact) => (
                 <div key={fact.key} id={`analyst-fact-${fact.key}`}>
                   <dt>{fact.label}<small>{fact.key} · {fact.provenance}</small></dt>
-                  <dd>{portfolioAnalystEvidenceValue(fact, language)}</dd>
+                  <dd>{portfolioAnalystEvidenceValue(fact, language)}{fact.kind === "web-research-source" && <>
+                    {" · "}<a href={fact.url} target="_blank" rel="noopener noreferrer">{language === "zh-CN" ? "打开来源" : "Open source"}</a>
+                  </>}</dd>
                 </div>
               ))}
             </dl>

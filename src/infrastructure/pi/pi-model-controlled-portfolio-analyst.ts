@@ -28,6 +28,7 @@ import {
 import type { PortfolioAnalystContextV1 } from "@/application/portfolio-analyst-contract";
 import type { PortfolioAnalystHistoryMessage } from "@/application/portfolio-analyst-conversation";
 import { PortfolioAnalystProviderError } from "@/application/portfolio-analyst-provider";
+import { webResearchContext, type WebResearch } from "@/application/portfolio-web-research";
 
 const MAX_MODEL_TURNS = 5;
 const MAX_TOOL_CALLS = 4;
@@ -103,6 +104,8 @@ function systemPrompt(input: PortfolioAnalystAgentTurn): string {
     "For a greeting, acknowledgement or request that needs clarification and makes no portfolio or account claim, call no tools and return only JSON with kind=conversation and intent=greeting, acknowledgement or clarification. The application writes the user-facing reply. Never use this path to assert holdings, balances, returns, prices, account status or completed actions.",
     "When the user asks to update or import assets for an existing account, read the account registry and return the exact matching start-account-import allowed action as proposedUpdate. Respect the account's update method: screenshot accounts can receive screenshots, while Trading 212 uses its API connection. Confirmation is performed by the application; never claim that this text turn changed holdings.",
     "When the user asks what a specific account currently holds or refers to a recently imported account, use read_account_holdings. Use read_accounts first if the account reference needs resolving. A portfolio overview does not contain individual account holdings. If the target account cannot be identified, ask for its name rather than inventing holdings.",
+    "For questions requiring current external research, use search_web when available. Cite the returned web evidence and show the source dates. Public web quotes are separate from saved portfolio valuations; never claim a web quote changed a holding. If the tool reports unavailable or no verified source, say so without guessing.",
+    "When asked for a holding's latest saved unit NAV or price, use read_account_holdings and report its unitPrice, priceAsOf, currency, source and freshness. Do not derive a unit price from market value and quantity when a recorded unitPrice is present. Distinguish the latest saved price from today's live quote.",
     portfolioAnalystConversationalAnswerInstruction,
     "After the tool result, return only JSON matching this schema:",
     JSON.stringify(portfolioAnalystAnswerJsonSchema),
@@ -131,18 +134,18 @@ type CollectToolContext = (
   audit: PortfolioAnalystToolAudit,
 ) => PortfolioAnalystContextV1;
 
-function executeSelectedTool(
+async function executeSelectedTool(
   input: PortfolioAnalystAgentTurn,
   collect: CollectToolContext,
   toolCallId: string,
   name: PortfolioAnalystToolName,
   toolInput: PortfolioAnalystToolAudit["input"],
-  readContext: () => PortfolioAnalystContextV1,
+  readContext: () => PortfolioAnalystContextV1 | Promise<PortfolioAnalystContextV1>,
 ) {
   const activity = { toolCallId, name, input: toolInput };
   input.onToolActivity?.({ stage: "started", ...activity });
   input.onPhase?.("reading-current-facts");
-  const rawContext = readContext();
+  const rawContext = await readContext();
   const context = collect(rawContext, completedAudit(toolCallId, name, toolInput, rawContext));
   input.onToolActivity?.({
     stage: "completed",
@@ -160,6 +163,7 @@ function executeSelectedTool(
 function createTools(
   input: PortfolioAnalystAgentTurn,
   collect: CollectToolContext,
+  webResearch?: WebResearch,
 ): AgentTool[] {
   const periodParameters = Type.Object({
     period: Type.Union([
@@ -175,6 +179,9 @@ function createTools(
   }, { additionalProperties: false });
   const importAccountParameters = Type.Object({
     accountType: Type.String({ minLength: 1, maxLength: 80 }),
+  }, { additionalProperties: false });
+  const webSearchParameters = Type.Object({
+    query: Type.String({ minLength: 3, maxLength: 160 }),
   }, { additionalProperties: false });
   const periodTool: AgentTool<typeof periodParameters> = {
     name: "read_period_drivers",
@@ -234,7 +241,7 @@ function createTools(
   const accountHoldingsTool: AgentTool<typeof importAccountParameters> = {
     name: "read_account_holdings",
     label: "Read account holdings",
-    description: "Read the current confirmed holdings and value for one registered source account. Accepts its account type or display label. Use for questions about a specific account, including the most recently imported account.",
+    description: "Read current confirmed holdings, latest saved unit NAV or price with date and source, and values for one registered account. Accepts its account type or display label.",
     parameters: importAccountParameters,
     executionMode: "sequential",
     async execute(toolCallId, params) {
@@ -279,6 +286,32 @@ function createTools(
       }));
     },
   };
+  const webSearchTool: AgentTool<typeof webSearchParameters> | undefined = webResearch ? {
+    name: "search_web",
+    label: "Search the web",
+    description: "Research current external information and return source-linked findings. This never writes portfolio prices.",
+    parameters: webSearchParameters,
+    executionMode: "sequential",
+    async execute(toolCallId, params) {
+      return executeSelectedTool(input, collect, toolCallId, "search_web", {
+        query: params.query,
+      }, async () => {
+        const result = await webResearch.search({
+          query: params.query,
+          language: input.language,
+          signal: input.signal,
+        });
+        return webResearchContext({
+          result,
+          factsAsOf: input.factsAsOf ?? input.tools.readPortfolioOverview({
+            language: input.language,
+            includeHoldingNames: input.includeHoldingNames,
+          }).factsAsOf,
+          language: input.language,
+        });
+      });
+    },
+  } : undefined;
   return [
     periodTool,
     qualityTool,
@@ -287,6 +320,7 @@ function createTools(
     accountHoldingsTool,
     proposeCreateAccountTool,
     prepareAccountImportTool,
+    ...(webSearchTool ? [webSearchTool] : []),
   ];
 }
 
@@ -294,6 +328,7 @@ class PiModelControlledPortfolioAnalyst implements PortfolioAnalystAgentRuntime 
   constructor(
     private readonly model: Model<any>,
     private readonly streamFn: StreamFn,
+    private readonly webResearch?: WebResearch,
   ) {}
 
   async runTurn(input: PortfolioAnalystAgentTurn) {
@@ -314,7 +349,7 @@ class PiModelControlledPortfolioAnalyst implements PortfolioAnalystAgentRuntime 
         evidenceKeys: namespaced.facts.map((fact) => fact.key),
       });
       return namespaced;
-    });
+    }, this.webResearch);
     const agent = new Agent({
       initialState: {
         model: this.model,
@@ -437,6 +472,7 @@ class PiModelControlledPortfolioAnalyst implements PortfolioAnalystAgentRuntime 
 export function createPiModelControlledPortfolioAnalyst(input: {
   model: Model<any>;
   streamFn: StreamFn;
+  webResearch?: WebResearch;
 }): PortfolioAnalystAgentRuntime {
-  return new PiModelControlledPortfolioAnalyst(input.model, input.streamFn);
+  return new PiModelControlledPortfolioAnalyst(input.model, input.streamFn, input.webResearch);
 }

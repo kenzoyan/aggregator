@@ -68,6 +68,7 @@ function holding(input: {
       reportedPriorReturn: "private return",
       currentPrice: "private price",
       currentPriceAsOf: "2026-09-06",
+      currentPriceSource: "synthetic-source",
       priceHistory: [],
     },
     history,

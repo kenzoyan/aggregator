@@ -182,6 +182,15 @@ export async function refreshFundNavs(input: {
   record: (
     observations: readonly MarketPriceObservation[],
   ) => void | Promise<void>;
+  onAttempt?: (attempt: {
+    sourceAccountId: string;
+    instrumentId: string;
+    instrumentCode: string;
+    checkedAt: string;
+    outcome: "updated" | "unchanged" | "failed";
+    latestPriceAsOf?: string;
+    failureCategory?: MarketRefreshFailure["category"];
+  }) => void;
   now: string;
 }): Promise<MarketRefreshResult> {
   const eligible = input.state.positions.filter((position) =>
@@ -235,6 +244,22 @@ export async function refreshFundNavs(input: {
       );
       if (newQuotes.length === 0) {
         unchanged += 1;
+        const savedNavDate = input.existingObservations
+          .filter((observation) =>
+            observation.sourceAccountId === position.sourceAccountId &&
+            observation.instrumentId === position.instrumentId &&
+            observation.source === input.provider.id
+          )
+          .map((observation) => observation.asOf.slice(0, 10))
+          .sort().at(-1);
+        input.onAttempt?.({
+          sourceAccountId: position.sourceAccountId,
+          instrumentId: position.instrumentId,
+          instrumentCode: position.instrumentCode,
+          checkedAt: input.now,
+          outcome: "unchanged",
+          ...(savedNavDate ? { latestPriceAsOf: savedNavDate } : {}),
+        });
         continue;
       }
       for (const quote of newQuotes) {
@@ -255,12 +280,29 @@ export async function refreshFundNavs(input: {
         });
       }
       updated += 1;
+      input.onAttempt?.({
+        sourceAccountId: position.sourceAccountId,
+        instrumentId: position.instrumentId,
+        instrumentCode: position.instrumentCode,
+        checkedAt: input.now,
+        outcome: "updated",
+        latestPriceAsOf: newQuotes.map((quote) => quote.asOf).sort().at(-1),
+      });
     } catch (error) {
+      const safeFailure = safeMarketRefreshFailure(error);
       failed.push({
-        ...safeMarketRefreshFailure(error),
+        ...safeFailure,
         instrumentCode: position.instrumentCode,
         sourceAccountId: position.sourceAccountId,
         instrumentId: position.instrumentId,
+      });
+      input.onAttempt?.({
+        sourceAccountId: position.sourceAccountId,
+        instrumentId: position.instrumentId,
+        instrumentCode: position.instrumentCode,
+        checkedAt: input.now,
+        outcome: "failed",
+        failureCategory: safeFailure.category,
       });
     }
   }

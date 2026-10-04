@@ -200,6 +200,7 @@ describe("portfolio valuation read models", () => {
         reportedPriorReturn: "20",
         currentPrice: "12",
         currentPriceAsOf: "2026-07-19",
+        currentPriceSource: "eastmoney",
         priceHistory: [
           {
             price: "12",

@@ -1,4 +1,5 @@
 import type { MarketIntelligenceBrief } from "@/application/market-intelligence";
+import type { PriceSourceBinding, PriceSourceRefreshStatus } from "@/application/price-source-discovery";
 import type {
   PortfolioAnalystConversationStore,
 } from "@/application/portfolio-analyst-conversation";
@@ -59,6 +60,8 @@ export interface PortfolioDatabase extends PortfolioAnalystConversationStore {
   confirmImport(command: ConfirmImportCommand): StoredImportDraft;
   readPortfolioFacts(): PortfolioFacts;
   readMarketData(): MarketDataHistory;
+  readPriceSourceBindings(): PriceSourceBinding[];
+  savePriceSourceBinding(binding: PriceSourceBinding): void;
   readSourceAccountLabels(): Record<string, string>;
   readSourceAccounts(): SourceAccountDefinition[];
   createSourceAccount(
@@ -69,6 +72,7 @@ export interface PortfolioDatabase extends PortfolioAnalystConversationStore {
     observations: readonly MarketPriceObservation[];
     fxObservations?: readonly FxRateObservation[];
     refresh?: MarketRefreshRecord;
+    priceSourceStatuses?: readonly PriceSourceRefreshStatus[];
   }): void;
   renameSourceAccount(id: string, label: string): void;
   savePortfolioNarrative(report: PortfolioNarrativeReport): void;

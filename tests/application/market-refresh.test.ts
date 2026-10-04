@@ -4,6 +4,8 @@ import {
   refreshFundNavs,
   safeMarketRefreshFailureMessage,
 } from "@/application/market-refresh";
+import { createMarketDataRefresh } from "@/application/market-data-refresh";
+import type { PriceSourceRefreshStatus } from "@/application/price-source-discovery";
 import type { MarketPriceObservation } from "@/domain/market-data";
 import type { PortfolioState } from "@/domain/portfolio/types";
 import { createSourceAccountDefinition } from "@/domain/source-accounts";
@@ -31,6 +33,103 @@ const state: PortfolioState = {
 };
 
 describe("fund NAV refresh", () => {
+  it("reports unchanged and failed checks for a bound source without inventing a new price", async () => {
+    const attempts: Array<{ outcome: string; latestPriceAsOf?: string; failureCategory?: string }> = [];
+    const observation: MarketPriceObservation = {
+      sourceAccountId: state.positions[0]!.sourceAccountId,
+      instrumentId: state.positions[0]!.instrumentId,
+      instrumentCode: "040046",
+      price: "8.1202",
+      currency: "CNY",
+      asOf: "2026-07-16",
+      recordedAt: "2026-07-16T18:00:00.000Z",
+      source: "eastmoney",
+    };
+    const common = {
+      state,
+      existingObservations: [observation],
+      monitoringStartedAtByPosition: {},
+      record: () => { throw new Error("No price should be recorded"); },
+      onAttempt: (attempt: { outcome: string; latestPriceAsOf?: string; failureCategory?: string }) => { attempts.push(attempt); },
+      now: "2026-07-17T12:00:00.000Z",
+    };
+    const unchanged = await refreshFundNavs({
+      ...common,
+      provider: { id: "eastmoney", fetchSince: async () => [] },
+    });
+    expect(unchanged.unchanged).toBe(1);
+    expect(attempts[0]).toMatchObject({ outcome: "unchanged", latestPriceAsOf: "2026-07-16" });
+
+    const failed = await refreshFundNavs({
+      ...common,
+      provider: { id: "eastmoney", fetchSince: async () => { throw new Error("upstream unavailable"); } },
+    });
+    expect(failed.failed).toHaveLength(1);
+    expect(attempts[1]).toMatchObject({ outcome: "failed", failureCategory: "provider-error" });
+  });
+
+  it("refreshes an unmatched fund only after a confirmed source binding", async () => {
+    const account = createSourceAccountDefinition({ id: "synthetic-wechat", accountType: "微信" });
+    const unmatched = {
+      ...state.positions[0]!,
+      sourceAccountId: account.id,
+      instrumentId: "synthetic-fund",
+      displayName: "招商中证白酒指数C",
+      instrumentCode: "unmatched-code",
+    };
+    const recorded: MarketPriceObservation[] = [];
+    const statuses: PriceSourceRefreshStatus[] = [];
+    const fetchedCodes: string[] = [];
+    const refresh = createMarketDataRefresh({
+      database: {
+        readSourceAccounts: () => [account],
+        readPriceSourceBindings: () => [{
+          sourceAccountId: account.id,
+          instrumentId: unmatched.instrumentId,
+          instrumentName: unmatched.displayName,
+          instrumentCode: "012414",
+          currency: "CNY",
+          shareClass: "C",
+          provider: "eastmoney",
+          identityUrl: "https://example.test/fund",
+          confirmedAt: "2026-10-04T00:00:00.000Z",
+        }],
+        readPortfolioFacts: () => ({
+          state: { ...state, positions: [unmatched] },
+          openingSnapshots: [],
+        }),
+        readMarketData: () => ({ observations: [] }),
+        recordMarketData: ({ observations, priceSourceStatuses }) => {
+          recorded.push(...observations);
+          statuses.push(...priceSourceStatuses ?? []);
+        },
+      },
+      fundNavProvider: {
+        id: "eastmoney",
+        supportsInstrumentCode: (code) => /^\d{6}$/.test(code),
+        fetchSince: async (code) => {
+          fetchedCodes.push(code);
+          return [{ instrumentCode: code, price: "0.5", currency: "CNY", asOf: "2026-10-03", source: "eastmoney" }];
+        },
+      },
+      now: () => "2026-10-04T12:00:00.000Z",
+    });
+
+    expect(await refresh("manual")).toMatchObject({ updated: 1, recordedPrices: 1 });
+    expect(fetchedCodes).toEqual(["012414"]);
+    expect(recorded[0]).toMatchObject({ instrumentId: "synthetic-fund", instrumentCode: "012414" });
+    expect(statuses).toEqual([{
+      sourceAccountId: account.id,
+      instrumentId: "synthetic-fund",
+      instrumentCode: "012414",
+      provider: "eastmoney",
+      checkedAt: "2026-10-04T12:00:00.000Z",
+      outcome: "updated",
+      latestPriceAsOf: "2026-10-03",
+    }]);
+    expect(unmatched.instrumentCode).toBe("unmatched-code");
+  });
+
   it("records the published NAV on the import date when no provider observation exists", async () => {
     const saved: MarketPriceObservation[] = [];
     const result = await refreshFundNavs({

@@ -288,6 +288,14 @@
 .account-price-form button { padding: 8px 11px; border: 1px solid var(--line); border-radius: 8px; background: white; cursor: pointer; font-size: 10px; font-weight: 800; }
 .account-price-form button[type="submit"] { border-color: var(--ink); background: var(--ink); color: white; }
 .account-price-form button:disabled { cursor: wait; opacity: .5; }
+.price-source-review { display: grid; gap: 10px; margin-top: 14px; padding: 19px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+.price-source-review p { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
+.price-source-candidate { display: grid; justify-items: start; gap: 8px; padding: 14px; border: 1px solid #cbdcd3; border-radius: 10px; background: #f6faf7; }
+.price-source-candidate strong { font-size: 13px; }
+.price-source-candidate a { color: var(--accent); font-size: 11px; text-decoration: underline; text-underline-offset: 2px; }
+.price-source-confirmed { display: grid; justify-items: start; gap: 8px; }
+.price-source-candidate button, .price-source-confirmed button { padding: 8px 11px; border: 0; border-radius: 8px; background: var(--accent); color: var(--accent-contrast); cursor: pointer; font-size: 11px; font-weight: 700; }
+.price-source-candidate button:disabled, .price-source-confirmed button:disabled { cursor: not-allowed; opacity: .5; }
 .account-detail-message, .account-detail-empty { padding: 30px; }
 .account-detail-message button { padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; background: white; cursor: pointer; font-size: 11px; font-weight: 800; }
 .account-detail-empty { display: grid; justify-items: start; gap: 10px; }

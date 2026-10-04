@@ -15,6 +15,7 @@ export const portfolioAnalystToolNames = [
   "read_account_holdings",
   "propose_create_account",
   "prepare_account_import",
+  "search_web",
 ] as const;
 
 export type PortfolioAnalystToolName = typeof portfolioAnalystToolNames[number];
@@ -22,7 +23,7 @@ export type PortfolioAnalystToolName = typeof portfolioAnalystToolNames[number];
 export interface PortfolioAnalystToolAudit {
   toolCallId: string;
   name: PortfolioAnalystToolName;
-  input: { period?: Period; accountType?: string; label?: string };
+  input: { period?: Period; accountType?: string; label?: string; query?: string };
   status: "completed" | "blocked" | "failed";
   factsAsOf?: string;
   evidenceKeys: string[];
@@ -59,6 +60,7 @@ export interface PortfolioAnalystAgentTurn {
   language: PortfolioAnalystLanguage;
   includeHoldingNames: boolean;
   defaultPeriod: Period;
+  factsAsOf?: string;
   signal?: AbortSignal;
   onPhase?: (phase: "reading-current-facts" | "generating-answer") => void;
   onToolActivity?: (activity: PortfolioAnalystToolActivity) => void;

@@ -325,6 +325,7 @@ export function createPortfolioAnalystHandlers(
             language: body.language,
             includeHoldingNames: body.includeHoldingNames,
             defaultPeriod: requestDefaultPeriod(body),
+            factsAsOf: portfolio.insights.asOf,
             signal: request.signal,
             onPhase: (phase) => emit?.({ type: "status", phase }),
             onToolActivity: (activity) => emit?.({ type: "tool-activity", activity }),

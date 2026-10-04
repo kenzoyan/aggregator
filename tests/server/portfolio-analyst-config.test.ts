@@ -36,7 +36,7 @@ describe("portfolio analyst provider configuration", () => {
     expect(registry.agentRuntimes).toEqual({});
     expect(registry.defaultProvider).toBe("openai");
     expect(registry.models).toEqual({
-      openai: "gpt-5.6-terra",
+      openai: "gpt-6-luna",
       deepseek: "deepseek-v4-flash",
     });
   });

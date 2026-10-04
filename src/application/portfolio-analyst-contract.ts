@@ -208,6 +208,9 @@ export interface AccountHoldingFact {
   symbol?: string;
   category: HoldingReadModel["category"];
   quantity?: string;
+  unitPrice?: string;
+  priceAsOf?: string;
+  priceSource?: string;
   currency: string;
   originalValue: string;
   valueEur: number;
@@ -240,6 +243,26 @@ export interface SourceAccountImportTargetFact {
   provenance: "source-account-registry";
 }
 
+export interface WebResearchSourceFact {
+  key: string;
+  kind: "web-research-source";
+  label: "External source";
+  title: string;
+  url: string;
+  summary: string;
+  retrievedAt: string;
+  provenance: "openai-web-search";
+}
+
+export interface WebResearchStatusFact {
+  key: string;
+  kind: "web-research-status";
+  label: "Web research status";
+  state: "no-verified-source" | "unavailable";
+  retrievedAt: string;
+  provenance: "openai-web-search";
+}
+
 export type AnalystEvidenceFact =
   | PortfolioTotalFact
   | PeriodPerformanceFact
@@ -254,7 +277,9 @@ export type AnalystEvidenceFact =
   | AccountHoldingsSummaryFact
   | AccountHoldingFact
   | SourceAccountProposalFact
-  | SourceAccountImportTargetFact;
+  | SourceAccountImportTargetFact
+  | WebResearchSourceFact
+  | WebResearchStatusFact;
 
 export const analystLimitationCodes = [
   "period-unavailable",
@@ -296,7 +321,7 @@ export type FactualUpdate =
 
 export interface PortfolioAnalystContextV1 {
   version: "portfolio-analyst-context.v1";
-  job: PortfolioAnalystRequest["job"] | "manage-accounts";
+  job: PortfolioAnalystRequest["job"] | "manage-accounts" | "research-web";
   language: PortfolioAnalystLanguage;
   factsAsOf: string;
   scope: { period?: Period };
