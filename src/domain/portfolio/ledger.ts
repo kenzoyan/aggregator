@@ -108,11 +108,25 @@ export function buildPortfolioState({
   }
 
   for (const event of events) {
+    if (event.voidedAt) continue;
     const baseline = latestSnapshotsByAccount.get(event.sourceAccountId);
     if (baseline && event.asOf <= baseline.asOf) {
       continue;
     }
     if (appliedEventIdSet.has(event.id)) {
+      continue;
+    }
+
+    if (event.type === "cash-withdrawal") {
+      const cash = cashBalances.find((candidate) =>
+        candidate.sourceAccountId === event.sourceAccountId && candidate.currency === event.amount.currency);
+      const amount = new Decimal(event.amount.amount);
+      if (!cash || amount.lte(0) || amount.gt(cash.amount)) {
+        throw new Error(`Invalid cash withdrawal for event ${event.id}`);
+      }
+      cash.amount = new Decimal(cash.amount).minus(amount).toString();
+      appliedEventIdSet.add(event.id);
+      appliedEventIds.push(event.id);
       continue;
     }
 
@@ -143,31 +157,40 @@ export function buildPortfolioState({
       throw new Error(`Sale currency mismatch for event ${event.id}`);
     }
 
+    if (!position.observedPrice && (position.reportedMarketValue || position.reportedPriorReturn !== "0")) {
+      position.observedPrice = new Decimal(position.reportedMarketValue ?? new Decimal(position.costBasis).plus(position.reportedPriorReturn))
+        .div(currentQuantity).toString();
+    }
+    if (position.reportedMarketValue) {
+      position.reportedMarketValue = new Decimal(position.reportedMarketValue).mul(remainingQuantity).div(currentQuantity).toString();
+    }
     position.costBasis = new Decimal(position.costBasis)
       .mul(remainingQuantity)
       .div(currentQuantity)
       .toString();
     position.quantity = remainingQuantity.toString();
 
-    let cash = cashBalances.find(
-      (candidate) =>
-        candidate.sourceAccountId === event.sourceAccountId &&
-        candidate.currency === event.proceeds.currency,
-    );
+    if (event.destination?.kind !== "external-account") {
+      let cash = cashBalances.find(
+        (candidate) =>
+          candidate.sourceAccountId === event.sourceAccountId &&
+          candidate.currency === event.proceeds.currency,
+      );
 
-    if (!cash) {
-      cash = {
-        sourceAccountId: event.sourceAccountId,
-        currency: event.proceeds.currency,
-        amount: "0",
-      };
-      cashBalances.push(cash);
+      if (!cash) {
+        cash = {
+          sourceAccountId: event.sourceAccountId,
+          currency: event.proceeds.currency,
+          amount: "0",
+        };
+        cashBalances.push(cash);
+      }
+
+      cash.amount = new Decimal(cash.amount)
+        .plus(event.proceeds.amount)
+        .minus(event.fees?.amount ?? "0")
+        .toString();
     }
-
-    cash.amount = new Decimal(cash.amount)
-      .plus(event.proceeds.amount)
-      .minus(event.fees?.amount ?? "0")
-      .toString();
     appliedEventIdSet.add(event.id);
     appliedEventIds.push(event.id);
   }

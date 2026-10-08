@@ -39,7 +39,17 @@ export interface OpeningSnapshotInput {
   positions: readonly OpeningPositionInput[];
 }
 
-export interface SaleEventInput {
+export type CashDestination =
+  | { kind: "investment-account" }
+  | { kind: "external-account"; name: string };
+
+interface EventRecord {
+  recordedAt?: string;
+  voidedAt?: string;
+  sourceImportId?: string;
+}
+
+export interface SaleEventInput extends EventRecord {
   id: string;
   type: "sale";
   sourceAccountId: string;
@@ -48,9 +58,24 @@ export interface SaleEventInput {
   quantity: string;
   proceeds: MoneyInput;
   fees?: MoneyInput;
+  destination?: CashDestination;
+  importUndo?: {
+    snapshotId: string;
+    positionBefore: OpeningPositionInput;
+    retainedCash: MoneyInput;
+  };
 }
 
-export type PortfolioEventInput = SaleEventInput;
+export interface CashWithdrawalEventInput extends EventRecord {
+  id: string;
+  type: "cash-withdrawal";
+  sourceAccountId: string;
+  asOf: string;
+  amount: MoneyInput;
+  destination: { kind: "external-account"; name: string };
+}
+
+export type PortfolioEventInput = SaleEventInput | CashWithdrawalEventInput;
 
 export interface Position {
   sourceAccountId: string;

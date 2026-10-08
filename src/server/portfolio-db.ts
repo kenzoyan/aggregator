@@ -24,6 +24,8 @@ type CachedPortfolioDatabase = Pick<PortfolioDatabase, "close"> &
     | "readPortfolioAnalystMemory"
     | "savePortfolioAnalystMemory"
     | "deletePortfolioAnalystMemory"
+    | "confirmWithdrawal"
+    | "undoCashActivity"
   >>;
 
 export function ensureCurrentPortfolioDatabase<
@@ -45,7 +47,9 @@ export function ensureCurrentPortfolioDatabase<
     typeof database.listPortfolioAnalystMemories === "function" &&
     typeof database.readPortfolioAnalystMemory === "function" &&
     typeof database.savePortfolioAnalystMemory === "function" &&
-    typeof database.deletePortfolioAnalystMemory === "function"
+    typeof database.deletePortfolioAnalystMemory === "function" &&
+    typeof database.confirmWithdrawal === "function" &&
+    typeof database.undoCashActivity === "function"
   ) {
     return database;
   }

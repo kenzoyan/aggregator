@@ -391,7 +391,7 @@ export function Dashboard() {
         <section className="hero-grid">
           <article className="balance-card">
             <div className="card-heading">
-              <span>Portfolio value</span>
+              <span title="Investments and cash in tracked investment accounts. External bank accounts are excluded.">Tracked portfolio value</span>
               <span className="coverage">{isLocal ? `${holdings.length} valued positions` : "No confirmed positions"}</span>
             </div>
             <strong className="total-value">{eur.format(total)}</strong>

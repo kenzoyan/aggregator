@@ -127,7 +127,8 @@ function cashPoints(input: {
     ),
     ...input.events.flatMap((event) =>
       event.sourceAccountId === input.cash.sourceAccountId &&
-        event.proceeds.currency === input.cash.currency
+        !event.voidedAt &&
+        (event.type === "sale" ? event.proceeds.currency : event.amount.currency) === input.cash.currency
         ? [marketDataTimelineTime(event.asOf, input.asOf)]
         : []
     ),

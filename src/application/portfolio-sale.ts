@@ -3,10 +3,11 @@ import { createHash } from "node:crypto";
 import Decimal from "decimal.js";
 import { z } from "zod";
 
+import { cashDestinationSchema } from "@/application/portfolio-cash-contract";
 import { portfolioCalendarDate } from "@/application/portfolio-calendar";
 import { buildPortfolioState } from "@/domain/portfolio/ledger";
 import type {
-  OpeningSnapshotInput, PortfolioEventInput, PortfolioState,
+  OpeningSnapshotInput, PortfolioEventInput, PortfolioState, SaleEventInput,
 } from "@/domain/portfolio/types";
 
 const decimal = z.string().trim().regex(/^\d+(?:\.\d+)?$/, "Enter a non-negative decimal amount.");
@@ -17,8 +18,9 @@ export const saleInputSchema = z.object({
   quantity: decimal,
   proceeds: decimal,
   fees: decimal,
+  destination: cashDestinationSchema.default({ kind: "investment-account" }),
 }).strict();
-export type SaleInput = z.infer<typeof saleInputSchema>;
+export type SaleInput = z.input<typeof saleInputSchema>;
 
 export class SaleReviewError extends Error {
   constructor(message: string) { super(message); }
@@ -48,7 +50,7 @@ export function prepareSaleReview(facts: SaleFacts, input: SaleInput) {
     throw new SaleReviewError("A sale date cannot be in the future.");
   }
   const latestEvent = facts.events
-    .filter((event) => event.sourceAccountId === input.sourceAccountId)
+    .filter((event) => !event.voidedAt && event.sourceAccountId === input.sourceAccountId)
     .at(-1);
   if (latestEvent && asOf < latestEvent.asOf) {
     throw new SaleReviewError("Choose a date on or after this account's latest saved event.");
@@ -62,7 +64,7 @@ export function prepareSaleReview(facts: SaleFacts, input: SaleInput) {
   if (proceeds.lte(0) || fees.lt(0) || fees.gt(proceeds)) {
     throw new SaleReviewError("Proceeds must be above zero and fees cannot exceed proceeds.");
   }
-  const event: PortfolioEventInput = {
+  const event: SaleEventInput = {
     id: "sale-preview",
     type: "sale",
     sourceAccountId: input.sourceAccountId,
@@ -71,6 +73,7 @@ export function prepareSaleReview(facts: SaleFacts, input: SaleInput) {
     quantity: quantity.toString(),
     proceeds: { amount: proceeds.toString(), currency: current.currency },
     fees: { amount: fees.toString(), currency: current.currency },
+    destination: input.destination ?? { kind: "investment-account" },
   };
   const next = buildPortfolioState({
     openingSnapshots: facts.openingSnapshots,
@@ -95,9 +98,12 @@ export function prepareSaleReview(facts: SaleFacts, input: SaleInput) {
       costBasisBefore: current.costBasis,
       costBasisAfter: updated.costBasis,
       soldCostBasis: soldCostBasis.toString(),
+      netProceeds: proceeds.minus(fees).toString(),
       saleResult: proceeds.minus(fees).minus(soldCostBasis).toString(),
       cashBefore: currentCash?.amount ?? "0",
-      cashAfter: updatedCash.amount,
+      cashAfter: updatedCash?.amount ?? "0",
+      externalOutflow: input.destination?.kind === "external-account" ? proceeds.minus(fees).toString() : "0",
+      destination: event.destination!,
     },
   };
 }

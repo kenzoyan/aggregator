@@ -92,6 +92,7 @@ export function valuePortfolio({
   let totalValueEur = new Decimal(0);
 
   for (const position of state.positions) {
+    if (new Decimal(position.quantity).isZero()) continue;
     const price = prices.find(
       (candidate) =>
         candidate.sourceAccountId === position.sourceAccountId &&

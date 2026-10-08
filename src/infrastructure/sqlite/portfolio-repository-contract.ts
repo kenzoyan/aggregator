@@ -21,6 +21,7 @@ import type {
   PortfolioEventInput,
   PortfolioState,
 } from "@/domain/portfolio/types";
+import type { WithdrawalInput } from "@/application/portfolio-cash-activity";
 import type { SaleInput } from "@/application/portfolio-sale";
 import type {
   CreateSourceAccountDefinitionInput,
@@ -62,6 +63,8 @@ export interface PortfolioDatabase extends PortfolioAnalystConversationStore, Po
   confirmImport(command: ConfirmImportCommand): StoredImportDraft;
   readPortfolioFacts(): PortfolioFacts;
   confirmSale(input: SaleInput, expectedReviewToken: string, id: string): PortfolioEventInput;
+  confirmWithdrawal(input: WithdrawalInput, expectedReviewToken: string, id: string): PortfolioEventInput;
+  undoCashActivity(id: string, expectedReviewToken: string): PortfolioEventInput;
   readMarketData(): MarketDataHistory;
   readPriceSourceBindings(): PriceSourceBinding[];
   savePriceSourceBinding(binding: PriceSourceBinding): void;
