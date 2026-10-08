@@ -1,15 +1,19 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useRouter } from "next/navigation";
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 
-import { formatSignedOriginalMoney } from "@/application/money-format";
+import { formatPortfolioSaleMoney, formatPortfolioSaleQuantity } from "@/application/portfolio-sale-presentation";
 import { portfolioCalendarDate } from "@/application/portfolio-calendar";
 import type { PriceSourceBinding, PriceSourceCandidate } from "@/application/price-source-discovery";
 import type { HoldingPriceHistoryReadModel, Period, PortfolioOverviewReadModel } from "@/application/portfolio-read-model";
 import type { SourceAccountsPageReadModel } from "@/application/source-account-status";
+import { holdingDetailTabs, holdingTabForKey, type HoldingDetailTab } from "@/components/holding-detail-navigation";
 import { selectAccountHolding } from "@/components/account-holding-selection";
 import { HoldingPerformanceChart } from "@/components/holding-performance-chart";
+import { PortfolioCashActivity } from "@/components/portfolio-cash-activity";
+import type { CashActivityReadModel } from "@/application/portfolio-cash-activity";
 import { PortfolioSaleForm } from "@/components/portfolio-sale-form";
 
 const eur = new Intl.NumberFormat("en-FI", { style: "currency", currency: "EUR" });
@@ -32,12 +36,17 @@ function returnPercent(percent?: number) {
   return percent === undefined ? "" : ` · ${percent >= 0 ? "+" : "−"}${Math.abs(percent).toFixed(2)}%`;
 }
 
-function SavedPriceHistory({ history }: { history: readonly HoldingPriceHistoryReadModel[] }) {
+function HoldingMarketData({ history, sourceInfo, action }: {
+  history: readonly HoldingPriceHistoryReadModel[];
+  sourceInfo: ReactNode;
+  action?: ReactNode;
+}) {
   const [visibleCount, setVisibleCount] = useState(5);
   const remaining = Math.max(0, history.length - visibleCount);
 
-  return <section className="price-history-section">
-    <div className="drawer-section-heading"><div><p className="eyebrow">MARKET DATA</p><h3>Saved NAV / price history</h3></div></div>
+  return <section className="price-history-section holding-market-data">
+    <div className="drawer-section-heading"><div><p className="eyebrow">DATA SOURCE</p><h3>Saved NAV / price history</h3></div>{action}</div>
+    {sourceInfo}
     {history.length === 0 ? <p className="drawer-empty-copy">No saved price observations yet.</p> : <>
       <div className="price-history-list">
         {history.slice(0, visibleCount).map((observation) => <div key={`${observation.asOf}:${observation.source}`}>
@@ -59,6 +68,7 @@ export function AccountHoldingsPage({ accountId, requestedHoldingId }: {
   requestedHoldingId?: string;
 }) {
   const [accountsPage, setAccountsPage] = useState<SourceAccountsPageReadModel>();
+  const [activity, setActivity] = useState<CashActivityReadModel>();
   const [portfolio, setPortfolio] = useState<PortfolioOverviewReadModel>();
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
@@ -66,6 +76,8 @@ export function AccountHoldingsPage({ accountId, requestedHoldingId }: {
   const [activeHoldingId, setActiveHoldingId] = useState(requestedHoldingId);
   const [editingPrice, setEditingPrice] = useState(false);
   const [editingSale, setEditingSale] = useState(false);
+  const [detailTab, setDetailTab] = useState<HoldingDetailTab>("overview");
+  const router = useRouter();
   const [price, setPrice] = useState("");
   const [priceDate, setPriceDate] = useState("");
   const [savingPrice, setSavingPrice] = useState(false);
@@ -87,6 +99,9 @@ export function AccountHoldingsPage({ accountId, requestedHoldingId }: {
     if (!accounts.accounts || !accounts.holdings || !result.portfolio?.holdings) {
       throw new Error("Account holdings could not be loaded.");
     }
+    const activityResponse = await fetch(`/api/portfolio/sales?sourceAccountId=${encodeURIComponent(accountId)}`, { cache: "no-store", signal });
+    if (!activityResponse.ok) throw new Error("Account activity could not be loaded.");
+    setActivity(await activityResponse.json());
     setAccountsPage(accounts);
     setPortfolio(result.portfolio);
   }
@@ -254,90 +269,31 @@ export function AccountHoldingsPage({ accountId, requestedHoldingId }: {
           <p>Add assets to start monitoring this account.</p>
           <Link href={`/imports?account=${encodeURIComponent(accountId)}`}>Add assets</Link>
         </section> : <div className="account-detail-columns">
-          <nav className="account-holding-list" aria-label={`${account.label} holdings`}>
-            <div className="account-column-heading"><h2>Holdings</h2><span>{holdings.length}</span></div>
-            {holdings.map((holding) => <Link
-              key={holding.id}
-              href={`/accounts/${encodeURIComponent(accountId)}?holding=${encodeURIComponent(holding.id)}`}
-              scroll={false}
-              className={`account-holding-item${selected?.id === holding.id ? " selected" : ""}`}
-              aria-current={selected?.id === holding.id ? "location" : undefined}
-              onClick={() => { setActiveHoldingId(holding.id); setEditingPrice(false); setEditingSale(false); setPeriod("week"); }}
-            >
-              <span className="account-holding-item-main"><strong>{holding.name}</strong><small>{holding.symbol} · {holding.category}</small></span>
-              <span className="account-holding-item-value"><strong>{holding.eurValue === undefined ? "Unvalued" : eur.format(holding.eurValue)}</strong><small>{holding.originalValue ?? `${holding.quantity} ${holding.currency}`}</small></span>
-            </Link>)}
-          </nav>
           {selected && <article className="account-holding-detail" aria-labelledby="account-holding-title">
             <div className="account-holding-detail-header">
-              <div><p className="eyebrow">HOLDING DETAIL</p><h2 id="account-holding-title">{selected.name}</h2><p>{selected.symbol} · {selected.category} · {account.label}</p></div>
+              <div className="holding-picker">
+                <h2 id="account-holding-title" className="holding-accessible-title">Holding detail · {selected.name}</h2>
+                <label htmlFor="account-holding-select">Holding</label>
+                <select id="account-holding-select" value={selected.id} onChange={(event) => {
+                  const id = event.target.value;
+                  setActiveHoldingId(id); setDetailTab("overview"); setEditingPrice(false); setEditingSale(false); setPeriod("week");
+                  router.replace(`/accounts/${encodeURIComponent(accountId)}?holding=${encodeURIComponent(id)}`, { scroll: false });
+                }}>
+                  {holdings.map((holding) => <option key={holding.id} value={holding.id}>{holding.name}</option>)}
+                </select>
+                <p>{selected.symbol} · {selected.category} · {selected.currency}</p>
+              </div>
               {selected.instrumentId && <div className="account-holding-detail-actions">
                 <button type="button" onClick={() => { setEditingSale(true); setEditingPrice(false); }}>Record sale</button>
-                <button type="button" onClick={() => { setEditingPrice(true); setEditingSale(false); setPriceDate(portfolioCalendarDate()); setPriceError(""); }}>Update NAV / price</button>
               </div>}
             </div>
-            <section className="drawer-value-card">
-              <span>Current value</span>
-              <strong>{selected.eurValue === undefined ? "Value unavailable" : eur.format(selected.eurValue)}</strong>
-              <small>{selected.originalValue ?? `${selected.quantity} ${selected.currency}`}</small>
-              {detailed?.totalReturn && <small className={`drawer-total-return${detailed.totalReturn.eurAmount < 0 ? " negative" : ""}`}>
-                Total return {signedEur(detailed.totalReturn.eurAmount)}{returnPercent(detailed.totalReturn.percent)}
-              </small>}
-            </section>
-            {selected.missing && <p className="account-valuation-note" role="status">{selected.missing === "price" ? "A current price is needed to calculate this holding's value." : "An FX rate is needed to calculate its EUR value."}</p>}
-            <dl className="holding-facts">
-              <div><dt>{selected.category === "Portfolio cash" ? "Balance" : "Quantity"}</dt><dd>{selected.quantity} {selected.category === "Portfolio cash" ? selected.currency : ""}</dd></div>
-              <div><dt>Currency</dt><dd>{selected.currency}</dd></div>
-              {detailed?.detail && <>
-                <div><dt>Cost Basis</dt><dd>{detailed.detail.costBasis} {selected.currency}</dd></div>
-                <div><dt>Current NAV / price</dt><dd>{detailed.detail.currentPrice} {selected.currency}</dd></div>
-                <div><dt>NAV / price date</dt><dd>{detailed.detail.currentPriceAsOf}</dd></div>
-                {detailed.detail.averageCost && <div><dt>Average cost</dt><dd>{detailed.detail.averageCost} {selected.currency}</dd></div>}
-                {detailed.totalReturn && <div><dt>Calculated total return</dt><dd>{formatSignedOriginalMoney(detailed.totalReturn.originalAmount, selected.currency)}{returnPercent(detailed.totalReturn.percent)}</dd></div>}
-                <div><dt>Reported at last holding update</dt><dd>{detailed.detail.reportedPriorReturn} {selected.currency}</dd></div>
-              </>}
-              {selected.asOf && <div><dt>Valued as of</dt><dd>{selected.asOf}</dd></div>}
+            <dl className="holding-summary">
+              <div><dt>Current value</dt><dd>{selected.eurValue === undefined ? "Unavailable" : eur.format(selected.eurValue)}</dd>{selected.originalValue && <small>{selected.originalValue}</small>}</div>
+              {selected.instrumentId && <div><dt>Total return</dt><dd className={detailed?.totalReturn && detailed.totalReturn.eurAmount < 0 ? "negative" : "positive"}>{detailed?.totalReturn ? signedEur(detailed.totalReturn.eurAmount) : "—"}</dd><small>{detailed?.totalReturn ? returnPercent(detailed.totalReturn.percent).replace(" · ", "") : "Unavailable"}</small></div>}
+              <div><dt>{selected.category === "Portfolio cash" ? "Balance" : "Quantity"}</dt><dd title={selected.quantity}>{selected.category === "Portfolio cash" ? formatPortfolioSaleMoney(selected.quantity, selected.currency) : formatPortfolioSaleQuantity(selected.quantity, 8)}</dd></div>
+              {selected.instrumentId && <div><dt>Cost basis</dt><dd>{detailed?.detail ? formatPortfolioSaleMoney(detailed.detail.costBasis, selected.currency) : "—"}</dd></div>}
             </dl>
-            {priceSourceEligible && <section className="price-source-review" aria-label="Price source discovery">
-              <div className="drawer-section-heading"><div><p className="eyebrow">PRICE SOURCE</p><h3>Find automatic NAV updates</h3></div></div>
-              {priceSourceLoading && <p role="status">Checking verified sources…</p>}
-              {priceSourceError && <p className="error-message" role="alert">{priceSourceError}</p>}
-              {priceSourceLookup?.binding && <div className="price-source-confirmed">
-                <p>Confirmed: {priceSourceLookup.binding.provider} · {priceSourceLookup.binding.instrumentCode} · {priceSourceLookup.binding.shareClass} share class.</p>
-                <p role="status">{priceSourceLookup.binding.lastRefresh
-                  ? `Last checked ${priceSourceLookup.binding.lastRefresh.checkedAt}: ${priceSourceLookup.binding.lastRefresh.outcome}${priceSourceLookup.binding.lastRefresh.failureCategory ? ` (${priceSourceLookup.binding.lastRefresh.failureCategory})` : ""}. ${priceSourceLookup.binding.lastRefresh.latestPriceAsOf ? `Latest saved NAV date: ${priceSourceLookup.binding.lastRefresh.latestPriceAsOf}.` : ""}`
-                  : "Awaiting the first price check."}</p>
-                <button type="button" disabled={priceSourceRefreshing} onClick={refreshConfirmedPriceSource}>
-                  {priceSourceRefreshing ? "Checking…" : "Check NAV now"}
-                </button>
-              </div>}
-              {priceSourceLookup?.candidates.map((candidate) => <div className="price-source-candidate" key={candidate.id}>
-                <strong>{candidate.name}</strong>
-                <p>Source: {candidate.provider} · Code: {candidate.instrumentCode} · Currency: {candidate.currency} · Share class: {candidate.shareClass}</p>
-                <p>{candidate.quoteAvailable
-                  ? `Recent NAV: ${candidate.price} ${candidate.currency} · ${candidate.priceAsOf}`
-                  : "A recent NAV is unavailable. Confirmation is paused."}</p>
-                <a href={candidate.identityUrl} target="_blank" rel="noreferrer">Check the fund manager’s product page</a>
-                <button type="button" disabled={!candidate.quoteAvailable || priceSourceSaving}
-                  onClick={() => confirmPriceSource(candidate)}>
-                  {priceSourceSaving ? "Confirming…" : "Confirm this price source"}
-                </button>
-              </div>)}
-              {priceSourceLookup && !priceSourceLookup.binding && priceSourceLookup.candidates.length === 0 &&
-                <p>No verified price source candidate is available for this holding yet.</p>}
-            </section>}
-            {detailed?.history && <section className="drawer-performance">
-              <div className="drawer-section-heading"><div><p className="eyebrow">MONITORED PERFORMANCE</p><h3>{periods[period]}</h3></div><div className="period-tabs drawer-period-tabs" role="group" aria-label="Select holding period">
-                {(Object.keys(periods) as Period[]).map((key) => <button key={key} type="button" className={period === key ? "selected" : ""} aria-pressed={period === key} onClick={() => setPeriod(key)}>{periods[key]}</button>)}
-              </div>
-              </div>
-              {performance?.available ? <div className="account-performance-content">
-                <strong>{signedEur(performance.change)} · {performance.percent >= 0 ? "+" : "−"}{Math.abs(performance.percent).toFixed(2)}%</strong>
-                <small>Price {signedEur(performance.priceChange ?? 0)} · FX {signedEur(performance.fxChange ?? 0)}</small>
-                <small>{performance.baselineAsOf?.slice(0, 10)} → {performance.currentAsOf?.slice(0, 10)}</small>
-                {performance.holdingPoints && <HoldingPerformanceChart points={performance.holdingPoints} currency={selected.currency} cash={selected.category === "Portfolio cash"} label={`${selected.name} ${periods[period]} value trend`} />}
-              </div> : <p className="drawer-empty-copy">No comparable baseline for this period.</p>}
-            </section>}
+            {selected.missing && <p className="account-valuation-note" role="status">{selected.missing === "price" ? "A current price is needed to calculate this holding's value." : "An FX rate is needed to calculate its EUR value."}</p>}
             {editingPrice && selected.instrumentId && <form className="account-price-form" onSubmit={savePrice}>
               <h3>Update NAV / price</h3>
               <p>This records market data only. Quantity and cost basis stay unchanged.</p>
@@ -350,12 +306,84 @@ export function AccountHoldingsPage({ accountId, requestedHoldingId }: {
               key={`sale:${selected.id}`}
               sourceAccountId={accountId}
               instrumentId={selected.instrumentId}
+              destinations={activity?.destinations}
+              accountName={account.label}
+              isFund={selected.category === "Fund"}
+              prices={detailed?.detail?.priceHistory}
+              unitLabel={selected.category === "Stock" || selected.category === "ETF" ? "shares" : "units"}
               holdingName={selected.name}
               currency={selected.currency}
               onSaved={async () => { await loadData(); setEditingSale(false); }}
               onCancel={() => setEditingSale(false)}
             />}
-            {detailed?.detail && <SavedPriceHistory key={`price-history:${selected.id}`} history={detailed.detail.priceHistory} />}
+            <div className="holding-tabs" role="tablist" aria-label="Holding details">
+              {holdingDetailTabs.map((tab) => <button key={tab} type="button" role="tab" id={`holding-tab-${tab}`} aria-controls={`holding-panel-${tab}`} aria-selected={detailTab === tab} tabIndex={detailTab === tab ? 0 : -1} onClick={() => setDetailTab(tab)} onKeyDown={(event) => {
+                const next = holdingTabForKey(tab, event.key);
+                if (next) { event.preventDefault(); setDetailTab(next); document.getElementById(`holding-tab-${next}`)?.focus(); }
+              }}>{tab === "overview" ? "Overview" : "Data Source"}</button>)}
+            </div>
+            <div className="holding-tab-panel" role="tabpanel" id="holding-panel-overview" aria-labelledby="holding-tab-overview" hidden={detailTab !== "overview"} tabIndex={0}>
+            {detailed?.history && <section className="drawer-performance">
+              <div className="drawer-section-heading"><div><p className="eyebrow">MONITORED PERFORMANCE</p><h3>{periods[period]}</h3></div><div className="period-tabs drawer-period-tabs" role="group" aria-label="Select holding period">
+                {(Object.keys(periods) as Period[]).map((key) => <button key={key} type="button" className={period === key ? "selected" : ""} aria-pressed={period === key} onClick={() => setPeriod(key)}>{periods[key]}</button>)}
+              </div>
+              </div>
+              {performance?.available ? <div className="account-performance-content">
+                <strong>{signedEur(performance.change)} · {performance.percent >= 0 ? "+" : "−"}{Math.abs(performance.percent).toFixed(2)}%</strong>
+                <small>Price {signedEur(performance.priceChange ?? 0)} · FX {signedEur(performance.fxChange ?? 0)}</small>
+                <small>{performance.baselineAsOf?.slice(0, 10)} → {performance.currentAsOf?.slice(0, 10)}</small>
+                {performance.holdingPoints && <HoldingPerformanceChart points={performance.holdingPoints} currency={selected.currency} cash={selected.category === "Portfolio cash"} label={`${selected.name} ${periods[period]} value trend`} />}
+              </div> : <p className="drawer-empty-copy">No comparable baseline for this period.</p>}
+            </section>}
+            {detailed?.detail && <dl className="holding-secondary-facts">
+              <div><dt>NAV / price</dt><dd>{detailed.detail.currentPrice} {selected.currency} · {detailed.detail.currentPriceAsOf}</dd></div>
+              {detailed.detail.averageCost && <div><dt>Average cost</dt><dd>{detailed.detail.averageCost} {selected.currency}</dd></div>}
+            </dl>}
+            {!detailed?.history && <p className="drawer-empty-copy">No performance history available yet.</p>}
+            {activity && <PortfolioCashActivity key={`history:${selected.id}`} sourceAccountId={accountId} activity={activity} instrumentId={selected.instrumentId} cashCurrency={selected.currency} onSaved={loadData} />}
+            {!activity && <p className="drawer-empty-copy">No activity recorded yet.</p>}
+            </div>
+            <div className="holding-tab-panel" role="tabpanel" id="holding-panel-market" aria-labelledby="holding-tab-market" hidden={detailTab !== "market"} tabIndex={0}>
+            {selected.instrumentId && <button className="holding-manual-price" type="button" onClick={() => { setEditingPrice(true); setEditingSale(false); setPriceDate(portfolioCalendarDate()); setPriceError(""); }}>Update NAV / price manually</button>}
+            {selected.instrumentId && <HoldingMarketData
+              key={`market-data:${selected.id}`}
+              history={detailed?.detail?.priceHistory ?? []}
+              action={priceSourceEligible && priceSourceLookup?.binding ? <button className="market-data-refresh" type="button" disabled={priceSourceRefreshing} onClick={refreshConfirmedPriceSource}>
+                {priceSourceRefreshing ? "Checking…" : "Check NAV now"}
+              </button> : undefined}
+              sourceInfo={
+                <div className="market-data-source" aria-label="Price source">
+                {!priceSourceLookup?.binding && detailed?.detail && <p>Source: {detailed.detail.currentPriceSource}</p>}
+                {priceSourceLoading && <p role="status">Checking verified sources…</p>}
+                {priceSourceError && <p className="error-message" role="alert">{priceSourceError}</p>}
+                {priceSourceLookup?.binding && <div className="price-source-confirmed">
+                  <p>Source: {priceSourceLookup.binding.provider} · {priceSourceLookup.binding.instrumentCode} · {priceSourceLookup.binding.shareClass} share class.</p>
+                  <p role="status">{priceSourceLookup.binding.lastRefresh
+                    ? `Last checked ${new Date(priceSourceLookup.binding.lastRefresh.checkedAt).toLocaleString("en-GB", { timeZone: "Europe/Helsinki" })} · ${priceSourceLookup.binding.lastRefresh.outcome}${priceSourceLookup.binding.lastRefresh.failureCategory ? ` (${priceSourceLookup.binding.lastRefresh.failureCategory})` : ""}`
+                    : "Awaiting the first price check."}</p>
+                </div>}
+                {priceSourceEligible && Boolean(priceSourceLookup?.candidates.length) && <details className="market-data-source-options" open={!priceSourceLookup?.binding}>
+                  <summary>{priceSourceLookup?.binding ? "Change price source" : "Set up automatic NAV updates"}</summary>
+                {priceSourceLookup?.candidates.map((candidate) => <div className="price-source-candidate" key={candidate.id}>
+                  <strong>{candidate.name}</strong>
+                  <p>Source: {candidate.provider} · Code: {candidate.instrumentCode} · Currency: {candidate.currency} · Share class: {candidate.shareClass}</p>
+                  <p>{candidate.quoteAvailable
+                    ? `Recent NAV: ${candidate.price} ${candidate.currency} · ${candidate.priceAsOf}`
+                    : "A recent NAV is unavailable. Confirmation is paused."}</p>
+                  <a href={candidate.identityUrl} target="_blank" rel="noreferrer">Check the fund manager’s product page</a>
+                  <button type="button" disabled={!candidate.quoteAvailable || priceSourceSaving}
+                    onClick={() => confirmPriceSource(candidate)}>
+                    {priceSourceSaving ? "Confirming…" : "Confirm this price source"}
+                  </button>
+                </div>)}
+                </details>}
+                {priceSourceEligible && priceSourceLookup && !priceSourceLookup.binding && priceSourceLookup.candidates.length === 0 &&
+                  <p>No verified price source candidate is available for this holding yet.</p>}
+                </div>
+              }
+            />}
+            {!selected.instrumentId && <p className="drawer-empty-copy">Cash balances do not have NAV or price data.</p>}
+            </div>
           </article>}
         </div>}
       </>}

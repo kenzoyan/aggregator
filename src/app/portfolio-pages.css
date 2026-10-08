@@ -256,9 +256,11 @@
 .account-detail-total { display: grid; gap: 3px; min-width: 180px; text-align: right; }
 .account-detail-total span, .account-detail-total small { color: var(--muted); font-size: 10px; }
 .account-detail-total strong { font-size: 24px; letter-spacing: -.04em; }
-.account-detail-columns { display: grid; grid-template-columns: minmax(300px, 360px) minmax(0, 1fr); align-items: start; gap: 20px; }
+.account-detail-columns { display: grid; grid-template-columns: minmax(0, 1fr); align-items: start; gap: 20px; }
 .account-holding-list, .account-holding-detail, .account-detail-empty { border: 1px solid var(--line); border-radius: 15px; background: var(--surface); box-shadow: var(--shadow); }
-.account-holding-list { position: sticky; top: 24px; overflow: hidden; }
+.account-holding-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); overflow: hidden; }
+.account-holding-list .account-column-heading { grid-column: 1 / -1; padding: 12px 18px; }
+.account-holding-list .account-holding-item { border-bottom: 0; border-right: 1px solid var(--line); }
 .account-column-heading { display: flex; justify-content: space-between; align-items: center; padding: 18px; border-bottom: 1px solid var(--line); }
 .account-column-heading h2 { margin: 0; font-size: 18px; }
 .account-column-heading span { color: var(--muted); font-size: 11px; }
@@ -273,7 +275,9 @@
 .account-holding-item-main small, .account-holding-item-value small { color: var(--muted); font-size: 10px; overflow-wrap: anywhere; }
 .account-holding-item-value { text-align: right; }
 .account-holding-item-value strong { font-size: 12px; white-space: nowrap; }
-.account-holding-detail { min-width: 0; padding: 26px; }
+.account-holding-detail { display: grid; grid-template-columns: minmax(0, 1fr); gap: 24px; min-width: 0; padding: 26px; }
+.account-holding-detail > * { grid-column: 1 / -1; min-width: 0; }
+.account-holding-detail .drawer-performance, .account-holding-detail > .price-history-section, .account-holding-detail > .account-price-form { margin-top: 0; }
 .account-holding-detail-header { display: flex; align-items: start; justify-content: space-between; gap: 20px; }
 .account-holding-detail-header h2 { margin: 6px 0; font-size: clamp(22px, 2vw, 30px); overflow-wrap: anywhere; }
 .account-holding-detail-header p:last-child { margin: 0; color: var(--muted); font-size: 11px; }
@@ -305,6 +309,12 @@
 .price-source-confirmed { display: grid; justify-items: start; gap: 8px; }
 .price-source-candidate button, .price-source-confirmed button { padding: 8px 11px; border: 0; border-radius: 8px; background: var(--accent); color: var(--accent-contrast); cursor: pointer; font-size: 11px; font-weight: 700; }
 .price-source-candidate button:disabled, .price-source-confirmed button:disabled { cursor: not-allowed; opacity: .5; }
+.market-data-refresh { flex: 0 0 auto; padding: 8px 11px; border: 0; border-radius: 8px; background: var(--accent); color: var(--accent-contrast); font-size: 11px; font-weight: 700; cursor: pointer; }
+.market-data-refresh:disabled { cursor: wait; opacity: .5; }
+.market-data-source { display: grid; gap: 8px; margin-top: 12px; }
+.market-data-source p { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
+.market-data-source-options summary { color: var(--muted); font-size: 11px; cursor: pointer; }
+.market-data-source-options .price-source-candidate { margin-top: 10px; }
 .account-detail-message, .account-detail-empty { padding: 30px; }
 .account-detail-message button { padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; background: white; cursor: pointer; font-size: 11px; font-weight: 800; }
 .account-detail-empty { display: grid; justify-items: start; gap: 10px; }
@@ -365,3 +375,91 @@
 .settings-conversation-note { padding: 16px 18px; border: 1px solid #e2d5b8; border-radius: 11px; background: #f8f2e5; color: #65583c; }
 .settings-conversation-note strong { font-size: 11px; }
 .settings-conversation-note p { margin: 5px 0 0; font-size: 10px; line-height: 1.5; }
+
+.account-price-form fieldset { display: grid; gap: 10px; border: 0; padding: 0; margin: 0; min-width: 0; }
+.account-price-form fieldset label { display: grid; gap: 5px; }
+.account-price-form fieldset > .sale-review { display: grid; gap: 6px; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: white; font-size: 11px; }
+.account-cash-activity { margin-top: 24px; padding: 20px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+.account-cash-activity p { color: var(--muted); font-size: 12px; line-height: 1.6; }
+.account-cash-activity button { padding: 8px 11px; border: 1px solid var(--line); border-radius: 8px; background: white; cursor: pointer; }
+.account-cash-activity button:disabled { opacity: .5; cursor: wait; }
+.cash-activity-list { padding: 0; list-style: none; display: grid; gap: 12px; }
+.cash-activity-list > li { display: grid; justify-items: start; gap: 6px; padding: 12px; border: 1px solid var(--line); border-radius: 8px; font-size: 12px; }
+.cash-activity-list small { color: var(--muted); }
+
+.import-reduction-review { display: grid; gap: 12px; margin: 18px 0; padding: 14px; border: 1px solid var(--line); border-radius: 8px; }
+.import-reduction-review > section { display: grid; gap: 10px; padding: 12px; background: var(--surface); border-radius: 8px; }
+.import-reduction-review label { display: grid; gap: 5px; font-size: 12px; }
+.import-reduction-review input, .import-reduction-review select { min-width: 0; width: 100%; padding: 8px; border: 1px solid var(--line); border-radius: 6px; background: white; }
+.import-reduction-review p, .import-reduction-review small { color: var(--muted); font-size: 12px; line-height: 1.6; }
+.account-price-form > fieldset { grid-column: 1 / -1; }
+.portfolio-sale-form > fieldset { gap: 20px; }
+.sale-form-heading { display: grid; gap: 8px; }
+.sale-form-heading strong { font-size: 13px; }
+.portfolio-sale-form p, .portfolio-sale-form small { font-size: 12px; line-height: 1.6; }
+.sale-input-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.portfolio-sale-form label { font-size: 12px; }
+.portfolio-sale-form label small { font-weight: 400; }
+.cash-destination-fields { display: grid; gap: 12px; }
+.cash-destination-options { display: grid; gap: 8px; min-width: 0; margin: 0; padding: 0; border: 0; }
+.cash-destination-options legend { margin-bottom: 8px; font-size: 12px; font-weight: 700; }
+.account-price-form fieldset .cash-destination-option, .import-reduction-review .cash-destination-option { display: flex; align-items: start; gap: 10px; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: white; cursor: pointer; }
+.cash-destination-option:has(input:checked) { border-color: var(--ink); background: #f0f4ef; }
+.cash-destination-option:focus-within { outline: 2px solid var(--ink); outline-offset: 2px; }
+.account-price-form .cash-destination-option input, .import-reduction-review .cash-destination-option input { flex: 0 0 auto; width: 16px; height: 16px; margin: 2px 0 0; padding: 0; accent-color: var(--ink); }
+.cash-destination-option span { display: grid; gap: 3px; }
+.cash-destination-option strong { color: var(--ink); font-size: 12px; }
+.cash-destination-option small, .cash-destination-name small { color: var(--muted); font-size: 12px; font-weight: 400; line-height: 1.6; }
+.sale-confirmation { display: grid; gap: 16px; padding: 18px; border: 1px solid var(--line); border-radius: 10px; background: white; }
+.sale-confirmation h4 { margin: 0; font-size: 14px; }
+.sale-form-actions { display: flex; justify-content: end; gap: 8px; }
+
+.portfolio-sale-form select { width: 100%; min-width: 0; padding: 9px; border: 1px solid var(--line); border-radius: 7px; background: white; font: inherit; color: var(--ink); }
+.portfolio-sale-form .sale-input-grid > label { align-content: start; }
+.sale-more-settings summary { cursor: pointer; color: var(--muted); font-size: 12px; }
+.sale-more-settings .sale-input-grid { margin-top: 12px; }
+.sale-summary-table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 12px; }
+.sale-summary-table caption { margin-bottom: 10px; text-align: left; font-size: 13px; font-weight: 700; }
+.sale-summary-table th, .sale-summary-table td { padding: 9px 0; border-bottom: 1px solid var(--line); vertical-align: top; overflow-wrap: anywhere; }
+.sale-summary-table th { width: 48%; padding-right: 16px; color: var(--muted); font-weight: 400; text-align: left; }
+.sale-summary-table td { text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; }
+.sale-summary-table tr:last-child > * { border-bottom: 0; }
+.holding-history-table-wrap { overflow-x: auto; }
+.holding-history-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+.holding-history-table th, .holding-history-table td { padding: 12px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+.holding-history-table th { color: var(--muted); font-size: 10px; font-weight: 600; }
+.holding-history-table td:first-child { white-space: nowrap; }
+.holding-history-table td:nth-child(3), .holding-history-table td:nth-child(4) { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.holding-history-table small { display: block; margin-top: 4px; color: var(--muted); line-height: 1.5; }
+.holding-history-table tr:last-child td { border-bottom: 0; }
+.holding-activity-history button { padding: 6px 9px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); font: inherit; cursor: pointer; }
+.holding-activity-history button:disabled { opacity: .5; cursor: wait; }
+.history-undo-confirmation { min-width: 140px; display: flex; flex-wrap: wrap; gap: 6px; }
+.history-undo-confirmation p { flex-basis: 100%; margin: 0 0 4px; line-height: 1.5; }
+.holding-history-table .history-action-heading { font-size: 10px; }
+
+.holding-accessible-title { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.holding-picker { display: grid; gap: 7px; min-width: 0; width: min(580px, 70%); }
+.holding-picker label { color: var(--muted); font-size: 11px; }
+.holding-picker select { width: 100%; padding: 10px 36px 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: white; color: var(--ink); font: inherit; font-size: 15px; font-weight: 600; }
+.holding-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 24px; margin: 0; padding: 20px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.holding-summary > div { min-width: 0; }
+.holding-summary dt { margin-bottom: 8px; color: var(--muted); font-size: 11px; }
+.holding-summary dd { margin: 0; color: var(--ink); font-size: 20px; font-weight: 650; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.holding-summary dd.negative { color: #a4493d; }
+.holding-summary dd.positive { color: var(--green); }
+.holding-summary small { display: block; margin-top: 6px; color: var(--muted); font-size: 11px; }
+.holding-tabs { display: flex; gap: 24px; border-bottom: 1px solid var(--line); }
+.holding-tabs button { margin-bottom: -1px; padding: 0 0 12px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--muted); font: inherit; font-size: 13px; cursor: pointer; }
+.holding-tabs button[aria-selected="true"] { border-bottom-color: var(--green); color: var(--ink); font-weight: 700; }
+.holding-tabs button:focus-visible, .holding-picker select:focus-visible { outline: 2px solid var(--green); outline-offset: 3px; }
+.holding-tab-panel { min-width: 0; }
+.holding-tab-panel[hidden] { display: none; }
+.holding-tab-panel > .drawer-performance, .holding-tab-panel > .price-history-section { margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; }
+.holding-secondary-facts { display: flex; flex-wrap: wrap; gap: 16px 36px; margin: 20px 0 0; padding-top: 16px; border-top: 1px solid var(--line); font-size: 11px; }
+.holding-secondary-facts dt { margin-bottom: 5px; color: var(--muted); }
+.holding-secondary-facts dd { margin: 0; }
+.holding-manual-price { float: right; margin: 0 0 12px 16px; padding: 6px 9px; border: 1px solid var(--line); border-radius: 6px; background: transparent; color: var(--muted); font: inherit; font-size: 11px; cursor: pointer; }
+.holding-tab-panel .holding-market-data { clear: both; }
+
+.holding-tab-panel > .holding-activity-history { margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--line); }
