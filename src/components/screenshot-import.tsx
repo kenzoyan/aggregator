@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { ImportReductionReviewFields } from "@/components/import-reduction-review";
 import { useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from "react";
 
 import {
@@ -273,8 +274,10 @@ export function AssetImportWorkflow() {
       const payload = (await response.json()) as {
         draft?: ImportDraftView;
         error?: string;
+        reconciliation?: ImportReconciliation;
       };
       if (!response.ok || !payload.draft) {
+        if (payload.reconciliation) setDraft({ ...draft, reconciliation: payload.reconciliation });
         throw new Error(payload.error ?? "Confirmation failed.");
       }
       setDraft(payload.draft);
@@ -621,6 +624,7 @@ export function AssetImportWorkflow() {
                   ))}
               </div>
               <button className="add-holding-button" type="button" disabled={busy} onClick={addPosition}>+ Add holding</button>
+              <ImportReductionReviewFields draft={draft} disabled={busy} onChange={(review) => setDraft(applyImportDraftEdit(draft, { type: "review-reduction", review }))} />
               <button className="primary-button confirm-button" disabled={busy || screenshotsChangedSinceAnalysis || !draft.portfolio.asOf || (draft.sourceKind === "screenshot" && draft.portfolio.holdings.some((holding) => holding.observedPrice && !holding.priceAsOf)) || (draft.portfolio.holdings.length === 0 && !draft.portfolio.portfolioCash)} type="submit">
                 {busy
                   ? "Saving…"

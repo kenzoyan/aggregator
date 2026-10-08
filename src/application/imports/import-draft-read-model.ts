@@ -7,6 +7,7 @@ import {
   type DraftValue,
   type ImportDraftInput,
   type ImportReconciliation,
+  type ImportReductionReview,
   type ImportDraftReview,
   type StoredImportDraft,
 } from "@/domain/imports";
@@ -33,6 +34,7 @@ export interface EditableDraftHolding {
 }
 
 export interface EditableDraftPortfolio {
+  reductionReviews?: ImportReductionReview[];
   snapshotId: string;
   asOf: string;
   portfolioCash?: MoneyInput;
@@ -118,6 +120,7 @@ export function createImportDraftReadModel(
       ? { reconciliation: draft.portfolio.reconciliation }
       : {}),
     portfolio: {
+      ...(draft.portfolio.reductionReviews ? { reductionReviews: draft.portfolio.reductionReviews } : {}),
       snapshotId: draft.portfolio.snapshotId,
       asOf: draftValue(draft.portfolio.asOf) ?? "",
       ...(draftValue(draft.portfolio.portfolioCash)
@@ -183,6 +186,7 @@ export function applyImportDraftReview(
     existingDraft.portfolio.holdings.map((holding) => [holding.lineId, holding]),
   );
   const portfolio: DraftPortfolio = {
+    ...(review.portfolio.reductionReviews ? { reductionReviews: review.portfolio.reductionReviews } : {}),
     snapshotId: existingDraft.portfolio.snapshotId,
     asOf: reviewedValue(existingDraft.portfolio.asOf, review.portfolio.asOf),
     portfolioCash: reviewedValue(

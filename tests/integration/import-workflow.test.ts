@@ -311,6 +311,7 @@ describe("screenshot import confirmation workflow", () => {
     expect(createImportDraftReadModel(savedResync).portfolio.holdings[0]?.assetType)
       .toBe("etf");
 
+    savedResync.portfolio.reductionReviews = [{ instrumentId: "REMOVED-BY-COMPLETE-SYNC", quantity: "2", kind: "adjustment", reason: "Correct the synthetic complete snapshot." }];
     confirm(database, savedResync, "2026-07-22T19:29:00.000Z");
     expect(database.readPortfolioFacts().state.positions).toHaveLength(1);
     expect(

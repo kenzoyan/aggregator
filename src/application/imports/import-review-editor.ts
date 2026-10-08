@@ -10,7 +10,10 @@ import type {
 
 export type { EditableHoldingField } from "@/application/imports/import-review-holding-editor";
 
+import type { ImportReductionReview } from "@/domain/imports";
+
 export type ImportDraftEdit =
+  | { type: "review-reduction"; review: ImportReductionReview }
   | { type: "update-as-of"; value: string }
   | { type: "add-holding"; holding: EditableDraftHolding }
   | { type: "remove-holding"; index: number }
@@ -27,6 +30,12 @@ export function applyImportDraftEdit(
   edit: ImportDraftEdit,
 ): ImportDraftReadModel {
   if (draft.status !== "draft") return draft;
+
+  if (edit.type === "review-reduction") {
+    return { ...draft, portfolio: { ...draft.portfolio, reductionReviews: [
+      ...(draft.portfolio.reductionReviews ?? []).filter((review) => review.instrumentId !== edit.review.instrumentId), edit.review,
+    ] } };
+  }
 
   if (edit.type === "update-as-of") {
     return {

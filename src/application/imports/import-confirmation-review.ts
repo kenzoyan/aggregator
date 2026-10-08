@@ -1,6 +1,8 @@
 import Decimal from "decimal.js";
 import { z } from "zod";
 
+import { importReductionReviewSchema } from "@/application/portfolio-cash-contract";
+
 import type { StoredImportDraft } from "@/domain/imports";
 import {
   assetTypeSchema,
@@ -14,6 +16,7 @@ const reviewSchema = z.object({
   confidence: z.string(),
   warnings: z.array(z.string()),
   portfolio: z.object({
+    reductionReviews: z.array(importReductionReviewSchema).max(100).optional(),
     snapshotId: z.string().min(1),
     asOf: z.iso.datetime(),
     portfolioCash: moneySchema.optional(),

@@ -1,3 +1,4 @@
+import { ImportReductionReviewFields } from "@/components/import-reduction-review";
 import type { ImportDraftReadModel } from "@/application/imports/import-draft-read-model";
 import type { ImportDraftEdit } from "@/application/imports/import-review-editor";
 import type { PortfolioAnalystLanguage } from "@/application/portfolio-analyst-contract";
@@ -145,6 +146,7 @@ export function AgentImportDraftReview({
             ))}
           </ol>
         )}
+        {!confirmed && <ImportReductionReviewFields draft={draft} chinese={language === "zh-CN"} disabled={busy} onChange={(review) => onEdit({ type: "review-reduction", review })} />}
         {!confirmed && (
           <>
             {missingPriceDates > 0 && <p className="analyst-import-date-help">

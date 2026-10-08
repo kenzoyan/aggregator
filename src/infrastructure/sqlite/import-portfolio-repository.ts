@@ -4,10 +4,13 @@ import {
   materializeConfirmedImportSnapshot,
   normalizeSnapshotHistory,
   prepareImportDraftForReview,
+  reconcileImportDraft,
   type ConfirmedImportRecord,
   type ImportDraftInput,
   type StoredImportDraft,
 } from "@/domain/imports";
+import { createImportDraftReadModel } from "@/application/imports/import-draft-read-model";
+import { ImportReductionError, resolveImportReductions } from "@/application/imports/import-reductions";
 import { buildPortfolioState } from "@/domain/portfolio/ledger";
 import type {
   OpeningSnapshotInput,
@@ -110,13 +113,21 @@ export function createImportPortfolioRepository(
       ON confirmed_imports.id = opening_snapshots.confirmed_import_id
     ORDER BY confirmed_imports.confirmed_at, opening_snapshots.rowid
   `);
+  const insertSaleEvent = database.prepare(`INSERT INTO portfolio_events (id, source_account_id, as_of, event_type, payload_json, confirmed_import_id)
+    VALUES (?, ?, ?, 'sale', ?, ?)`);
   const selectEvents = database.prepare(`
     SELECT payload_json FROM portfolio_events ORDER BY as_of, rowid
   `);
 
   function getImportDraft(id: string): StoredImportDraft | undefined {
     const row = selectDraft.get(id) as ImportDraftRow | undefined;
-    return row ? decodeDraft(row) : undefined;
+    if (!row) return undefined;
+    const draft = decodeDraft(row);
+    if (draft.status !== "draft") return draft;
+    return { ...draft, portfolio: { ...draft.portfolio, reconciliation: reconcileImportDraft(draft,
+      buildPortfolioState({ openingSnapshots: readOpeningSnapshots(), events: readEvents() })),
+    } };
+
   }
 
   function readOpeningSnapshots(): OpeningSnapshotInput[] {
@@ -192,31 +203,51 @@ export function createImportPortfolioRepository(
         throw new Error(`Import Draft ${command.draftId} cannot be confirmed`);
       }
 
-      const reviewedDraft: ImportDraftInput = {
-        ...existing,
-        confidence: command.review.confidence,
-        warnings: command.review.warnings,
-        portfolio: command.review.portfolio,
-      };
-      const openingSnapshots = readOpeningSnapshots();
-      const events = readEvents();
-      const snapshotKind = existing.portfolio.reconciliation?.snapshotKind ??
-        (openingSnapshots.some(
-            (candidate) =>
-              candidate.sourceAccountId === reviewedDraft.sourceAccountId,
-          )
-          ? "holding-state"
-          : "opening");
-      const snapshot = reviewedDraft.sourceKind === "demo"
-        ? undefined
-        : materializeConfirmedImportSnapshot({
-            draft: reviewedDraft,
-            currentState: buildPortfolioState({ openingSnapshots, events }),
-            snapshotKind,
-          });
-
       database.exec("BEGIN IMMEDIATE");
       try {
+        const reviewedDraft: ImportDraftInput = {
+          ...existing,
+          confidence: command.review.confidence,
+          warnings: command.review.warnings,
+          portfolio: command.review.portfolio,
+        };
+        const openingSnapshots = readOpeningSnapshots();
+        const events = readEvents();
+        const snapshotKind = existing.portfolio.reconciliation?.snapshotKind ??
+          (openingSnapshots.some(
+              (candidate) =>
+                candidate.sourceAccountId === reviewedDraft.sourceAccountId,
+            )
+            ? "holding-state"
+            : "opening");
+        let snapshot = reviewedDraft.sourceKind === "demo"
+          ? undefined
+          : materializeConfirmedImportSnapshot({
+              draft: reviewedDraft,
+              currentState: buildPortfolioState({ openingSnapshots, events }),
+              snapshotKind,
+            });
+
+        const latestAccountEvent = events.filter((event) => !event.voidedAt && event.sourceAccountId === existing.sourceAccountId).at(-1);
+        const latestActivityAsOf = latestAccountEvent?.asOf;
+        if (snapshot && latestActivityAsOf && snapshot.asOf < latestActivityAsOf) {
+          if (snapshot.asOf.slice(0, 10) !== latestActivityAsOf.slice(0, 10)) {
+            throw new ImportReductionError("Choose a valuation date on or after this account's latest saved sale or cash transfer.");
+          }
+          // A date-only review on the same day includes the already recorded activity.
+          snapshot = { ...snapshot, asOf: latestActivityAsOf };
+        }
+        let importedSales: PortfolioEventInput[] = [];
+        if (snapshot && (existing.sourceKind === "screenshot" || existing.sourceKind === "trading-212")) {
+          const currentState = buildPortfolioState({ openingSnapshots, events });
+          const resolved = resolveImportReductions({
+            portfolio: createImportDraftReadModel({ ...reviewedDraft, status: "draft" }).portfolio,
+            reconciliation: reconcileImportDraft(reviewedDraft, currentState), currentState, snapshot,
+            sourceImportId: command.confirmedImportId, recordedAt: command.confirmedAt,
+          });
+          snapshot = resolved.snapshot;
+          importedSales = resolved.events;
+        }
         const update = updateReviewedDraft.run(
           command.review.confidence,
           JSON.stringify(command.review.warnings),
@@ -242,6 +273,7 @@ export function createImportPortfolioRepository(
             command.confirmedImportId,
           );
         }
+        for (const event of importedSales) insertSaleEvent.run(event.id, event.sourceAccountId, event.asOf, JSON.stringify(event), command.confirmedImportId);
         markDraftConfirmed.run(command.confirmedAt, command.draftId);
         database.exec("COMMIT");
       } catch (error) {

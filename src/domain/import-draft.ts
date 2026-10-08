@@ -1,4 +1,4 @@
-import type { AssetType, MoneyInput } from "@/domain/portfolio/types";
+import type { AssetType, CashDestination, MoneyInput } from "@/domain/portfolio/types";
 
 // Keep the retired demo value readable so older local drafts remain isolated.
 export const importSourceKinds = [
@@ -44,12 +44,21 @@ export interface DraftHolding {
   reportedMarketValue: DraftValue<string>;
 }
 
+export type ImportReductionReview = {
+  instrumentId: string;
+  quantity: string;
+} & (
+  | { kind: "sale"; proceeds: string; fees: string; destination: CashDestination }
+  | { kind: "adjustment"; reason: string }
+);
+
 export interface DraftPortfolio {
   snapshotId: string;
   asOf: DraftValue<string>;
   portfolioCash: DraftValue<MoneyInput>;
   holdings: DraftHolding[];
   reconciliation?: ImportReconciliation;
+  reductionReviews?: ImportReductionReview[];
 }
 
 export type ImportUpdateMode = "complete" | "partial";

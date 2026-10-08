@@ -1,3 +1,4 @@
+import { ImportReductionError } from "@/application/imports/import-reductions";
 import { randomUUID } from "node:crypto";
 
 import { NextResponse } from "next/server";
@@ -64,6 +65,10 @@ export function createImportConfirmHandler(input: {
         draft: createImportDraftReadModel(confirmed),
       });
     } catch (error) {
+      if (error instanceof ImportReductionError) {
+        const current = input.database.getImportDraft(id);
+        return NextResponse.json({ error: error.message, reconciliation: current?.portfolio.reconciliation }, { status: 409 });
+      }
       if (error instanceof z.ZodError) {
         const fieldErrors = Object.fromEntries(
           error.issues.map((issue) => [issue.path.join("."), issue.message]),

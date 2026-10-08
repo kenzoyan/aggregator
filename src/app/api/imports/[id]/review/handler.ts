@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
+import { importReductionReviewSchema } from "@/application/portfolio-cash-contract";
+
 import {
   applyImportDraftReview,
   createImportDraftReadModel,
@@ -30,6 +32,7 @@ const draftReviewSchema = z.object({
   confidence: short,
   warnings: z.array(z.string().max(1000)).max(50),
   portfolio: z.object({
+    reductionReviews: z.array(importReductionReviewSchema).max(100).optional(),
     snapshotId: z.string().min(1).max(100),
     asOf: short,
     portfolioCash: z.object({ amount: short, currency: z.string().max(3) }).strict().optional(),

@@ -588,8 +588,13 @@ export function PortfolioAnalyst({
       const payload = (await response.json()) as {
         draft?: ImportDraftReadModel;
         error?: string;
+        reconciliation?: ImportDraftReadModel["reconciliation"];
       };
       if (!response.ok || !payload.draft) {
+        if (payload.reconciliation) {
+          importDraftsRef.current = { ...importDraftsRef.current, [draftId]: { ...importDraft, reconciliation: payload.reconciliation } };
+          setImportDrafts(importDraftsRef.current);
+        }
         throw new Error(payload.error ?? "Confirmation failed.");
       }
       importDraftsRef.current = { ...importDraftsRef.current, [draftId]: payload.draft };
