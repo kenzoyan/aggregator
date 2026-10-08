@@ -7,6 +7,7 @@ import { createPortfolioAnalystConversationRepository } from "@/infrastructure/s
 import { createPortfolioAnalystMemoryRepository } from "@/infrastructure/sqlite/portfolio-analyst-memory-repository";
 import { createPortfolioNarrativeRepository } from "@/infrastructure/sqlite/portfolio-narrative-repository";
 import { createPriceSourceBindingRepository } from "@/infrastructure/sqlite/price-source-binding-repository";
+import { createPortfolioSaleRepository } from "@/infrastructure/sqlite/portfolio-sale-repository";
 import type { PortfolioDatabase } from "@/infrastructure/sqlite/portfolio-repository-contract";
 import { initializePortfolioSchema } from "@/infrastructure/sqlite/portfolio-schema";
 import { createSourceAccountLabelRepository } from "@/infrastructure/sqlite/source-account-label-repository";
@@ -35,9 +36,11 @@ export function createPortfolioDatabase(filename: string): PortfolioDatabase {
   const marketData = createMarketDataRepository(database);
   const priceSourceBindings = createPriceSourceBindingRepository(database);
   const importPortfolio = createImportPortfolioRepository(database);
+  const portfolioSale = createPortfolioSaleRepository(database, importPortfolio.readPortfolioFacts);
 
   return {
     ...importPortfolio,
+    ...portfolioSale,
     ...marketData,
     ...priceSourceBindings,
     ...sourceAccountLabels,

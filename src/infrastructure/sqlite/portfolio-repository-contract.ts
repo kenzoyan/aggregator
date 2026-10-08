@@ -21,6 +21,7 @@ import type {
   PortfolioEventInput,
   PortfolioState,
 } from "@/domain/portfolio/types";
+import type { SaleInput } from "@/application/portfolio-sale";
 import type {
   CreateSourceAccountDefinitionInput,
   SourceAccountDefinition,
@@ -60,6 +61,7 @@ export interface PortfolioDatabase extends PortfolioAnalystConversationStore, Po
   saveImportDraftReview(id: string, review: ImportDraftReview): StoredImportDraft;
   confirmImport(command: ConfirmImportCommand): StoredImportDraft;
   readPortfolioFacts(): PortfolioFacts;
+  confirmSale(input: SaleInput, expectedReviewToken: string, id: string): PortfolioEventInput;
   readMarketData(): MarketDataHistory;
   readPriceSourceBindings(): PriceSourceBinding[];
   savePriceSourceBinding(binding: PriceSourceBinding): void;

@@ -10,6 +10,7 @@ import type { HoldingPriceHistoryReadModel, Period, PortfolioOverviewReadModel }
 import type { SourceAccountsPageReadModel } from "@/application/source-account-status";
 import { selectAccountHolding } from "@/components/account-holding-selection";
 import { HoldingPerformanceChart } from "@/components/holding-performance-chart";
+import { PortfolioSaleForm } from "@/components/portfolio-sale-form";
 
 const eur = new Intl.NumberFormat("en-FI", { style: "currency", currency: "EUR" });
 const periods: Record<Period, string> = { today: "Today", week: "7 days", month: "30 days" };
@@ -62,7 +63,9 @@ export function AccountHoldingsPage({ accountId, requestedHoldingId }: {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [period, setPeriod] = useState<Period>("week");
+  const [activeHoldingId, setActiveHoldingId] = useState(requestedHoldingId);
   const [editingPrice, setEditingPrice] = useState(false);
+  const [editingSale, setEditingSale] = useState(false);
   const [price, setPrice] = useState("");
   const [priceDate, setPriceDate] = useState("");
   const [savingPrice, setSavingPrice] = useState(false);
@@ -89,6 +92,10 @@ export function AccountHoldingsPage({ accountId, requestedHoldingId }: {
   }
 
   useEffect(() => {
+    setActiveHoldingId(requestedHoldingId);
+  }, [requestedHoldingId]);
+
+  useEffect(() => {
     const controller = new AbortController();
     setLoading(true);
     setLoadError("");
@@ -112,7 +119,7 @@ export function AccountHoldingsPage({ accountId, requestedHoldingId }: {
 
   const account = accountsPage?.accounts.find((item) => item.id === accountId);
   const holdings = accountsPage?.holdings.filter((item) => item.sourceAccountId === accountId) ?? [];
-  const selected = selectAccountHolding(holdings, accountId, requestedHoldingId);
+  const selected = selectAccountHolding(holdings, accountId, activeHoldingId);
   const detailed = portfolio?.holdings.find((item) => item.id === selected?.id && item.sourceAccountId === accountId);
   const performance = detailed?.history?.[period];
   const accountValue = holdings.reduce((total, item) => total + (item.eurValue ?? 0), 0);
@@ -255,7 +262,7 @@ export function AccountHoldingsPage({ accountId, requestedHoldingId }: {
               scroll={false}
               className={`account-holding-item${selected?.id === holding.id ? " selected" : ""}`}
               aria-current={selected?.id === holding.id ? "location" : undefined}
-              onClick={() => { setEditingPrice(false); setPeriod("week"); }}
+              onClick={() => { setActiveHoldingId(holding.id); setEditingPrice(false); setEditingSale(false); setPeriod("week"); }}
             >
               <span className="account-holding-item-main"><strong>{holding.name}</strong><small>{holding.symbol} · {holding.category}</small></span>
               <span className="account-holding-item-value"><strong>{holding.eurValue === undefined ? "Unvalued" : eur.format(holding.eurValue)}</strong><small>{holding.originalValue ?? `${holding.quantity} ${holding.currency}`}</small></span>
@@ -264,7 +271,10 @@ export function AccountHoldingsPage({ accountId, requestedHoldingId }: {
           {selected && <article className="account-holding-detail" aria-labelledby="account-holding-title">
             <div className="account-holding-detail-header">
               <div><p className="eyebrow">HOLDING DETAIL</p><h2 id="account-holding-title">{selected.name}</h2><p>{selected.symbol} · {selected.category} · {account.label}</p></div>
-              {selected.instrumentId && <button type="button" onClick={() => { setEditingPrice(true); setPriceDate(portfolioCalendarDate()); setPriceError(""); }}>Update NAV / price</button>}
+              {selected.instrumentId && <div className="account-holding-detail-actions">
+                <button type="button" onClick={() => { setEditingSale(true); setEditingPrice(false); }}>Record sale</button>
+                <button type="button" onClick={() => { setEditingPrice(true); setEditingSale(false); setPriceDate(portfolioCalendarDate()); setPriceError(""); }}>Update NAV / price</button>
+              </div>}
             </div>
             <section className="drawer-value-card">
               <span>Current value</span>
@@ -336,7 +346,16 @@ export function AccountHoldingsPage({ accountId, requestedHoldingId }: {
               {priceError && <p className="error-message" role="alert">{priceError}</p>}
               <div><button type="button" disabled={savingPrice} onClick={() => setEditingPrice(false)}>Cancel</button><button type="submit" disabled={savingPrice}>{savingPrice ? "Saving…" : "Save price"}</button></div>
             </form>}
-            {detailed?.detail && <SavedPriceHistory key={selected.id} history={detailed.detail.priceHistory} />}
+            {editingSale && selected.instrumentId && <PortfolioSaleForm
+              key={`sale:${selected.id}`}
+              sourceAccountId={accountId}
+              instrumentId={selected.instrumentId}
+              holdingName={selected.name}
+              currency={selected.currency}
+              onSaved={async () => { await loadData(); setEditingSale(false); }}
+              onCancel={() => setEditingSale(false)}
+            />}
+            {detailed?.detail && <SavedPriceHistory key={`price-history:${selected.id}`} history={detailed.detail.priceHistory} />}
           </article>}
         </div>}
       </>}

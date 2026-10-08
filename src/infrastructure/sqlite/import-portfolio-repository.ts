@@ -111,7 +111,7 @@ export function createImportPortfolioRepository(
     ORDER BY confirmed_imports.confirmed_at, opening_snapshots.rowid
   `);
   const selectEvents = database.prepare(`
-    SELECT payload_json FROM portfolio_events ORDER BY as_of, id
+    SELECT payload_json FROM portfolio_events ORDER BY as_of, rowid
   `);
 
   function getImportDraft(id: string): StoredImportDraft | undefined {
