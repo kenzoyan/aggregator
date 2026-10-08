@@ -44,7 +44,6 @@ Configure these in the ignored `.env.local` file. [`.env.example`](./.env.exampl
 | --- | --- | --- |
 | Trading 212 | `TRADING212_API_KEY`, `TRADING212_API_SECRET`, `TRADING212_ENVIRONMENT` | Read-only account and position sync. Start with `demo`; use a separate Live key with account-data and portfolio read permissions only. |
 | OpenAI | `OPENAI_API_KEY` | Screenshot extraction, optional Portfolio Agent with source-linked web research, and on-demand market watch. Selected screenshots and agent web queries are sent to the configured OpenAI API account. |
-| DeepSeek | `DEEPSEEK_API_KEY` | Optional Portfolio Agent provider. |
 
 Keys stay server-side. Trading 212 calls only account summary and positions endpoints; no order permission is needed. Public fund NAV and ECB FX checks do not require account credentials. Keep personal screenshots out of the repository.
 
@@ -76,7 +75,7 @@ Portfolio Agent answers use fresh, bounded facts and validate evidence before a 
 | **Overview** | EUR portfolio summary, performance chart, refresh status, Portfolio Agent and external market watch. |
 | **Accounts** | Source Account setup, allocation and account-specific holdings. |
 | **Update assets** | Trading 212 sync, screenshot, CSV and manual import drafts, followed by review and confirmation. |
-| **Settings** | Portfolio Agent provider defaults and AI privacy controls. |
+| **Settings** | Portfolio Agent language, default analysis period and OpenAI model information. |
 
 ## 🧱 Technology and project structure
 
@@ -113,7 +112,7 @@ Portfolio records live in the ignored `data/invest-assets-monitor.sqlite` databa
 - Screenshot imports require review and explicit confirmation before they change holdings. Agent chat saves local originals for conversation history; image bytes are sent to OpenAI when you ask about a screenshot or request screenshot extraction.
 - The Portfolio Agent is informational. It cannot trade or autonomously change confirmed holdings.
 - Agent web research accepts search results from any public HTTPS site and shows source links. Search summaries do not update saved holding prices; unit NAV answers use dated prices already recorded in the portfolio.
-- Cloud AI features are optional. Check the configured provider and privacy settings before sending personal portfolio information.
+- Cloud AI features are optional. Portfolio Agent uses OpenAI and includes relevant holding names and symbols when answering portfolio questions.
 
 ---
 

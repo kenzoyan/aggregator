@@ -15,7 +15,6 @@ const modelDecisionSchema = z.object({
 const { $schema: _dialect, ...jsonSchema } = z.toJSONSchema(modelDecisionSchema);
 
 export function createImportMessageInterpreter(input: {
-  provider: "openai" | "deepseek";
   apiKey: string;
   model: string;
   fetch?: typeof globalThis.fetch;
@@ -24,9 +23,7 @@ export function createImportMessageInterpreter(input: {
     async interpret(turn) {
       const draft = turn.draft;
       const decision = await requestStructuredResponse({
-        endpoint: input.provider === "openai"
-          ? "https://api.openai.com/v1/responses"
-          : "https://api.deepseek.com/responses",
+        endpoint: "https://api.openai.com/v1/responses",
         apiKey: input.apiKey,
         model: input.model,
         store: false,

@@ -29,7 +29,6 @@ const requestSchema = z.object({
 
 const providerNames = {
   openai: "OpenAI",
-  deepseek: "DeepSeek",
 } as const;
 
 function json(body: unknown, init?: ResponseInit) {

@@ -60,9 +60,10 @@ describe("Portfolio Agent images", () => {
     form.set("userText", "处理这张图");
     form.set("language", "zh-CN");
     form.set("provider", "openai");
-    form.set("includeHoldingNames", "true");
+    form.set("includeHoldingNames", "false");
     const response = await handlers.SEND(new Request(request.url, { method: "POST", body: form }));
     expect(response.status).toBe(200);
+    expect(fixture.current().includeHoldingNames).toBe(true);
     const saved = fixture.current().turns.at(-1)!;
     expect(saved.userText).toBe("处理这张图");
     expect(saved.chat?.imageAction).toMatchObject({ sourceTurnId: saved.id, stage: "intent" });

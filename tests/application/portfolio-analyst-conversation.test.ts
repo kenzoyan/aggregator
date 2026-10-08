@@ -7,6 +7,7 @@ import {
   appendPortfolioAnalystTurn,
   createPortfolioAnalystConversation,
   createPortfolioAnalystHistory,
+  normalizePortfolioAnalystConversation,
 } from "@/application/portfolio-analyst-conversation";
 import type { PortfolioAnalystReport } from "@/application/portfolio-analyst-provider";
 
@@ -44,6 +45,24 @@ function report(index: number): PortfolioAnalystReport {
 }
 
 describe("portfolio analyst conversation", () => {
+  it("uses OpenAI for a saved conversation with a retired provider while preserving report attribution", () => {
+    const current = createPortfolioAnalystConversation({
+      id: "retired-provider-conversation", provider: "openai", language: "en",
+      includeHoldingNames: true, now: "2026-09-09T10:00:00.000Z",
+    });
+    const earlier = {
+      ...current,
+      provider: "retired-provider" as typeof current.provider,
+      turns: [{
+        id: "earlier-turn", question: "Earlier question", createdAt: "2026-09-09T10:01:00.000Z",
+        report: { ...report(1), provider: "retired-provider" },
+      }],
+    };
+    const restored = normalizePortfolioAnalystConversation(earlier);
+    expect(restored.provider).toBe("openai");
+    expect(restored.turns[0]?.report?.provider).toBe("retired-provider");
+  });
+
   it("supplies the recent import target as a reference for follow-up questions", () => {
     const base = createPortfolioAnalystConversation({
       id: "recent-import",
@@ -87,7 +106,7 @@ describe("portfolio analyst conversation", () => {
       .toEqual([followUp]);
   });
 
-  it("keeps settings immutable and retains the full visible conversation", () => {
+  it("upgrades legacy holding-name settings and retains the full visible conversation", () => {
     let conversation = createPortfolioAnalystConversation({
       id: "conversation-1",
       provider: "openai",
@@ -107,7 +126,7 @@ describe("portfolio analyst conversation", () => {
 
     expect(conversation.turns).toHaveLength(14);
     expect(conversation.turns[0]?.question).toBe("问题 1");
-    expect(conversation.includeHoldingNames).toBe(false);
+    expect(conversation.includeHoldingNames).toBe(true);
   });
 
   it("adds a separate screenshot message without changing the preceding assistant turn", () => {

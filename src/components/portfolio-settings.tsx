@@ -22,11 +22,6 @@ interface AnalystConfiguration {
   conversation?: PortfolioAnalystConversation;
 }
 
-const providerNames: Record<PortfolioAnalystProviderId, string> = {
-  openai: "OpenAI",
-  deepseek: "DeepSeek",
-};
-
 export function PortfolioSettings() {
   const [configuration, setConfiguration] = useState<AnalystConfiguration>();
   const [preferences, setPreferences] = useState<PortfolioAnalystPreferences>();
@@ -83,7 +78,7 @@ export function PortfolioSettings() {
         <div>
           <p className="eyebrow">APPLICATION SETTINGS</p>
           <h1>Settings</h1>
-          <p>Set defaults for your assistant and control which portfolio details may be sent to its AI provider.</p>
+          <p>Set the language and default analysis period for your assistant.</p>
         </div>
       </header>
 
@@ -138,58 +133,16 @@ export function PortfolioSettings() {
               <div>
                 <p className="eyebrow">YOUR ASSISTANT</p>
                 <h2 id="settings-provider-heading">AI provider</h2>
-                <p>The selected provider receives the bounded facts needed to answer a question.</p>
+                <p>Portfolio Agent uses OpenAI. Relevant holding names and symbols are included in the bounded facts used to answer your question.</p>
               </div>
             </div>
-            <div className="settings-provider-grid">
-              {(configuration?.providers ?? []).map((item) => (
-                <label className={`settings-provider-option${preferences.provider === item.id ? " selected" : ""}`} key={item.id}>
-                  <input
-                    type="radio"
-                    name="agent-provider"
-                    value={item.id}
-                    checked={preferences.provider === item.id}
-                    disabled={!item.configured}
-                    onChange={() => updatePreferences({ provider: item.id })}
-                  />
-                  <span>
-                    <strong>{providerNames[item.id]}</strong>
-                    <small>{item.configured ? item.model : "API key not configured"}</small>
-                  </span>
-                </label>
-              ))}
-            </div>
-          </section>
-
-          <section className="settings-card" aria-labelledby="settings-privacy-heading">
-            <div className="settings-card-heading">
-              <div>
-                <p className="eyebrow">AI PRIVACY</p>
-                <h2 id="settings-privacy-heading">Holding names</h2>
-                <p>Choose whether relevant investment names may accompany portfolio facts sent to the selected AI provider.</p>
-              </div>
-            </div>
-            <label className="settings-privacy-toggle">
-              <input
-                type="checkbox"
-                checked={preferences.includeHoldingNames}
-                onChange={(event) => updatePreferences({ includeHoldingNames: event.target.checked })}
-              />
-              <span>
-                <strong>Allow relevant holding names in assistant replies</strong>
-                <small>Each tool includes only names needed for the current question. The number can vary by tool; account IDs, raw imports and internal records are not sent.</small>
-              </span>
-            </label>
-            <div className="settings-privacy-facts">
-              <div><strong>When enabled</strong><span>Relevant names can make explanations easier to understand.</span></div>
-              <div><strong>When disabled</strong><span>The AI provider receives anonymous amounts, percentages and data-quality facts.</span></div>
-            </div>
+            <p>OpenAI · {configuration?.providers.find((item) => item.id === "openai")?.model ?? "Model unavailable"}</p>
           </section>
 
           {activeConversation && (
             <aside className="settings-conversation-note">
               <strong>Your conversation history stays available.</strong>
-              <p>Language changes apply to the next reply. Provider and holding-name privacy changes still require a conversation reset.</p>
+              <p>Language changes apply to the next reply.</p>
             </aside>
           )}
         </div>

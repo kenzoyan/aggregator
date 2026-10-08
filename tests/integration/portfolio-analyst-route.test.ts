@@ -191,7 +191,7 @@ describe("/api/portfolio/analyst", () => {
     let runtimeCalled = false;
     let receivedHistory: unknown;
     const handlers = createPortfolioAnalystHandlers({
-      models: { openai: "gpt-synthetic", deepseek: "deepseek-synthetic" },
+      models: { openai: "gpt-synthetic" },
       defaultProvider: "openai",
       agentRuntimes: { openai: { async runTurn(input) {
         runtimeCalled = true;
@@ -235,7 +235,7 @@ describe("/api/portfolio/analyst", () => {
   it("persists a no-evidence dialogue result as a chat turn", async () => {
     const store = conversationStore();
     const handlers = createPortfolioAnalystHandlers({
-      models: { openai: "gpt-synthetic", deepseek: "deepseek-synthetic" },
+      models: { openai: "gpt-synthetic" },
       defaultProvider: "openai",
       agentRuntimes: { openai: { async runTurn() {
         return {
@@ -292,7 +292,7 @@ describe("/api/portfolio/analyst", () => {
     } as unknown as PortfolioAnalystConversation);
     const handlers = createPortfolioAnalystHandlers({
       agentRuntimes: {},
-      models: { openai: "synthetic", deepseek: "synthetic" },
+      models: { openai: "synthetic" },
       defaultProvider: "openai",
     }, { readCurrentPortfolio: portfolio, conversations: store });
 
@@ -338,7 +338,7 @@ describe("/api/portfolio/analyst", () => {
     };
     const handlers = createPortfolioAnalystHandlers({
       agentRuntimes: { openai: runtime() },
-      models: { openai: "gpt-synthetic", deepseek: "deepseek-synthetic" },
+      models: { openai: "gpt-synthetic" },
       defaultProvider: "openai",
     }, {
       readCurrentPortfolio: portfolio,
@@ -379,7 +379,7 @@ describe("/api/portfolio/analyst", () => {
     const events: unknown[] = [];
     let runtimeQuestion = "";
     const handlers = createPortfolioAnalystHandlers({
-      models: { openai: "gpt-synthetic", deepseek: "deepseek-synthetic" },
+      models: { openai: "gpt-synthetic" },
       defaultProvider: "openai",
       agentRuntimes: {
         openai: {
@@ -490,7 +490,7 @@ describe("/api/portfolio/analyst", () => {
         received = context;
         return answer(context);
       }, "period") },
-      models: { openai: "gpt-synthetic", deepseek: "deepseek-synthetic" },
+      models: { openai: "gpt-synthetic" },
       defaultProvider: "openai",
     }, {
       readCurrentPortfolio: portfolio,
@@ -510,7 +510,6 @@ describe("/api/portfolio/analyst", () => {
       defaultProvider: "openai",
       providers: [
         { id: "openai", configured: true, model: "gpt-synthetic" },
-        { id: "deepseek", configured: false, model: "deepseek-synthetic" },
       ],
     });
     expect(received).toMatchObject({
@@ -535,7 +534,7 @@ describe("/api/portfolio/analyst", () => {
     });
   });
 
-  it("honors disabled holding names in runtime-selected data-quality evidence", async () => {
+  it("includes holding names even when a legacy client sends the disabled setting", async () => {
     let received: PortfolioAnalystContextV1 | undefined;
     const value = portfolio();
     value.holdings[0]!.freshness = "stale";
@@ -546,7 +545,7 @@ describe("/api/portfolio/analyst", () => {
         received = context;
         return answer(context);
       }) },
-      models: { openai: "gpt-synthetic", deepseek: "deepseek-synthetic" },
+      models: { openai: "gpt-synthetic" },
       defaultProvider: "openai",
     }, { readCurrentPortfolio: () => value });
 
@@ -559,7 +558,7 @@ describe("/api/portfolio/analyst", () => {
 
     expect(response.status).toBe(200);
     expect(received?.job).toBe("diagnose-data-quality");
-    expect(JSON.stringify(received)).not.toContain("Synthetic Fund");
+    expect(JSON.stringify(received)).toContain("Synthetic Fund");
   });
 
   it("rejects invalid input, missing facts and an unconfigured provider before generation", async () => {
@@ -570,13 +569,19 @@ describe("/api/portfolio/analyst", () => {
     });
     const configured = createPortfolioAnalystHandlers({
       agentRuntimes: { openai: fake },
-      models: { openai: "gpt-synthetic", deepseek: "deepseek-synthetic" },
+      models: { openai: "gpt-synthetic" },
       defaultProvider: "openai",
     }, { readCurrentPortfolio: () => undefined });
 
     expect((await configured.POST(request({
       provider: "openai",
       job: "explain-period-drivers",
+      language: "en",
+      includeHoldingNames: true,
+    }))).status).toBe(400);
+    expect((await configured.POST(request({
+      provider: "retired-provider",
+      job: "diagnose-data-quality",
       language: "en",
       includeHoldingNames: true,
     }))).status).toBe(400);
@@ -589,11 +594,11 @@ describe("/api/portfolio/analyst", () => {
 
     const unconfigured = createPortfolioAnalystHandlers({
       agentRuntimes: {},
-      models: { openai: "gpt-synthetic", deepseek: "deepseek-synthetic" },
+      models: { openai: "gpt-synthetic" },
       defaultProvider: "openai",
     }, { readCurrentPortfolio: portfolio });
     expect((await unconfigured.POST(request({
-      provider: "deepseek",
+      provider: "openai",
       job: "diagnose-data-quality",
       language: "en",
       includeHoldingNames: true,
@@ -609,7 +614,7 @@ describe("/api/portfolio/analyst", () => {
           "OpenAI",
         );
       }) },
-      models: { openai: "gpt-synthetic", deepseek: "deepseek-synthetic" },
+      models: { openai: "gpt-synthetic" },
       defaultProvider: "openai",
     }, { readCurrentPortfolio: portfolio });
 
@@ -641,7 +646,7 @@ describe("/api/portfolio/analyst", () => {
     const ids = ["conversation-1", "turn-1", "turn-2"];
     const handlers = createPortfolioAnalystHandlers({
       agentRuntimes: { openai: fake },
-      models: { openai: "gpt-synthetic", deepseek: "deepseek-synthetic" },
+      models: { openai: "gpt-synthetic" },
       defaultProvider: "openai",
     }, {
       readCurrentPortfolio: portfolio,
@@ -741,7 +746,7 @@ describe("/api/portfolio/analyst", () => {
           return fake.runTurn(input);
         },
       } },
-      models: { openai: "gpt-synthetic", deepseek: "deepseek-synthetic" },
+      models: { openai: "gpt-synthetic" },
       defaultProvider: "openai",
     }, {
       readCurrentPortfolio: portfolio, conversations: store,
@@ -777,7 +782,7 @@ describe("/api/portfolio/analyst", () => {
           throw new PortfolioAnalystProviderError("provider-unavailable", "OpenAI", "timeout");
         },
       } },
-      models: { openai: "gpt-synthetic", deepseek: "deepseek-synthetic" },
+      models: { openai: "gpt-synthetic" },
       defaultProvider: "openai",
     }, {
       readCurrentPortfolio: portfolio, conversations: store,
@@ -809,7 +814,7 @@ describe("/api/portfolio/analyst", () => {
           };
         },
       } },
-      models: { openai: "gpt-synthetic", deepseek: "deepseek-synthetic" },
+      models: { openai: "gpt-synthetic" },
       defaultProvider: "openai",
     }, {
       readCurrentPortfolio: portfolio, conversations: store,
@@ -843,7 +848,7 @@ describe("/api/portfolio/analyst", () => {
           return working.runTurn(input);
         },
       } },
-      models: { openai: "gpt-synthetic", deepseek: "deepseek-synthetic" },
+      models: { openai: "gpt-synthetic" },
       defaultProvider: "openai",
     }, {
       readCurrentPortfolio: portfolio, conversations: store,
@@ -882,7 +887,7 @@ describe("/api/portfolio/analyst", () => {
         await waiting;
         return working.runTurn(input);
       } } },
-      models: { openai: "gpt-synthetic", deepseek: "deepseek-synthetic" },
+      models: { openai: "gpt-synthetic" },
       defaultProvider: "openai",
     }, {
       readCurrentPortfolio: portfolio, conversations: store,
@@ -938,7 +943,7 @@ describe("/api/portfolio/analyst", () => {
     });
     const handlers = createPortfolioAnalystHandlers({
       agentRuntimes: { openai: fake },
-      models: { openai: "gpt-synthetic", deepseek: "deepseek-synthetic" },
+      models: { openai: "gpt-synthetic" },
       defaultProvider: "openai",
     }, {
       readCurrentPortfolio: portfolio,
@@ -962,14 +967,14 @@ describe("/api/portfolio/analyst", () => {
     ]);
   });
 
-  it("requires a reset before conversation privacy settings become stricter", async () => {
+  it("ignores retired privacy flags without requiring a conversation reset", async () => {
     const store = conversationStore();
     store.savePortfolioAnalystConversation({
       version: "portfolio-analyst-conversation.v1",
       id: "conversation-1",
       provider: "openai",
       language: "zh-CN",
-      includeHoldingNames: true,
+      includeHoldingNames: false,
       createdAt: "2026-09-09T10:00:00.000Z",
       updatedAt: "2026-09-09T10:00:00.000Z",
       turns: [],
@@ -977,7 +982,7 @@ describe("/api/portfolio/analyst", () => {
     });
     const handlers = createPortfolioAnalystHandlers({
       agentRuntimes: { openai: runtime() },
-      models: { openai: "gpt-synthetic", deepseek: "deepseek-synthetic" },
+      models: { openai: "gpt-synthetic" },
       defaultProvider: "openai",
     }, { readCurrentPortfolio: portfolio, conversations: store });
 
@@ -989,17 +994,15 @@ describe("/api/portfolio/analyst", () => {
       includeHoldingNames: false,
       question: "数据可靠吗？",
     }));
-    expect(response.status).toBe(409);
-    await expect(response.json()).resolves.toMatchObject({
-      code: "conversation-settings-mismatch",
-    });
+    expect(response.status).toBe(200);
+    expect(store.readLatestPortfolioAnalystConversation()?.includeHoldingNames).toBe(true);
   });
 
   it("continues an existing conversation in English without deleting its history", async () => {
     const store = conversationStore();
     const handlers = createPortfolioAnalystHandlers({
       agentRuntimes: { openai: runtime() },
-      models: { openai: "gpt-synthetic", deepseek: "deepseek-synthetic" },
+      models: { openai: "gpt-synthetic" },
       defaultProvider: "openai",
     }, { readCurrentPortfolio: portfolio, conversations: store });
     const first = await handlers.POST(request({
@@ -1037,7 +1040,7 @@ describe("/api/portfolio/analyst", () => {
         turn.onAnswerTextDelta?.("factual answer.");
         return answer(context);
       }, "period") },
-      models: { openai: "gpt-synthetic", deepseek: "deepseek-synthetic" },
+      models: { openai: "gpt-synthetic" },
       defaultProvider: "openai",
     }, {
       readCurrentPortfolio: portfolio,
@@ -1074,7 +1077,7 @@ describe("/api/portfolio/analyst", () => {
         turn.onAnswerTextDelta?.("Unvalidated partial text");
         throw new PortfolioAnalystProviderError("invalid-provider-output", "OpenAI");
       }) },
-      models: { openai: "gpt-synthetic", deepseek: "deepseek-synthetic" },
+      models: { openai: "gpt-synthetic" },
       defaultProvider: "openai",
     }, {
       readCurrentPortfolio: portfolio,

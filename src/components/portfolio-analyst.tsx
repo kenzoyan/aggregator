@@ -103,7 +103,7 @@ export function PortfolioAnalyst({
   const [language, setLanguage] = useState<PortfolioAnalystLanguage>("en");
   const [selectedReviewId, setSelectedReviewId] = useState<string>();
   const [selectedEvidenceId, setSelectedEvidenceId] = useState<string>();
-  const [includeHoldingNames, setIncludeHoldingNames] = useState(true);
+  const includeHoldingNames = true;
   const [conversation, setConversation] = useState<PortfolioAnalystConversation>();
   const [pendingTurn, setPendingTurn] = useState<PendingPortfolioAnalystTurn>();
   const [question, setQuestion] = useState("");
@@ -160,7 +160,6 @@ export function PortfolioAnalyst({
         setImportDrafts(drafts);
         setProvider(settings.provider);
         setLanguage(settings.language);
-        setIncludeHoldingNames(settings.includeHoldingNames);
         if (!restored) setPeriod(preferences.defaultPeriod);
         if (latestReport) {
           if (latestReport.job === "explain-period-drivers" && latestReport.scope.period) {
@@ -730,7 +729,6 @@ export function PortfolioAnalyst({
       });
       setProvider(settings.provider);
       setLanguage(settings.language);
-      setIncludeHoldingNames(settings.includeHoldingNames);
       setPeriod(preferences.defaultPeriod);
     } catch {
       if (conversation) {
@@ -796,7 +794,7 @@ export function PortfolioAnalyst({
         {!configuration && !error && <p className="portfolio-analyst-state">Checking provider configuration…</p>}
         {selectedProvider && !selectedProvider.configured && !error && (
           <p className="portfolio-analyst-state">
-            Add {provider === "openai" ? "OPENAI_API_KEY" : "DEEPSEEK_API_KEY"} to .env.local, then restart the app.
+            Add OPENAI_API_KEY to .env.local, then restart the app.
           </p>
         )}
         <div ref={conversationView} className="analyst-conversation" aria-live="polite">

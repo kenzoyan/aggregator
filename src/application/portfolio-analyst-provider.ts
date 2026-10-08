@@ -6,11 +6,11 @@ import type {
 } from "@/application/portfolio-analyst-contract";
 import type { PortfolioAnalystAgentAudit } from "@/application/portfolio-analyst-agent";
 
-export const portfolioAnalystProviderIds = ["openai", "deepseek"] as const;
+export const portfolioAnalystProviderIds = ["openai"] as const;
 export type PortfolioAnalystProviderId = typeof portfolioAnalystProviderIds[number];
 
 export interface PortfolioAnalystReport {
-  provider: PortfolioAnalystProviderId;
+  provider: string;
   model: string;
   generatedAt: string;
   contextVersion: PortfolioAnalystContextV1["version"];

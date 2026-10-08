@@ -60,10 +60,10 @@ const insights: PortfolioInsightsReadModel = {
   },
 };
 
-function fakeProvider(id: "openai" | "deepseek"): PortfolioNarrativeProvider {
+function fakeProvider(id: "openai"): PortfolioNarrativeProvider {
   return {
     id,
-    model: id === "openai" ? "gpt-synthetic" : "deepseek-synthetic",
+    model: "gpt-synthetic",
     generate: async () => ({
       headline: { text: "A factual headline", evidence: ["composition"] },
       overview: {
@@ -100,7 +100,6 @@ describe("/api/portfolio/narrative", () => {
       providers: { openai: fakeProvider("openai") },
       models: {
         openai: "gpt-synthetic",
-        deepseek: "deepseek-synthetic",
       },
       defaultProvider: "openai",
     }, {
@@ -114,7 +113,6 @@ describe("/api/portfolio/narrative", () => {
       defaultProvider: "openai",
       providers: [
         { id: "openai", configured: true, model: "gpt-synthetic" },
-        { id: "deepseek", configured: false, model: "deepseek-synthetic" },
       ],
     });
     expect(JSON.stringify(await handlers.GET().then((item) => item.json())))
@@ -123,7 +121,7 @@ describe("/api/portfolio/narrative", () => {
 
   it("generates on demand and adds non-model metadata", async () => {
     let received: unknown;
-    const provider = fakeProvider("deepseek");
+    const provider = fakeProvider("openai");
     provider.generate = async (input) => {
       received = input;
       return {
@@ -144,9 +142,9 @@ describe("/api/portfolio/narrative", () => {
     };
     const store = createNarrativeStore();
     const handlers = createPortfolioNarrativeHandlers({
-      providers: { deepseek: provider },
-      models: { openai: "gpt-synthetic", deepseek: "deepseek-synthetic" },
-      defaultProvider: "deepseek",
+      providers: { openai: provider },
+      models: { openai: "gpt-synthetic" },
+      defaultProvider: "openai",
     }, {
       database: store,
       now: () => "2026-08-30T18:30:00.000Z",
@@ -158,7 +156,7 @@ describe("/api/portfolio/narrative", () => {
       {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ provider: "deepseek", language: "zh-CN" }),
+        body: JSON.stringify({ provider: "openai", language: "zh-CN" }),
       },
     ));
 
@@ -167,8 +165,8 @@ describe("/api/portfolio/narrative", () => {
     await expect(response.json()).resolves.toEqual({
       narrative: {
         id: "narrative-synthetic",
-        provider: "deepseek",
-        model: "deepseek-synthetic",
+        provider: "openai",
+        model: "gpt-synthetic",
         language: "zh-CN",
         generatedAt: "2026-08-30T18:30:00.000Z",
         portfolioAsOf: "2026-08-30T18:00:00.000Z",
@@ -208,7 +206,7 @@ describe("/api/portfolio/narrative", () => {
   it("rejects invalid requests and identifies an unconfigured provider", async () => {
     const handlers = createPortfolioNarrativeHandlers({
       providers: {},
-      models: { openai: "gpt-synthetic", deepseek: "deepseek-synthetic" },
+      models: { openai: "gpt-synthetic" },
       defaultProvider: "openai",
     }, {
       database: createNarrativeStore(),
@@ -223,6 +221,16 @@ describe("/api/portfolio/narrative", () => {
       },
     ));
     expect(invalid.status).toBe(400);
+
+    const retiredProvider = await handlers.POST(new Request(
+      "http://localhost/api/portfolio/narrative",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ provider: "retired-provider", language: "en" }),
+      },
+    ));
+    expect(retiredProvider.status).toBe(400);
 
     const unavailable = await handlers.POST(new Request(
       "http://localhost/api/portfolio/narrative",
@@ -248,7 +256,7 @@ describe("/api/portfolio/narrative", () => {
     };
     const handlers = createPortfolioNarrativeHandlers({
       providers: { openai: provider },
-      models: { openai: "gpt-synthetic", deepseek: "deepseek-synthetic" },
+      models: { openai: "gpt-synthetic" },
       defaultProvider: "openai",
     }, {
       database: createNarrativeStore(),
@@ -274,7 +282,7 @@ describe("/api/portfolio/narrative", () => {
   it("distinguishes a local persistence failure from a provider failure", async () => {
     const handlers = createPortfolioNarrativeHandlers({
       providers: { openai: fakeProvider("openai") },
-      models: { openai: "gpt-synthetic", deepseek: "deepseek-synthetic" },
+      models: { openai: "gpt-synthetic" },
       defaultProvider: "openai",
     }, {
       database: {

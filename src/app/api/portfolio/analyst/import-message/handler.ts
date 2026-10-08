@@ -180,12 +180,10 @@ export function createImportMessageHandler(input: {
 export async function POST(request: Request) {
   const database = getPortfolioDatabase();
   const registry = getPortfolioAnalystProviderRegistry();
-  const conversation = database.readLatestPortfolioAnalystConversation();
-  const provider = conversation?.provider ?? registry.defaultProvider;
-  const apiKey = provider === "openai" ? process.env.OPENAI_API_KEY : process.env.DEEPSEEK_API_KEY;
+  const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey?.trim()) return json({ error: "Assistant configuration is unavailable." }, 503);
   const interpreter = createImportMessageInterpreter({
-    provider, apiKey: apiKey.trim(), model: registry.models[provider],
+    apiKey: apiKey.trim(), model: registry.models.openai,
   });
   return createImportMessageHandler({ database, interpreter })(request);
 }

@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 
 import type { PortfolioInsightsReadModel } from "@/application/portfolio-read-model";
-import { DeepSeekNarrativeProvider } from "@/infrastructure/deepseek/deepseek-narrative-provider";
 import { OpenAINarrativeProvider } from "@/infrastructure/openai/openai-narrative-provider";
 
 const insights: PortfolioInsightsReadModel = {
@@ -156,38 +155,6 @@ describe("cloud portfolio narrative providers", () => {
     expect(body.instructions).toContain("factKey");
     expect(body.input).toContain("Synthetic Global Fund");
     expect(body.input).not.toContain("account-a:fund-1");
-  });
-
-  it("uses DeepSeek's native Responses API without unsupported storage", async () => {
-    const requests: Array<{ url: string; init?: RequestInit }> = [];
-    const provider = new DeepSeekNarrativeProvider({
-      apiKey: "synthetic-deepseek-key",
-      model: "deepseek-v4-flash",
-      fetch: async (input, init) => {
-        requests.push({ url: String(input), init });
-        return completedResponse("deepseek-v4-flash");
-      },
-    });
-
-    await expect(provider.generate({ insights, language: "zh-CN" }))
-      .resolves.toEqual(content);
-
-    expect(requests).toHaveLength(1);
-    expect(requests[0]?.url).toBe("https://api.deepseek.com/responses");
-    const body = JSON.parse(String(requests[0]?.init?.body));
-    expect(body).toMatchObject({
-      model: "deepseek-v4-flash",
-      reasoning: { effort: "none" },
-      text: {
-        format: {
-          type: "json_schema",
-          name: "portfolio_narrative",
-          strict: true,
-        },
-      },
-    });
-    expect(body).not.toHaveProperty("store");
-    expect(body.instructions).toContain("Simplified Chinese");
   });
 
   it("returns a safe error without leaking provider response details", async () => {

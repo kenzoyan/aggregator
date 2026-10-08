@@ -4,6 +4,7 @@ import type {
   PortfolioAnalystConversation,
   PortfolioAnalystConversationStore,
 } from "@/application/portfolio-analyst-conversation";
+import { normalizePortfolioAnalystConversation } from "@/application/portfolio-analyst-conversation";
 
 interface PortfolioAnalystConversationRow {
   id: string;
@@ -28,7 +29,7 @@ function decodePortfolioAnalystConversation(
   const turns = Array.isArray(stored) ? stored : stored.turns;
   const importActivities = Array.isArray(stored) ? []
     : stored.importActivities ?? (stored.importActivity ? [stored.importActivity] : []);
-  return {
+  return normalizePortfolioAnalystConversation({
     version: "portfolio-analyst-conversation.v1",
     id: row.id,
     provider: row.provider,
@@ -38,7 +39,7 @@ function decodePortfolioAnalystConversation(
     updatedAt: row.updated_at,
     turns,
     importActivities,
-  };
+  });
 }
 
 export function createPortfolioAnalystConversationRepository(

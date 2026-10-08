@@ -48,7 +48,7 @@ const MAX_REQUEST_BYTES = 8 * 1024;
 const commonRequest = {
   provider: z.enum(portfolioAnalystProviderIds),
   language: z.enum(["en", "zh-CN"]),
-  includeHoldingNames: z.boolean(),
+  includeHoldingNames: z.boolean().optional().transform(() => true),
   conversationId: z.string().trim().min(1).max(80).optional(),
   question: z.string().trim().min(1).max(600).optional(),
 };
@@ -80,7 +80,7 @@ const importActivitySchema = z.object({
 }).strict();
 type AnalystApiRequest = z.infer<typeof requestSchema>;
 
-const providerNames = { openai: "OpenAI", deepseek: "DeepSeek" } as const;
+const providerNames = { openai: "OpenAI" } as const;
 
 const defaultQuestions = {
   en: {
@@ -260,19 +260,6 @@ export function createPortfolioAnalystHandlers(
         return json(
           { error: "Analyst conversation was not found.", code: "conversation-not-found" },
           { status: 404 },
-        );
-      }
-      if (
-        conversation &&
-        (conversation.provider !== body.provider ||
-          conversation.includeHoldingNames !== body.includeHoldingNames)
-      ) {
-        return json(
-          {
-            error: "Provider or holding-name privacy changed. Reset the conversation before continuing.",
-            code: "conversation-settings-mismatch",
-          },
-          { status: 409 },
         );
       }
       const generatedAt = options.now?.() ?? new Date().toISOString();

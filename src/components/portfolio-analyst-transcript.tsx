@@ -23,17 +23,9 @@ import {
   portfolioAnalystEvidenceValue,
   portfolioAnalystLimitationLabel,
 } from "@/application/portfolio-analyst-presentation";
-import type {
-  PortfolioAnalystProviderId,
-  PortfolioAnalystReport,
-} from "@/application/portfolio-analyst-provider";
+import type { PortfolioAnalystReport } from "@/application/portfolio-analyst-provider";
 import type { PendingPortfolioAnalystTurn } from "@/application/portfolio-analyst-stream";
 import { AssistantMessageContent } from "@/components/assistant-message-content";
-
-const providerNames: Record<PortfolioAnalystProviderId, string> = {
-  openai: "OpenAI",
-  deepseek: "DeepSeek",
-};
 
 const classificationLabels: Record<
   PortfolioAnalystAnswer["answer"]["classification"],
@@ -538,7 +530,7 @@ export function AnalystReport({
               <div><dt>{language === "zh-CN" ? "范围" : "Scope"}</dt><dd>{reportKind}</dd></div>
               {report.factsAsOf !== report.generatedAt && <div><dt>{language === "zh-CN" ? "分析快照" : "Analysis snapshot"}</dt><dd>{new Date(report.factsAsOf).toLocaleString()}</dd></div>}
               <div><dt>{language === "zh-CN" ? "生成时间" : "Generated"}</dt><dd>{new Date(report.generatedAt).toLocaleString()}</dd></div>
-              <div><dt>{language === "zh-CN" ? "模型" : "Model"}</dt><dd>{providerNames[report.provider]} · {report.model}</dd></div>
+              <div><dt>{language === "zh-CN" ? "模型" : "Model"}</dt><dd>{report.provider === "openai" ? "OpenAI" : report.provider} · {report.model}</dd></div>
             </dl>
           </section>
         </div>

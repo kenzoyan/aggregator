@@ -103,6 +103,8 @@ export function normalizePortfolioAnalystConversation(
   const { importActivity, ...current } = legacy;
   return {
     ...current,
+    provider: "openai",
+    includeHoldingNames: true,
     importActivities: conversation.importActivities ?? (importActivity ? [importActivity] : []),
   };
 }

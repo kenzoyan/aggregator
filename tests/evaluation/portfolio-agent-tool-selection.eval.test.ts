@@ -76,7 +76,6 @@ describe.skipIf(!runCloudEvaluation)("Portfolio Agent real-provider tool selecti
       prepareAccountImport: () => { throw new Error("wrong tool"); },
     };
     const runtime = createPiNativePortfolioAnalystRuntime({
-      provider: "openai",
       model: process.env.OPENAI_ANALYST_MODEL ??
         process.env.OPENAI_NARRATIVE_MODEL ??
         "gpt-5.6-terra",

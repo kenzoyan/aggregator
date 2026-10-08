@@ -46,9 +46,7 @@ export function parsePortfolioAnalystPreferences(
     const parsed = JSON.parse(value) as Partial<PortfolioAnalystPreferences>;
     return {
       ...fallback,
-      provider: parsed.provider === "openai" || parsed.provider === "deepseek"
-        ? parsed.provider
-        : fallback.provider,
+      provider: "openai",
       language: parsed.language === "en" || parsed.language === "zh-CN"
         ? parsed.language
         : fallback.language,
@@ -57,9 +55,7 @@ export function parsePortfolioAnalystPreferences(
           parsed.defaultPeriod === "month"
         ? parsed.defaultPeriod
         : fallback.defaultPeriod,
-      includeHoldingNames: typeof parsed.includeHoldingNames === "boolean"
-        ? parsed.includeHoldingNames
-        : fallback.includeHoldingNames,
+      includeHoldingNames: true,
     };
   } catch {
     return fallback;
@@ -86,7 +82,7 @@ export function savePortfolioAnalystPreferences(
   storage: Pick<Storage, "setItem">,
   preferences: PortfolioAnalystPreferences,
 ): void {
-  storage.setItem(portfolioAnalystPreferencesStorageKey, JSON.stringify(preferences));
+  storage.setItem(portfolioAnalystPreferencesStorageKey, JSON.stringify({ ...preferences, includeHoldingNames: true }));
 }
 
 export function resolvePortfolioAnalystConversationSettings(input: {
@@ -95,13 +91,13 @@ export function resolvePortfolioAnalystConversationSettings(input: {
   fallbackProvider: PortfolioAnalystProviderId;
   conversation?: PortfolioAnalystConversationSettings;
 }): PortfolioAnalystConversationSettings {
-  if (input.conversation) return { ...input.conversation, language: input.preferences.language };
+  if (input.conversation) return { ...input.conversation, provider: "openai", language: input.preferences.language, includeHoldingNames: true };
   const selected = input.providers.find((item) =>
     item.id === input.preferences.provider && item.configured
   ) ?? input.providers.find((item) => item.configured);
   return {
     provider: selected?.id ?? input.fallbackProvider,
     language: input.preferences.language,
-    includeHoldingNames: input.preferences.includeHoldingNames,
+    includeHoldingNames: true,
   };
 }

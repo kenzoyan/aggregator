@@ -23,7 +23,7 @@ describe("import message interpreter", () => {
       intent: "confirm", confidence: "high", field: null, value: null, holdingLineId: null, reply: null,
     }));
     const interpreter = createImportMessageInterpreter({
-      provider: "openai", apiKey: "synthetic-key", model: "synthetic-model", fetch,
+      apiKey: "synthetic-key", model: "synthetic-model", fetch,
     });
     await expect(interpreter.interpret({
       message: "This all checks out, go ahead with the update", draft,
@@ -39,7 +39,7 @@ describe("import message interpreter", () => {
 
   it("does not execute a low-confidence mutation", async () => {
     const interpreter = createImportMessageInterpreter({
-      provider: "openai", apiKey: "synthetic-key", model: "synthetic-model",
+      apiKey: "synthetic-key", model: "synthetic-model",
       fetch: async () => response({
         intent: "confirm", confidence: "low", field: null, value: null, holdingLineId: null,
         reply: "Do you want me to apply this draft now?",

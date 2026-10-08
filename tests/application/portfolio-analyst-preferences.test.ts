@@ -9,7 +9,7 @@ import {
 } from "@/application/portfolio-analyst-preferences";
 
 describe("portfolio analyst preferences", () => {
-  it("uses private local defaults when no saved value exists", () => {
+  it("uses OpenAI defaults with holding identities enabled when no saved value exists", () => {
     expect(defaultPortfolioAnalystPreferences("openai")).toEqual({
       version: "portfolio-agent-preferences.v2",
       provider: "openai",
@@ -21,15 +21,15 @@ describe("portfolio analyst preferences", () => {
 
   it("restores valid preferences and ignores invalid fields", () => {
     expect(parsePortfolioAnalystPreferences(JSON.stringify({
-      provider: "deepseek",
+      provider: "retired-provider",
       language: "en",
       defaultPeriod: "month",
       includeHoldingNames: false,
     }), "openai")).toMatchObject({
-      provider: "deepseek",
+      provider: "openai",
       language: "en",
       defaultPeriod: "month",
-      includeHoldingNames: false,
+      includeHoldingNames: true,
     });
 
     expect(parsePortfolioAnalystPreferences(JSON.stringify({
@@ -39,8 +39,8 @@ describe("portfolio analyst preferences", () => {
   });
 
   it("falls back safely when browser storage contains malformed JSON", () => {
-    expect(parsePortfolioAnalystPreferences("{", "deepseek"))
-      .toEqual(defaultPortfolioAnalystPreferences("deepseek"));
+    expect(parsePortfolioAnalystPreferences("{", "openai"))
+      .toEqual(defaultPortfolioAnalystPreferences("openai"));
   });
 
   it("saves and restores preferences in local browser storage", () => {
@@ -57,49 +57,48 @@ describe("portfolio analyst preferences", () => {
 
     savePortfolioAnalystPreferences(storage, preferences);
 
-    expect(readPortfolioAnalystPreferences(storage, "deepseek")).toEqual(preferences);
+    expect(readPortfolioAnalystPreferences(storage, "openai")).toEqual({ ...preferences, includeHoldingNames: true });
   });
 
-  it("allows language changes while keeping an existing conversation's provider and privacy", () => {
+  it("allows language changes and upgrades legacy holding-name settings", () => {
     const preferences = {
-      ...defaultPortfolioAnalystPreferences("deepseek"),
+      ...defaultPortfolioAnalystPreferences("openai"),
       language: "en" as const,
       includeHoldingNames: false,
     };
     const providers = [
       { id: "openai" as const, configured: true },
-      { id: "deepseek" as const, configured: false },
     ];
 
     expect(resolvePortfolioAnalystConversationSettings({
       preferences,
       providers,
-      fallbackProvider: "deepseek",
-    })).toEqual({ provider: "openai", language: "en", includeHoldingNames: false });
+      fallbackProvider: "openai",
+    })).toEqual({ provider: "openai", language: "en", includeHoldingNames: true });
 
     expect(resolvePortfolioAnalystConversationSettings({
       preferences,
       providers,
-      fallbackProvider: "deepseek",
+      fallbackProvider: "openai",
       conversation: {
-        provider: "deepseek",
+        provider: "openai",
         language: "zh-CN",
-        includeHoldingNames: true,
+        includeHoldingNames: false,
       },
-    })).toEqual({ provider: "deepseek", language: "en", includeHoldingNames: true });
+    })).toEqual({ provider: "openai", language: "en", includeHoldingNames: true });
   });
 
   it("moves legacy preferences to English without losing other choices", () => {
     const storage = {
       getItem: (key: string) => key.endsWith(".v1")
-        ? JSON.stringify({ provider: "deepseek", language: "zh-CN", defaultPeriod: "month", includeHoldingNames: false })
+        ? JSON.stringify({ provider: "retired-provider", language: "zh-CN", defaultPeriod: "month", includeHoldingNames: false })
         : null,
     };
     expect(readPortfolioAnalystPreferences(storage, "openai")).toMatchObject({
-      provider: "deepseek",
+      provider: "openai",
       language: "en",
       defaultPeriod: "month",
-      includeHoldingNames: false,
+      includeHoldingNames: true,
     });
   });
 });

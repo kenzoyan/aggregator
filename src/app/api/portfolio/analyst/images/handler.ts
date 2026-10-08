@@ -107,14 +107,12 @@ export function createPortfolioAnalystImageHandlers(input: {
       const userText = form.get("userText");
       const language = form.get("language");
       const provider = form.get("provider");
-      const includeHoldingNames = form.get("includeHoldingNames");
       const preferredAccountType = form.get("preferredAccountType");
       if (
         (conversationId !== null && (typeof conversationId !== "string" || conversationId.length > 80)) ||
         typeof userText !== "string" || userText.length > 600 ||
         (language !== "en" && language !== "zh-CN") ||
-        (provider !== "openai" && provider !== "deepseek") ||
-        (includeHoldingNames !== "true" && includeHoldingNames !== "false") ||
+        provider !== "openai" ||
         (preferredAccountType !== null && (typeof preferredAccountType !== "string" || preferredAccountType.length > 120))
       ) return errorResponse("Image message is invalid.", 400);
       const checked = await checkedImages(form.getAll("images"));
@@ -126,16 +124,13 @@ export function createPortfolioAnalystImageHandlers(input: {
       if (conversationId && input.conversations.readLatestPortfolioAnalystConversation()?.id !== conversationId) {
         return errorResponse("Only the current conversation can receive images.", 409);
       }
-      if (stored && (stored.provider !== provider || stored.includeHoldingNames !== (includeHoldingNames === "true"))) {
-        return errorResponse("Conversation settings changed. Reset the conversation before continuing.", 409);
-      }
 
       const now = new Date().toISOString();
       const createId = input.createId ?? randomUUID;
       const conversation = stored && normalizePortfolioAnalystConversation(stored)
         || createPortfolioAnalystConversation({
           id: createId(), provider, language,
-          includeHoldingNames: includeHoldingNames === "true", now,
+          includeHoldingNames: true, now,
         });
       try {
         const { next, id } = await saveWithAttachments(checked, input.images, createId, (saved) => {
@@ -214,12 +209,10 @@ export function createPortfolioAnalystImageHandlers(input: {
       const conversationId = form.get("conversationId");
       const userText = form.get("userText");
       const language = form.get("language");
-      const includeHoldingNames = form.get("includeHoldingNames");
       if (
         (conversationId !== null && (typeof conversationId !== "string" || conversationId.length > 80)) ||
         typeof userText !== "string" || userText.length > 600 ||
-        (language !== "en" && language !== "zh-CN") ||
-        (includeHoldingNames !== "true" && includeHoldingNames !== "false")
+        (language !== "en" && language !== "zh-CN")
       ) return errorResponse("Image question is invalid.", 400);
       const checked = await checkedImages(form.getAll("images"));
       if (checked instanceof Response) return checked;
@@ -230,16 +223,13 @@ export function createPortfolioAnalystImageHandlers(input: {
       if (conversationId && input.conversations.readLatestPortfolioAnalystConversation()?.id !== conversationId) {
         return errorResponse("Only the current conversation can receive images.", 409);
       }
-      if (stored && (stored.provider !== "openai" || stored.includeHoldingNames !== (includeHoldingNames === "true"))) {
-        return errorResponse("Conversation settings changed. Reset the conversation before continuing.", 409);
-      }
 
       const now = new Date().toISOString();
       const createId = input.createId ?? randomUUID;
       const conversation = stored && normalizePortfolioAnalystConversation(stored)
         || createPortfolioAnalystConversation({
           id: createId(), provider: "openai", language,
-          includeHoldingNames: includeHoldingNames === "true", now,
+          includeHoldingNames: true, now,
         });
       try {
         const next = await saveWithAttachments(checked, input.images, createId, (saved) => {

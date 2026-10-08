@@ -7,7 +7,7 @@ import {
 } from "@/application/portfolio-narrative-facts";
 import type { PortfolioInsightsReadModel } from "@/application/portfolio-read-model";
 
-export const narrativeProviderIds = ["openai", "deepseek"] as const;
+export const narrativeProviderIds = ["openai"] as const;
 export const narrativeLanguages = ["en", "zh-CN"] as const;
 
 export type NarrativeProviderId = typeof narrativeProviderIds[number];
@@ -36,7 +36,7 @@ export type PortfolioNarrativeStatement = PortfolioNarrativeContent["headline"];
 
 export interface PortfolioNarrativeReport extends PortfolioNarrativeContent {
   id: string;
-  provider: NarrativeProviderId;
+  provider: string;
   model: string;
   language: NarrativeLanguage;
   generatedAt: string;
