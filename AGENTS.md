@@ -28,6 +28,13 @@ This is a private, single-user investment monitoring application. It aggregates 
 
 The current product target is desktop web. Do not proactively design, implement, or request acceptance for mobile layouts unless the owner asks for mobile support.
 
+## Communication with the owner
+
+- Use ASD-STE100-inspired clarity for explanations, without claiming strict compliance with the English standard. Prefer short sentences, one idea at a time, common words, active voice, and consistent terms.
+- Lead with the answer or result. Explain necessary technical terms in plain language when first used, and add a small concrete example when it helps.
+- Match the owner's language. Keep exact code identifiers, commands, numbers, and material caveats; clarity must not change the facts.
+- Accept the owner's input in natural language. Do not require the owner to follow a writing standard.
+
 <!-- BEGIN:nextjs-agent-rules -->
 
 # This is NOT the Next.js you know
