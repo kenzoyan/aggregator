@@ -15,7 +15,10 @@ describe("application shell", () => {
     ));
 
     expect(markup).toContain('class="app-route-content"');
-    expect(markup).toContain('class="nav-item active" aria-current="page" href="/accounts"');
+    const currentLink = markup.match(/<a\b[^>]*class="nav-item active"[^>]*>/)?.[0];
+    expect(currentLink).toBeDefined();
+    expect(currentLink).toContain('aria-current="page"');
+    expect(currentLink).toContain('href="/accounts"');
     expect(markup).toContain('href="/#holdings"');
     expect(markup).toContain("Account content");
   });

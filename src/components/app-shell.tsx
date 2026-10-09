@@ -1,5 +1,6 @@
 "use client";
 
+import { MotionConfig } from "motion/react";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -7,16 +8,14 @@ import {
   ArrowDownToLine,
   ChartNoAxesCombined,
   LayoutDashboard,
-  PanelLeftClose,
-  PanelLeftOpen,
   Settings,
-  ShieldCheck,
   WalletCards,
 } from "lucide-react";
 import {
   createContext,
   useContext,
   useEffect,
+  useRef,
   useState,
   type Dispatch,
   type ReactNode,
@@ -25,7 +24,6 @@ import {
 
 import { cn } from "@/lib/utils";
 
-const sidebarPreferenceStorageKey = "invest-monitor.sidebar-expanded.v1";
 const AppShellModalContext = createContext<Dispatch<SetStateAction<boolean>>>(() => undefined);
 
 export function useAppShellModalState() {
@@ -34,17 +32,22 @@ export function useAppShellModalState() {
 
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
+  const navigationToggle = useRef<HTMLButtonElement>(null);
   const [sidebarExpanded, setSidebarExpanded] = useState(false);
   const [navigationBlocked, setNavigationBlocked] = useState(false);
   const [homeSection, setHomeSection] = useState<"overview" | "holdings">("overview");
 
   useEffect(() => {
-    try {
-      setSidebarExpanded(window.localStorage.getItem(sidebarPreferenceStorageKey) === "true");
-    } catch {
-      // The compact default remains available when storage is blocked.
+    if (!sidebarExpanded) return;
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setSidebarExpanded(false);
+        navigationToggle.current?.focus();
+      }
     }
-  }, []);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => document.removeEventListener("keydown", closeOnEscape);
+  }, [sidebarExpanded]);
 
   useEffect(() => {
     if (pathname !== "/") return;
@@ -66,15 +69,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   }, [pathname]);
 
   function toggleSidebar() {
-    setSidebarExpanded((current) => {
-      const next = !current;
-      try {
-        window.localStorage.setItem(sidebarPreferenceStorageKey, String(next));
-      } catch {
-        // The current layout can still change without persistence.
-      }
-      return next;
-    });
+    setSidebarExpanded((current) => !current);
   }
 
   const overviewActive = pathname === "/" && homeSection === "overview";
@@ -88,19 +83,36 @@ export function AppShell({ children }: { children: ReactNode }) {
   ];
 
   return (
-    <div className={cn("app-shell", sidebarExpanded ? "sidebar-expanded" : "sidebar-collapsed")}>
-      <aside className="sidebar" aria-hidden={navigationBlocked || undefined} inert={navigationBlocked || undefined}>
-        <Link className="brand" href="/" aria-label="Aggrigator overview">
+    <MotionConfig reducedMotion="user" transition={{ type: "spring", stiffness: 380, damping: 34 }}>
+    <div className={cn("app-shell", sidebarExpanded && !navigationBlocked ? "sidebar-expanded" : "sidebar-collapsed")}>
+      {sidebarExpanded && !navigationBlocked && <button type="button" className="navigation-dismiss" tabIndex={-1} aria-label="Close navigation" onClick={() => {
+        setSidebarExpanded(false);
+        navigationToggle.current?.focus();
+      }} />}
+      <button ref={navigationToggle} type="button" className="navigation-launcher" aria-label={sidebarExpanded ? "Close navigation" : "Open navigation"} aria-expanded={sidebarExpanded && !navigationBlocked} aria-controls="app-navigation" disabled={navigationBlocked} onClick={toggleSidebar}>
+        <Image src="/brand/aggrigator-icon-192.png" alt="" width={30} height={30} />
+      </button>
+      <aside id="app-navigation" className="sidebar" aria-hidden={!sidebarExpanded || navigationBlocked || undefined} inert={!sidebarExpanded || navigationBlocked || undefined}>
+        <button type="button" className="brand" aria-label="Close navigation" onClick={() => {
+          setSidebarExpanded(false);
+          navigationToggle.current?.focus();
+        }}>
           <Image className="brand-mark" src="/brand/aggrigator-icon-192.png" alt="" width={38} height={38} />
           <span className="brand-copy"><strong>Aggrigator</strong><small>All your investments, together</small></span>
-        </Link>
-        <nav aria-label="Main navigation">
+        </button>
+        <nav id="app-navigation-links" aria-label="Main navigation">
           {items.map((item) => {
             const Icon = item.icon;
             return (
               <Link
                 className={cn("nav-item", item.active && "active")}
                 href={item.href}
+                aria-label={item.label}
+                title={item.label}
+                onClick={() => {
+                  setSidebarExpanded(false);
+                  navigationToggle.current?.focus();
+                }}
                 aria-current={item.active ? item.current : undefined}
                 key={item.href}
               >
@@ -109,19 +121,6 @@ export function AppShell({ children }: { children: ReactNode }) {
             );
           })}
         </nav>
-        <div className="sidebar-footer">
-          <button
-            type="button"
-            className="sidebar-toggle"
-            aria-label={sidebarExpanded ? "Collapse navigation" : "Expand navigation"}
-            title={sidebarExpanded ? "Collapse navigation" : "Expand navigation"}
-            onClick={toggleSidebar}
-          >
-            {sidebarExpanded ? <PanelLeftClose aria-hidden="true" /> : <PanelLeftOpen aria-hidden="true" />}
-            <span>{sidebarExpanded ? "Collapse" : "Expand"}</span>
-          </button>
-          <div className="privacy-note"><ShieldCheck aria-hidden="true" /><span><strong>Private by design</strong><small>Confirmed records stay on this device</small></span></div>
-        </div>
       </aside>
 
       <AppShellModalContext.Provider value={setNavigationBlocked}>
@@ -139,5 +138,6 @@ export function AppShell({ children }: { children: ReactNode }) {
         })}
       </nav>
     </div>
+    </MotionConfig>
   );
 }

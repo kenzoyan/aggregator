@@ -214,7 +214,6 @@ export function Dashboard() {
   const [localFxOverview, setLocalFxOverview] = useState<FxOverviewReadModel>();
   const [refreshingPrices, setRefreshingPrices] = useState(false);
   const [refreshMessage, setRefreshMessage] = useState<string>();
-  const [reviewHost, setReviewHost] = useState<HTMLDivElement | null>(null);
   async function loadLocalPortfolio(signal?: AbortSignal) {
     setPortfolioLoadError(undefined);
     try {
@@ -331,7 +330,6 @@ export function Dashboard() {
       <main className="main-content home-workspace" id="overview">
         <PortfolioAnalyst
           blocked={false}
-          reviewHost={reviewHost}
           onPortfolioChanged={() => { void loadLocalPortfolio().catch(() => undefined); }}
         />
         <div className="home-workspace-main">
@@ -386,7 +384,6 @@ export function Dashboard() {
           </section>
         )}
 
-        <div ref={setReviewHost} className="home-review-host" id="agent-review" />
 
         <section className="hero-grid">
           <article className="balance-card">

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 
 import type { PortfolioAnalystAnswer } from "@/application/portfolio-analyst-answer";
 import type {
@@ -25,6 +25,7 @@ import {
 } from "@/application/portfolio-analyst-presentation";
 import type { PortfolioAnalystReport } from "@/application/portfolio-analyst-provider";
 import type { PendingPortfolioAnalystTurn } from "@/application/portfolio-analyst-stream";
+import { analystHistoryEntries, analystHistoryDay, analystHistoryDateLabel, initialVisibleHistoryCount } from "@/components/analyst-history-presentation";
 import { AssistantMessageContent } from "@/components/assistant-message-content";
 
 const classificationLabels: Record<
@@ -64,14 +65,19 @@ export function SavedConversationEntries({
   loading, importBusy, onConfirmCreateAccount, onShowSources, onRetryImageQuestion,
   onPrepareSavedImageImport, onRetryWorkflowReply, onResolveImageMessage, onReviewDraft,
 }: SavedConversationEntriesProps) {
+  const entries = analystHistoryEntries(conversation);
+  // Keep the beginning fixed as new replies arrive, so reading history never removes a visible turn.
+  const [hiddenCount, setHiddenCount] = useState(() => Math.max(0, entries.length - initialVisibleHistoryCount));
+  const visible = entries.slice(hiddenCount);
   return <>
-    {[
-        ...conversation.turns.map((turn) => ({ kind: "turn" as const, at: turn.createdAt, turn })),
-        ...conversation.importActivities.map((activity) => ({ kind: "import" as const, at: activity.createdAt, activity })),
-        ...conversation.importActivities.flatMap((activity) => (activity.followUps ?? []).map((followUp) => ({
-          kind: "import-follow-up" as const, at: followUp.createdAt, followUp,
-        }))),
-      ].toSorted((left, right) => left.at.localeCompare(right.at)).map((entry) => entry.kind === "turn" ? (
+    {hiddenCount > 0 && <button type="button" className="analyst-history-more" onClick={() => setHiddenCount((count) => Math.max(0, count - initialVisibleHistoryCount))}>
+      {language === "zh-CN" ? "查看更早记录" : "View earlier messages"}
+    </button>}
+    {visible.map((entry, index) => <Fragment key={entry.id}>
+      {(index === 0 || analystHistoryDay(entry.at) !== analystHistoryDay(visible[index - 1]!.at)) &&
+        <div className="analyst-date-divider"><time dateTime={entry.at}>{analystHistoryDateLabel(entry.at, language)}</time></div>}
+      <div data-entry-id={entry.id}>
+      {entry.kind === "turn" ? (
         <div className="analyst-turn" key={entry.turn.id}>
           <div className="analyst-user-entry">
             {entry.turn.attachments?.length ? (
@@ -91,11 +97,11 @@ export function SavedConversationEntries({
           /> : entry.turn.imageAnswer ? <div className="analyst-primary-answer analyst-assistant-message" aria-live="polite">
             {entry.turn.imageAnswer.status === "pending" || entry.turn.imageAnswer.status === "failed" ? (
               <div className="analyst-image-answer-status">
-                <p>{answeringImageTurnId === entry.turn.id
+                <AssistantMessageContent text={answeringImageTurnId === entry.turn.id
                   ? (streamedImageAnswer || "Thinking about your image…")
                   : entry.turn.imageAnswer.status === "failed"
                     ? "I couldn't finish reading this image."
-                    : "Image sent. Response paused."}</p>
+                    : "Image sent. Response paused."} />
                 {answeringImageTurnId !== entry.turn.id && (
                   <button type="button" disabled={loading || importBusy} onClick={() => onRetryImageQuestion(entry.turn.id)}>
                     Retry response
@@ -117,7 +123,7 @@ export function SavedConversationEntries({
               <button type="button" disabled={loading || importBusy} onClick={() => onRetryWorkflowReply?.(entry.turn.id)}>
                 {language === "zh-CN" ? "重试 Agent 回复" : "Retry Agent reply"}
               </button>
-            </> : entry.turn.chat.imageAction?.purpose !== "sale" || entry.turn.chat.assistantText ? <p>{entry.turn.chat.assistantText || (language === "zh-CN" ? "正在查看图片…" : "Reading your image…")}</p> : null}
+            </> : entry.turn.chat.imageAction?.purpose !== "sale" || entry.turn.chat.assistantText ? <AssistantMessageContent text={entry.turn.chat.assistantText || (language === "zh-CN" ? "正在查看图片…" : "Reading your image…")} /> : null}
             {entry.turn.chat.memoryProposal?.status === "saved" && <small>{language === "zh-CN" ? "记忆已保存。" : "Memory saved."}</small>}
             {entry.turn.chat.memoryProposal?.status === "cancelled" && <small>{language === "zh-CN" ? "记忆未保存。" : "Memory not saved."}</small>}
             {entry.turn.id === conversation.turns.at(-1)?.id && entry.turn.chat.imageAction?.purpose === "sale" &&
@@ -141,7 +147,7 @@ export function SavedConversationEntries({
       ) : entry.kind === "import-follow-up" ? (
         <div className="analyst-turn" key={entry.followUp.id}>
           <div className="analyst-user-message"><p>{entry.followUp.userText}</p></div>
-          <div className="analyst-primary-answer analyst-assistant-message"><p>{entry.followUp.assistantText}</p></div>
+          <div className="analyst-primary-answer analyst-assistant-message"><AssistantMessageContent text={entry.followUp.assistantText} /></div>
         </div>
       ) : importDrafts[entry.activity.draftId] ? (
         <div className="analyst-import-chat-status" key={entry.activity.draftId}>
@@ -156,7 +162,9 @@ export function SavedConversationEntries({
             <button type="button" onClick={() => onReviewDraft(entry.activity.draftId)}>Review draft</button>
           )}
         </div>
-      ) : null)}
+      ) : null}
+      </div>
+    </Fragment>)}
   </>;
 }
 
@@ -245,12 +253,12 @@ export function pendingPhaseLabel(
     const failures = language === "zh-CN" ? {
       "invalid-provider-output": "我无法核实模型刚才生成的回答。你的消息还在，可以重试。",
       "provider-unavailable": "模型服务暂时无法回应。你的消息还在，可以稍后重试。",
-      "context-too-large": "这段对话的上下文过长。请缩短问题，或重置对话后再试。",
+      "context-too-large": "这次请求的内容过长。请缩短问题后重试。",
       "connection-failed": "连接中断，回答没有完成。你的消息还在，可以重试。",
     } : {
       "invalid-provider-output": "I couldn't verify the model's answer. Your message is still here; please try again.",
       "provider-unavailable": "The model service couldn't respond. Your message is still here; please try again later.",
-      "context-too-large": "This conversation has too much context. Shorten your question or reset the conversation.",
+      "context-too-large": "This request has too much context. Please shorten your question and try again.",
       "connection-failed": "The connection ended before the reply was complete. Your message is still here; please try again.",
     };
     if (failureCode && Object.hasOwn(failures, failureCode)) {
@@ -262,14 +270,14 @@ export function pendingPhaseLabel(
   }
   const labels = language === "zh-CN" ? {
     sending: "正在连接……",
-    "selecting-tool": "正在选择合适的只读工具……",
-    "reading-current-facts": "正在读取当前本地事实……",
+    "selecting-tool": "正在查看你的问题……",
+    "reading-current-facts": "正在查看相关资料……",
     "generating-answer": "正在生成回答……",
     stopped: "已停止。",
   } : {
     sending: "Connecting…",
-    "selecting-tool": "Choosing a read-only tool…",
-    "reading-current-facts": "Reading current local facts…",
+    "selecting-tool": "Looking into your question…",
+    "reading-current-facts": "Checking relevant information…",
     "generating-answer": "Generating an answer…",
     stopped: "Stopped.",
   };
@@ -284,6 +292,7 @@ function analystToolLabel(
     read_period_drivers: "期间表现",
     read_data_quality: "数据质量",
     read_portfolio_overview: "组合概览",
+    read_all_holdings: "全部账户与持仓",
     read_accounts: "账户列表",
     read_account_holdings: "账户持仓",
     read_holding_history: "持仓历史",
@@ -298,6 +307,7 @@ function analystToolLabel(
     read_period_drivers: "period performance",
     read_data_quality: "data quality",
     read_portfolio_overview: "portfolio overview",
+    read_all_holdings: "all accounts and holdings",
     read_accounts: "source accounts",
     read_account_holdings: "account holdings",
     read_holding_history: "holding history",
@@ -362,8 +372,13 @@ export function AgentActivityTimeline({
   }, new Map<string, PortfolioAnalystToolActivity>()).values());
   const interrupted = phase === "failed" || phase === "stopped";
   const calls = audit?.toolCalls ?? latestStreamedCalls;
-  if (calls.length === 0) return null;
+  if (calls.length === 0 && phase === "completed") return null;
+  const currentLabel = phase === "completed"
+    ? (language === "zh-CN" ? `已完成 ${calls.length} 项检查` : `${calls.length} checks completed`)
+    : pendingPhaseLabel(phase, language);
   return (
+    <details className={`analyst-activity-disclosure ${phase}`}>
+      <summary><span className="analyst-status-light" aria-hidden="true" /><span role="status">{currentLabel}</span></summary>
     <ol className="analyst-agent-activity" aria-label={language === "zh-CN" ? "数据读取" : "Data checks"}>
       {audit
         ? audit.toolCalls.map((call) => (
@@ -392,6 +407,7 @@ export function AgentActivityTimeline({
             </li>
           ))}
     </ol>
+    </details>
   );
 }
 

@@ -1,43 +1,27 @@
-import type { ReactNode } from "react";
+import Markdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
-function inlineContent(text: string): ReactNode[] {
-  return text.split(/(\*\*[^*]+\*\*)/g).filter(Boolean).map((part, index) =>
-    part.startsWith("**") && part.endsWith("**")
-      ? <strong key={index}>{part.slice(2, -2)}</strong>
-      : part,
-  );
-}
+import { normalizeAssistantMarkdown } from "@/components/assistant-markdown";
 
-const bullet = /^\s*[-*]\s+(.+)$/;
-const numbered = /^\s*\d+\.\s+(.+)$/;
+const plugins = [remarkGfm];
 
+/** Render model text without interpreting raw HTML or loading remote images. */
 export function AssistantMessageContent({ text }: { text: string }) {
-  const lines = text.replace(/\r\n?/g, "\n").split("\n");
-  const blocks: ReactNode[] = [];
-  for (let index = 0; index < lines.length;) {
-    if (!lines[index]?.trim()) { index += 1; continue; }
-    const listPattern = bullet.test(lines[index]!) ? bullet
-      : numbered.test(lines[index]!) ? numbered : undefined;
-    if (listPattern) {
-      const items: ReactNode[] = [];
-      while (index < lines.length) {
-        const match = listPattern.exec(lines[index]!);
-        if (!match) break;
-        items.push(<li key={index}>{inlineContent(match[1]!)}</li>);
-        index += 1;
-      }
-      blocks.push(listPattern === numbered
-        ? <ol key={`list-${index}`}>{items}</ol>
-        : <ul key={`list-${index}`}>{items}</ul>);
-      continue;
-    }
-    const paragraph: string[] = [];
-    while (index < lines.length && lines[index]?.trim() &&
-      !bullet.test(lines[index]!) && !numbered.test(lines[index]!)) {
-      paragraph.push(lines[index]!.replace(/^#{1,3}\s+/, ""));
-      index += 1;
-    }
-    blocks.push(<p key={`paragraph-${index}`}>{inlineContent(paragraph.join("\n"))}</p>);
-  }
-  return <div className="assistant-rich-text">{blocks}</div>;
+  return (
+    <div className="assistant-rich-text">
+      <Markdown remarkPlugins={plugins} components={{
+        h1: ({ children }) => <h3>{children}</h3>,
+        h2: ({ children }) => <h3>{children}</h3>,
+        h3: ({ children }) => <h4>{children}</h4>,
+        h4: ({ children }) => <h4>{children}</h4>,
+        h5: ({ children }) => <h4>{children}</h4>,
+        h6: ({ children }) => <h4>{children}</h4>,
+        a: ({ href, children }) => href
+          ? <a href={href} target="_blank" rel="noopener noreferrer">{children}</a>
+          : <span>{children}</span>,
+        img: ({ alt }) => <span>{alt}</span>,
+        table: ({ children }) => <div className="assistant-table-scroll" role="region" aria-label="Answer table" tabIndex={0}><table>{children}</table></div>,
+      }}>{normalizeAssistantMarkdown(text)}</Markdown>
+    </div>
+  );
 }

@@ -1,7 +1,11 @@
 "use client";
 
+import { motion } from "motion/react";
+import { Expand, Shrink, MoreHorizontal, Send, Square } from "lucide-react";
+import { AnalystConversationView } from "@/components/analyst-conversation-view";
+import { AssistantMessageContent } from "@/components/assistant-message-content";
 import Image from "next/image";
-import { createPortal } from "react-dom";
+import { ReviewDialog } from "@/components/ui/review-dialog";
 import { useEffect, useRef, useState } from "react";
 
 import type { PortfolioAnalystConversation } from "@/application/portfolio-analyst-conversation";
@@ -73,12 +77,14 @@ interface AnalystConfiguration {
 
 const starterQuestions = {
   "zh-CN": [
+    "帮我总结目前的整体资产状况，包括所有账户、各项持仓和资产分布。",
     "今天我的投资组合表现怎么样？",
     "最近 7 天哪些持仓对组合影响最大？",
     "当前资产数据有哪些需要更新？",
     "帮我创建一个新的投资账户。",
   ],
   en: [
+    "Summarize my current assets across all accounts, including every holding and the overall allocation.",
     "How is my portfolio performing today?",
     "Which holdings affected my portfolio most over the last 7 days?",
     "Which portfolio data needs updating?",
@@ -88,20 +94,24 @@ const starterQuestions = {
 
 export function PortfolioAnalyst({
   blocked = false,
-  reviewHost,
   onPortfolioChanged,
 }: {
   blocked?: boolean;
-  reviewHost?: HTMLElement | null;
   onPortfolioChanged?: () => void;
 }) {
   const activeRequest = useRef<AbortController | undefined>(undefined);
-  const conversationView = useRef<HTMLDivElement | null>(null);
+  const [focusedChat, setFocusedChat] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const deleteDialog = useRef<HTMLDialogElement>(null);
+  const deleteCancel = useRef<HTMLButtonElement>(null);
+  const conversationOptions = useRef<HTMLElement>(null);
+  const conversationMenu = useRef<HTMLDetailsElement>(null);
   const composer = useRef<HTMLTextAreaElement | null>(null);
   const [configuration, setConfiguration] = useState<AnalystConfiguration>();
   const [provider, setProvider] = useState<PortfolioAnalystProviderId>("openai");
   const [period, setPeriod] = useState<Period>("week");
   const [language, setLanguage] = useState<PortfolioAnalystLanguage>("en");
+  const [reviewPanel, setReviewPanel] = useState<"sale" | "memory" | "sources" | "import">();
   const [selectedReviewId, setSelectedReviewId] = useState<string>();
   const [selectedEvidenceId, setSelectedEvidenceId] = useState<string>();
   const includeHoldingNames = true;
@@ -176,9 +186,43 @@ export function PortfolioAnalyst({
   }, []);
 
   useEffect(() => {
-    const view = conversationView.current;
-    if (view) view.scrollTop = view.scrollHeight;
-  }, [conversation?.updatedAt, conversation?.turns.length, Object.keys(importDrafts).length, pendingTurn?.answerText, pendingImageMessage, pendingImportReply]);
+    const input = composer.current;
+    if (input) {
+      input.style.height = "auto";
+      input.style.height = `${Math.min(Math.max(input.scrollHeight, 72), 180)}px`;
+    }
+  }, [question]);
+
+  useEffect(() => {
+    if (deleteDialogOpen) {
+      deleteDialog.current?.showModal();
+      deleteCancel.current?.focus();
+    } else deleteDialog.current?.close();
+  }, [deleteDialogOpen]);
+
+  useEffect(() => {
+    const menu = conversationMenu.current;
+    if (!menu) return;
+    function closeOutside(event: Event) {
+      if (menu?.open && event.target instanceof Node && !menu.contains(event.target)) {
+        menu.open = false;
+      }
+    }
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape" && menu?.open) {
+        menu.open = false;
+        conversationOptions.current?.focus();
+      }
+    }
+    document.addEventListener("pointerdown", closeOutside, true);
+    document.addEventListener("focusin", closeOutside);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOutside, true);
+      document.removeEventListener("focusin", closeOutside);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, []);
 
   useEffect(() => () => { activeRequest.current?.abort(); }, []);
 
@@ -662,6 +706,7 @@ export function PortfolioAnalyst({
       importDraftsRef.current = { ...importDraftsRef.current, [draftId]: payload.draft };
       setImportDrafts(importDraftsRef.current);
       setImportAttachments((current) => resetAgentImageAttachments(current));
+      setReviewPanel(undefined);
       onPortfolioChanged?.();
     } catch (cause) {
       if (!(cause instanceof DOMException && cause.name === "AbortError")) {
@@ -726,7 +771,7 @@ export function PortfolioAnalyst({
           if (event.conversation.turns.at(-1)?.chat?.memoryProposal) {
             setSelectedEvidenceId(undefined);
             setMemoryReviewError("");
-            window.requestAnimationFrame(() => document.getElementById("agent-review")?.scrollIntoView({ block: "nearest", behavior: "smooth" }));
+            setReviewPanel("memory");
           }
           setPendingTurn(undefined);
           return;
@@ -837,7 +882,7 @@ export function PortfolioAnalyst({
 
   return (
     <div
-      className="portfolio-agent-shell"
+      className={`portfolio-agent-shell${focusedChat ? " agent-focused" : ""}`}
       id="agent"
       aria-hidden={blocked || undefined}
       inert={blocked || undefined}
@@ -852,8 +897,20 @@ export function PortfolioAnalyst({
             <Image src="/brand/aggrigator-icon-192.png" alt="" width={42} height={42} />
             <div>
               <h2 id="portfolio-analyst-title">Aggrigator</h2>
-              <p>Your portfolio companion. Ask me anything or send a screenshot.</p>
+              <p>{language === "zh-CN" ? "随时接着聊，也可以分享截图。" : "Pick up anytime. Questions or screenshots welcome."}</p>
             </div>
+          </div>
+          <div className="agent-header-actions">
+            <button type="button" aria-pressed={focusedChat} aria-label={language === "zh-CN" ? "专注聊天" : "Focus chat"} title={language === "zh-CN" ? "专注聊天" : "Focus chat"} onClick={() => setFocusedChat(!focusedChat)}>
+              {focusedChat ? <Shrink size={17} /> : <Expand size={17} />}
+            </button>
+            <details ref={conversationMenu} className="agent-manage-menu">
+              <summary ref={conversationOptions} aria-label={language === "zh-CN" ? "对话管理" : "Conversation options"}><MoreHorizontal size={18} aria-hidden="true" /></summary>
+              <div><button type="button" disabled={!conversation || loading || importBusy} onClick={(event) => {
+                event.currentTarget.closest("details")?.removeAttribute("open");
+                setDeleteDialogOpen(true);
+              }}>{language === "zh-CN" ? "删除聊天记录…" : "Delete chat history…"}</button></div>
+            </details>
           </div>
         </header>
 
@@ -864,9 +921,11 @@ export function PortfolioAnalyst({
             Add OPENAI_API_KEY to .env.local, then restart the app.
           </p>
         )}
-        <div ref={conversationView} className="analyst-conversation" aria-live="polite">
+        <AnalystConversationView language={language} sending={Boolean(pendingTurn?.phase === "sending" || pendingImageMessage || pendingImportReply || answeringImageTurnId)}>
           {!conversation?.turns.length && !conversation?.importActivities.length && !pendingTurn && (
             <div className="analyst-conversation-empty">
+              <h3>{language === "zh-CN" ? "今天想了解什么？" : "What’s on your mind?"}</h3>
+              <p>{language === "zh-CN" ? "一起看看你的资产，或从一个问题开始。" : "Let’s look at your portfolio, or start with a question."}</p>
               <div className="analyst-starter-grid">
                 {starterQuestions[language].map((prompt) => (
                   <button
@@ -881,7 +940,7 @@ export function PortfolioAnalyst({
               </div>
             </div>
           )}
-          {conversation && <SavedConversationEntries
+          {conversation && <SavedConversationEntries key={conversation.id}
             conversation={conversation}
             importDrafts={importDrafts}
             onRetryWorkflowReply={(turnId) => void retryWorkflowReply(turnId)}
@@ -889,7 +948,7 @@ export function PortfolioAnalyst({
             activeDateRequest={activeDateRequest}
             language={language}
             accountActionStatus={accountActionStatus}
-            selectedEvidenceId={selectedEvidenceId}
+            selectedEvidenceId={reviewPanel === "sources" ? selectedEvidenceId : undefined}
             answeringImageTurnId={answeringImageTurnId}
             streamedImageAnswer={streamedImageAnswer}
             loading={loading}
@@ -897,10 +956,7 @@ export function PortfolioAnalyst({
             onConfirmCreateAccount={(turnId, action) => void confirmCreateAccount(turnId, action)}
             onShowSources={(turnId) => {
               setSelectedEvidenceId(turnId);
-              window.requestAnimationFrame(() => {
-                document.getElementById("agent-sources-panel")?.focus();
-                document.getElementById("agent-review")?.scrollIntoView({ block: "start", behavior: "smooth" });
-              });
+              setReviewPanel("sources");
             }}
             onRetryImageQuestion={(turnId) => void retryImageQuestion(turnId)}
             onPrepareSavedImageImport={(sourceTurnId, accountId) => void prepareSavedImageImport(conversation, sourceTurnId, accountId)}
@@ -908,25 +964,25 @@ export function PortfolioAnalyst({
             onReviewDraft={(draftId) => {
               setSelectedEvidenceId(undefined);
               setSelectedReviewId(draftId);
-              document.getElementById("agent-review")?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+              setReviewPanel("import");
             }}
           />}
           {pendingImageMessage && (
-            <div className="analyst-turn pending" aria-live="polite">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} data-current-turn="true" className="analyst-turn pending" aria-live="polite">
               <div className="analyst-user-entry">
                 <PendingAgentMessageImages files={pendingImageMessage.files} />
                 {pendingImageMessage.text && <div className="analyst-user-message"><p>{pendingImageMessage.text}</p></div>}
                 <small className="analyst-user-status">Sending…</small>
               </div>
-            </div>
+            </motion.div>
           )}
           {pendingImportReply && (
-            <div className="analyst-turn pending" aria-live="polite">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} data-current-turn="true" className="analyst-turn pending" aria-live="polite">
               <div className="analyst-user-message"><p>{pendingImportReply}</p><small>Working…</small></div>
-            </div>
+            </motion.div>
           )}
           {pendingTurn && !pendingImageMessage && (
-            <div className="analyst-turn pending">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} data-current-turn="true" className="analyst-turn pending">
               <div className="analyst-user-message">
                 <p>{pendingTurn.question}</p>
               </div>
@@ -938,8 +994,9 @@ export function PortfolioAnalyst({
               />
               {pendingTurn.answerText ? (
                 <div className={`analyst-streaming-message analyst-assistant-message ${pendingTurn.phase}`}>
-                    <p>{pendingTurn.answerText}<i aria-hidden="true" /></p>
-                    <small>{language === "zh-CN" ? "生成中 · 完成后验证证据" : "Generating · evidence is validated on completion"}</small>
+                    <AssistantMessageContent text={pendingTurn.answerText} />
+                    <span className="analyst-stream-indicator" aria-hidden="true" />
+                    <small>{language === "zh-CN" ? "正在整理回答…" : "Putting your answer together…"}</small>
                 </div>
               ) : pendingTurn.phase === "failed" || pendingTurn.phase === "stopped" ? (
                 <div className={`analyst-streaming-message analyst-assistant-message ${pendingTurn.phase}`}>
@@ -950,11 +1007,16 @@ export function PortfolioAnalyst({
                   </button>}
                 </div>
               ) : null}
-            </div>
+            </motion.div>
           )}
           {error && <div className="analyst-turn" role="alert">
             <div className="analyst-primary-answer analyst-assistant-message"><p>{error}</p></div>
           </div>}
+        </AnalystConversationView>
+        <div className="agent-review-launchers">
+          {activeSaleTurn && <button type="button" onClick={() => setReviewPanel("sale")}>{language === "zh-CN" ? "核对卖出草稿" : "Review sale draft"}</button>}
+          {activeReview && <button type="button" onClick={() => setReviewPanel("import")}>{language === "zh-CN" ? "核对导入草稿" : "Review import draft"}</button>}
+          {pendingMemoryTurn && <button type="button" onClick={() => setReviewPanel("memory")}>{language === "zh-CN" ? "确认记忆" : "Review memory"}</button>}
         </div>
         <div className="analyst-composer">
           <div className="analyst-composer-box">
@@ -968,7 +1030,7 @@ export function PortfolioAnalyst({
               placeholder={language === "zh-CN" ? "提出问题，或分享一张图片……" : "Ask a question or share an image…"}
               onChange={(event) => setQuestion(event.target.value)}
               onKeyDown={(event) => {
-                if (event.key === "Enter" && !event.shiftKey) {
+                if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
                   event.preventDefault();
                   submitComposer();
                 }
@@ -982,35 +1044,54 @@ export function PortfolioAnalyst({
               />
               <div className="analyst-composer-actions">
                 {loading || importBusy ? (
-                  <button type="button" className="secondary" disabled={Boolean(pendingImageMessage)} onClick={() => activeRequest.current?.abort()}>
-                    {pendingImageMessage
+                  <motion.button whileTap={{ scale: .96 }} type="button" className="secondary" disabled={Boolean(pendingImageMessage)} onClick={() => activeRequest.current?.abort()}
+                    aria-label={pendingImageMessage
                       ? (language === "zh-CN" ? "发送中…" : "Sending…")
                       : (language === "zh-CN" ? "停止" : "Stop")}
-                  </button>
+                    title={pendingImageMessage
+                      ? (language === "zh-CN" ? "发送中…" : "Sending…")
+                      : (language === "zh-CN" ? "停止" : "Stop")}>
+                    <Square size={15} aria-hidden="true" />
+                  </motion.button>
                 ) : (
-                  <button type="button" onClick={submitComposer}
+                  <motion.button whileTap={{ scale: .96 }} type="button" onClick={submitComposer}
+                    aria-label={language === "zh-CN" ? "发送" : "Send"}
+                    title={language === "zh-CN" ? "发送" : "Send"}
                     disabled={!selectedProvider?.configured || (!question.trim() && importAttachments.files.length === 0)}>
-                    {language === "zh-CN" ? "发送" : "Send"}
-                  </button>
+                    <Send size={18} aria-hidden="true" />
+                  </motion.button>
                 )}
               </div>
             </div>
           </div>
           <div className="analyst-composer-meta">
             <small>{language === "zh-CN" ? "仅供信息，不构成投资建议" : "Information only, not investment advice"}</small>
-            {conversation && <button type="button" disabled={loading || importBusy} onClick={() => void resetConversation()}>
-              {language === "zh-CN" ? "重置对话" : "Reset conversation"}
-            </button>}
           </div>
         </div>
         </div>
       </aside>
-      {reviewHost && conversation && activeSaleTurn?.chat?.saleDraft && createPortal(
+      <dialog ref={deleteDialog} className="agent-delete-dialog" aria-labelledby="agent-delete-title" onCancel={() => setDeleteDialogOpen(false)} onClose={() => { setDeleteDialogOpen(false); conversationOptions.current?.focus(); }}>
+        <h2 id="agent-delete-title">{language === "zh-CN" ? "删除聊天记录？" : "Delete chat history?"}</h2>
+        <p>{language === "zh-CN" ? "这会删除当前聊天记录及关联图片。已确认的资产记录和长期记忆会保留。此操作无法撤销。" : "This deletes this chat and its attached images. Confirmed portfolio records and saved memories remain. This cannot be undone."}</p>
+        <div className="agent-delete-actions">
+          <button ref={deleteCancel} type="button" onClick={() => setDeleteDialogOpen(false)}>{language === "zh-CN" ? "保留记录" : "Keep history"}</button>
+          <button type="button" className="destructive" disabled={loading || importBusy} onClick={() => {
+            setDeleteDialogOpen(false);
+            void resetConversation();
+          }}>{language === "zh-CN" ? "删除记录" : "Delete history"}</button>
+        </div>
+      </dialog>
+      {conversation && activeSaleTurn?.chat?.saleDraft && (
+        <ReviewDialog open={reviewPanel === "sale"} title={language === "zh-CN" ? "核对卖出" : "Review sale"} busy={importBusy || memoryReviewBusy || Object.values(saveStatus).includes("saving")} onClose={() => setReviewPanel(undefined)}>
+
         <AgentSaleDraftReview key={activeSaleTurn.id} conversationId={conversation.id} turnId={activeSaleTurn.id}
           draft={activeSaleTurn.chat.saleDraft} language={language} onConversation={setConversation}
-          disabled={loading || importBusy} onBusy={setImportBusy} onSaved={() => onPortfolioChanged?.()} />, reviewHost,
+          disabled={loading || importBusy} onBusy={setImportBusy} onSaved={() => { setReviewPanel(undefined); onPortfolioChanged?.(); }} />
+        </ReviewDialog>
       )}
-      {reviewHost && !activeSaleTurn && pendingMemoryTurn?.chat?.memoryProposal && createPortal(
+      {pendingMemoryTurn?.chat?.memoryProposal && (
+        <ReviewDialog open={reviewPanel === "memory"} title={language === "zh-CN" ? "确认记忆" : "Review memory"} busy={importBusy || memoryReviewBusy || Object.values(saveStatus).includes("saving")} onClose={() => setReviewPanel(undefined)}>
+
         <section className="home-review-panel home-memory-review" aria-label="Review memory">
           <div className="home-review-panel-heading">
             <div><p className="eyebrow">MEMORY REVIEW</p><h2>{language === "zh-CN" ? "确认这条记忆" : "Confirm this memory"}</h2></div>
@@ -1022,10 +1103,12 @@ export function PortfolioAnalyst({
             <button type="button" disabled={memoryReviewBusy} onClick={() => void resolveMemoryProposal("save", pendingMemoryTurn.id)}>{memoryReviewBusy ? "Working…" : language === "zh-CN" ? "确认保存" : "Save memory"}</button>
             <button type="button" disabled={memoryReviewBusy} onClick={() => void resolveMemoryProposal("cancel", pendingMemoryTurn.id)}>{language === "zh-CN" ? "不保存" : "Do not save"}</button>
           </div>
-        </section>,
-        reviewHost,
+        </section>
+        </ReviewDialog>
       )}
-      {reviewHost && !activeSaleTurn && !pendingMemoryTurn && selectedEvidenceTurn?.report && createPortal(
+      {selectedEvidenceTurn?.report && (
+        <ReviewDialog open={reviewPanel === "sources"} title={language === "zh-CN" ? "事实与来源" : "Facts and sources"} onClose={() => setReviewPanel(undefined)}>
+
         <section id="agent-sources-panel" className="home-review-panel home-sources-panel" aria-label="Sources for the selected answer" tabIndex={-1}>
           <div className="home-review-panel-heading">
             <div>
@@ -1035,23 +1118,26 @@ export function PortfolioAnalyst({
             </div>
             <button type="button" className="home-review-close" onClick={() => {
               const sourceButton = document.getElementById(`sources-${selectedEvidenceTurn.id}`);
-              setSelectedEvidenceId(undefined);
+              setReviewPanel(undefined);
               window.requestAnimationFrame(() => sourceButton?.focus());
             }} aria-label="Close sources">×</button>
           </div>
           <div className="home-review-scroll">
             <AnalystReport report={selectedEvidenceTurn.report} sourcesOnly />
           </div>
-        </section>,
-        reviewHost,
+        </section>
+        </ReviewDialog>
       )}
-      {reviewHost && !activeSaleTurn && !pendingMemoryTurn && !selectedEvidenceTurn && activeReview && activeDraft && createPortal(
+      {activeReview && activeDraft && (
+        <ReviewDialog open={reviewPanel === "import"} title={language === "zh-CN" ? "核对导入" : "Review import"} busy={importBusy || memoryReviewBusy || Object.values(saveStatus).includes("saving")} onClose={() => setReviewPanel(undefined)}>
+
         <section className="home-review-panel" aria-label={`Review ${activeReview.targetLabel} import`}>
           <div className="home-review-panel-heading">
             <div><p className="eyebrow">IMPORT REVIEW</p><h2>Review {activeReview.targetLabel}</h2></div>
             <span>Changes apply after confirmation</span>
           </div>
           <div className="home-review-scroll">
+            {error && <p role="alert" className="error-message">{error}</p>}
             <AgentImportDraftReview
               draft={activeDraft}
               targetLabel={activeReview.targetLabel}
@@ -1063,8 +1149,8 @@ export function PortfolioAnalyst({
               onConfirm={() => void confirmAccountImport(activeReview.draftId)}
             />
           </div>
-        </section>,
-        reviewHost,
+        </section>
+        </ReviewDialog>
       )}
     </div>
   );
