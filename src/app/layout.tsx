@@ -11,6 +11,7 @@ import "./portfolio-analyst.css";
 import "./portfolio-pages.css";
 import "./responsive.css";
 import "./design-overrides.css";
+import "./home-experience.css";
 
 export const metadata: Metadata = {
   title: "Aggrigator",
