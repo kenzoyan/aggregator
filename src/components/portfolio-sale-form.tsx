@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
+import { ReviewDialog } from "@/components/ui/review-dialog";
 
 import { portfolioCalendarDate } from "@/application/portfolio-calendar";
 import { saleQuantityForDate, formatPortfolioSaleMoney, formatPortfolioSaleQuantity } from "@/application/portfolio-sale-presentation";
@@ -56,6 +57,7 @@ export function PortfolioSaleForm({ sourceAccountId, instrumentId, holdingName, 
   }
   async function previewSale(event: FormEvent) {
     event.preventDefault();
+    if (busy) return;
     if (!quantity) { setError("Enter the sale amount and actual quantity sold, both above zero."); return; }
     setBusy(true);
     setError("");
@@ -76,7 +78,7 @@ export function PortfolioSaleForm({ sourceAccountId, instrumentId, holdingName, 
     }
   }
   async function confirmSale() {
-    if (!review) return;
+    if (!review || busy) return;
     setBusy(true);
     setError("");
     try {
@@ -98,12 +100,12 @@ export function PortfolioSaleForm({ sourceAccountId, instrumentId, holdingName, 
     }
   }
 
-  return <form className="account-price-form portfolio-sale-form" onSubmit={previewSale}>
+  return <ReviewDialog open title={review ? "Review sale" : "Record a completed sale"} busy={busy} onClose={onCancel}><div className="operation-dialog-content"><form className="account-price-form portfolio-sale-form" onSubmit={(event) => { if (review) { event.preventDefault(); void confirmSale(); } else void previewSale(event); }}>
     <fieldset disabled={busy}>
       <header className="sale-form-heading">
-        <h3>Record a completed sale</h3>
         <strong>{holdingName}</strong>
       </header>
+      {!review && <>
       <div className="sale-input-grid">
         <label>Sale amount before fees ({currency})
           <input required inputMode="decimal" value={proceeds} onChange={(event) => change(setProceeds, event.target.value)} />
@@ -128,6 +130,7 @@ export function PortfolioSaleForm({ sourceAccountId, instrumentId, holdingName, 
           </label>}
         </div>
       </details>
+      </>}
       {review && <section className="sale-confirmation" aria-label="Sale summary" aria-live="polite">
         <table className="sale-summary-table">
           <caption>Sale summary</caption>
@@ -145,10 +148,11 @@ export function PortfolioSaleForm({ sourceAccountId, instrumentId, holdingName, 
       {error && <p className="error-message" role="alert">{error}</p>}
       <div className="sale-form-actions">
         <button type="button" disabled={busy} onClick={onCancel}>Cancel</button>
+        {review && <button type="button" disabled={busy} onClick={() => { setReview(undefined); setError(""); }}>Back to edit</button>}
         {review
           ? <button className="sale-confirm" type="button" disabled={busy} onClick={confirmSale}>{busy ? "Saving…" : "Save sale record"}</button>
           : <button type="submit" disabled={busy}>{busy ? "Checking…" : "Review changes"}</button>}
       </div>
     </fieldset>
-  </form>;
+  </form></div></ReviewDialog>;
 }

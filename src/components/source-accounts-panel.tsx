@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { ReviewDialog } from "@/components/ui/review-dialog";
 import { useEffect, useMemo, useState, type CSSProperties, type FormEvent } from "react";
 
 import {
@@ -41,6 +42,7 @@ export function SourceAccountsPanel() {
   const [allocationStatus, setAllocationStatus] = useState<"loading" | "ready" | "unavailable">("loading");
   const [editing, setEditing] = useState<string>();
   const [label, setLabel] = useState("");
+  const [creating, setCreating] = useState(false);
   const [newAccountType, setNewAccountType] = useState("");
   const [newAccountLabel, setNewAccountLabel] = useState("");
   const [busy, setBusy] = useState(false);
@@ -103,6 +105,7 @@ export function SourceAccountsPanel() {
 
   async function createAccount(event: FormEvent) {
     event.preventDefault();
+    if (busy) return;
     setBusy(true);
     setError("");
     try {
@@ -128,6 +131,7 @@ export function SourceAccountsPanel() {
       applyAccountsPage(payload as SourceAccountsPageReadModel);
       setNewAccountType("");
       setNewAccountLabel("");
+      setCreating(false);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Account could not be created.");
     } finally {
@@ -201,7 +205,7 @@ export function SourceAccountsPanel() {
         </div>
       </header>
 
-      {error && <p className="error-message" role="alert">{error}</p>}
+      {error && !creating && <p className="error-message" role="alert">{error}</p>}
       <section className="account-allocation-panel" aria-labelledby="account-allocation-heading">
         <div className="account-allocation-copy">
           <p className="eyebrow">CURRENT ALLOCATION</p>
@@ -232,7 +236,9 @@ export function SourceAccountsPanel() {
           <p className="account-allocation-empty">Allocation appears after an account has valued assets.</p>
         ) : null}
       </section>
-      <section className="account-create-panel" aria-labelledby="account-create-heading">
+      <div className="account-create-launcher"><button type="button" disabled={busy} onClick={() => { setError(""); setCreating(true); }}>Create account</button></div>
+      <ReviewDialog open={creating} title="Create account" busy={busy} onClose={() => { setCreating(false); setError(""); }}>
+      <section className="account-create-panel operation-dialog-content" aria-labelledby="account-create-heading">
         <div>
           <p className="eyebrow">ADD AN ACCOUNT</p>
           <h2 id="account-create-heading">Create a source account</h2>
@@ -242,6 +248,7 @@ export function SourceAccountsPanel() {
           <label>
             <span>Account type</span>
             <input
+              disabled={busy}
               maxLength={80}
               placeholder="For example, Nordea or Trading 212"
               required
@@ -252,6 +259,7 @@ export function SourceAccountsPanel() {
           <label>
             <span>Display name <small>Optional</small></span>
             <input
+              disabled={busy}
               maxLength={80}
               placeholder="For example, Long-term savings"
               value={newAccountLabel}
@@ -261,8 +269,11 @@ export function SourceAccountsPanel() {
           <button disabled={busy || !newAccountType.trim()} type="submit">
             {busy ? "Creating…" : "Create account"}
           </button>
+          <button type="button" disabled={busy} onClick={() => { setCreating(false); setError(""); }}>Cancel</button>
+          {error && <p className="error-message" role="alert">{error}</p>}
         </form>
       </section>
+      </ReviewDialog>
       <section className="accounts-grid">
         {accounts.map((account) => {
           const marketData = marketDataByAccount.get(account.id);

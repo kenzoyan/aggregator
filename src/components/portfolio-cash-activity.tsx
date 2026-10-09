@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
+import { ReviewDialog } from "@/components/ui/review-dialog";
 
 import type { CashActivityReadModel } from "@/application/portfolio-cash-activity";
 import { selectHoldingActivity } from "@/application/portfolio-activity-selection";
@@ -31,6 +32,7 @@ export function PortfolioCashActivity({ sourceAccountId, activity, instrumentId,
 
   async function transfer(event: FormEvent) {
     event.preventDefault();
+    if (busy) return;
     setBusy(true); setError("");
     const withdrawal = { sourceAccountId, date, currency, amount, destination };
     try {
@@ -48,6 +50,7 @@ export function PortfolioCashActivity({ sourceAccountId, activity, instrumentId,
     finally { setBusy(false); }
   }
   async function undo() {
+    if (busy || !undoId) return;
     setBusy(true); setError("");
     try {
       const response = await fetch("/api/portfolio/sales", {
@@ -65,26 +68,32 @@ export function PortfolioCashActivity({ sourceAccountId, activity, instrumentId,
     ...records.map((record) => ({ id: record.id, asOf: record.asOf, record, update: undefined })),
     ...updates.map((update) => ({ id: update.id, asOf: update.asOf, record: undefined, update })),
   ].sort((a, b) => b.asOf.localeCompare(a.asOf));
+  const undoRecord = records.find((record) => record.id === undoId);
   function changed() { setReview(undefined); setError(""); }
   return <section className="price-history-section holding-activity-history">
     <div className="drawer-section-heading"><h3>History</h3></div>
-    {!instrumentId && activity.cashBalances.length > 0 && <button type="button" disabled={busy} onClick={() => { setOpen(!open); setReview(undefined); }}>Withdraw cash</button>}
-    {open && <form className="account-price-form" onSubmit={transfer}>
+    {!instrumentId && activity.cashBalances.length > 0 && <button type="button" disabled={busy} onClick={() => { setError(""); setOpen(true); setReview(undefined); }}>Withdraw cash</button>}
+    <ReviewDialog open={open} title={review ? "Review transfer" : "Withdraw cash"} busy={busy} onClose={() => { setOpen(false); setError(""); }}>
+    <div className="operation-dialog-content"><form className="account-price-form" onSubmit={transfer}>
       <fieldset disabled={busy}>
         <h3>Transfer investment account cash out</h3>
+        {!review && <>
         <label>Date<input required type="date" max={portfolioCalendarDate()} value={date} onChange={(event) => { setDate(event.target.value); changed(); }} /></label>
         <label>Currency<select value={currency} onChange={(event) => { setCurrency(event.target.value); changed(); }}>{activity.cashBalances.map((cash) => <option key={cash.currency} value={cash.currency}>{cash.currency} · available {cash.amount}</option>)}</select></label>
         <label>Amount<input required inputMode="decimal" value={amount} onChange={(event) => { setAmount(event.target.value); changed(); }} /></label>
         <CashDestinationFields externalOnly destination={destination} names={activity.destinations} onChange={(next) => { setDestination(next); changed(); }} />
+        </>}
         {review && <div className="sale-review" role="status">
           <strong>Review transfer to {review.preview.destination.name}</strong>
           <span>Account cash: {review.preview.cashBefore} → {review.preview.cashAfter} {review.preview.currency}</span>
           <span>Tracked total decreases by {formatPortfolioSaleMoney(review.preview.externalOutflow, review.preview.currency)}.</span>
         </div>}
-        <div><button type="button" onClick={() => setOpen(false)}>Cancel</button><button type="submit">{busy ? "Saving…" : review ? "Confirm transfer" : "Review transfer"}</button></div>
+        {error && <p className="error-message" role="alert">{error}</p>}
+        <div><button type="button" onClick={() => { setOpen(false); setError(""); }}>Cancel</button>{review && <button type="button" onClick={() => { setReview(undefined); setError(""); }}>Back to edit</button>}<button type="submit">{busy ? "Saving…" : review ? "Confirm transfer" : "Review transfer"}</button></div>
       </fieldset>
-    </form>}
-    {error && <p className="error-message" role="alert">{error}</p>}
+    </form></div>
+    </ReviewDialog>
+    {error && !open && !undoId && <p className="error-message" role="alert">{error}</p>}
     {rows.length === 0 ? <p className="drawer-empty-copy">No activity recorded yet.</p> : <div className="holding-history-table-wrap"><table className="holding-history-table">
       <thead><tr><th scope="col">Date</th><th scope="col">Activity</th><th scope="col">Quantity</th><th scope="col">Amount</th><th scope="col">Details</th><th scope="col"><span className="history-action-heading">Actions</span></th></tr></thead>
       <tbody>{rows.slice(0, visibleCount).map(({ id, asOf, record, update }) => <tr key={id}>
@@ -98,14 +107,18 @@ export function PortfolioCashActivity({ sourceAccountId, activity, instrumentId,
           {record?.type === "sale" && <small>Before fees · fee {formatPortfolioSaleMoney(record.fees?.amount ?? "0", record.proceeds.currency)}</small>}
         </td>
         <td>{record && !record.voidedAt && (record.undoBlockedReason ? <span title={record.undoBlockedReason}>Undo unavailable</span> : <>
-          {undoId === record.id ? <div className="history-undo-confirmation">
-            <p>Undo this record and restore its quantities and cash?</p>
-            <button type="button" disabled={busy} onClick={() => setUndoId(undefined)}>Cancel</button>
-            <button type="button" disabled={busy} onClick={undo}>{busy ? "Undoing…" : "Confirm undo"}</button>
-          </div> : <button type="button" disabled={busy} onClick={() => setUndoId(record.id)}>Undo</button>}
+          <button type="button" disabled={busy} onClick={() => { setError(""); setUndoId(record.id); }}>Undo</button>
         </>)}</td>
       </tr>)}</tbody>
     </table></div>}
+    <ReviewDialog open={Boolean(undoId)} title="Undo record?" busy={busy} onClose={() => { setUndoId(undefined); setError(""); }}>
+      <div className="operation-dialog-content">
+        <p>Undo this record and restore its quantities and cash?</p>
+        {undoRecord && <p>{undoRecord.asOf.slice(0, 10)} · {undoRecord.type === "sale" ? `Sale · ${undoRecord.holdingName ?? "Holding"}` : "Cash withdrawal"} · {formatPortfolioSaleMoney(undoRecord.type === "sale" ? undoRecord.proceeds.amount : undoRecord.amount.amount, undoRecord.type === "sale" ? undoRecord.proceeds.currency : undoRecord.amount.currency)}</p>}
+        {error && <p className="error-message" role="alert">{error}</p>}
+        <div className="operation-dialog-actions"><button type="button" disabled={busy} onClick={() => { setUndoId(undefined); setError(""); }}>Cancel</button><button type="button" disabled={busy || !undoRecord} onClick={() => void undo()}>{busy ? "Undoing…" : "Confirm undo"}</button></div>
+      </div>
+    </ReviewDialog>
     {rows.length > visibleCount && <button className="price-history-more" type="button" onClick={() => setVisibleCount((count) => count + 5)}>Show {Math.min(5, rows.length - visibleCount)} more</button>}
   </section>;
 }

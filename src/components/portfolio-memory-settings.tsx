@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { ReviewDialog } from "@/components/ui/review-dialog";
 
 import {
   MAX_PORTFOLIO_ANALYST_MEMORIES,
@@ -34,22 +35,22 @@ export function PortfolioMemorySettings() {
       });
   }, []);
 
-  async function confirmAction() {
-    if (!pending || busy) return;
+  async function confirmAction(action: PendingAction) {
+    if (busy) return;
     setBusy(true);
     setError("");
     try {
       const response = await fetch("/api/portfolio/analyst/memory", {
-        method: pending.kind === "save" ? "PUT" : "DELETE",
+        method: action.kind === "save" ? "PUT" : "DELETE",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify(pending.kind === "save"
-          ? { ...(pending.id ? { id: pending.id } : {}), content: pending.content, source: "settings", confirm: true }
-          : { id: pending.id, confirm: true }),
+        body: JSON.stringify(action.kind === "save"
+          ? { ...(action.id ? { id: action.id } : {}), content: action.content, source: "settings", confirm: true }
+          : { id: action.id, confirm: true }),
       });
       const result = await response.json() as { memory?: PortfolioAnalystMemory; error?: string };
       if (!response.ok) throw new Error(result.error ?? "Memory could not be changed.");
-      if (pending.kind === "delete") {
-        setMemories((current) => current?.filter((memory) => memory.id !== pending.id));
+      if (action.kind === "delete") {
+        setMemories((current) => current?.filter((memory) => memory.id !== action.id));
       } else if (result.memory) {
         setMemories((current) => [result.memory!, ...(current ?? []).filter((memory) => memory.id !== result.memory!.id)]);
       }
@@ -70,7 +71,7 @@ export function PortfolioMemorySettings() {
       <h2 id="settings-memory-heading">Memory</h2>
       <p>Short preferences you confirmed for future conversations. These are separate from assistant defaults and portfolio facts.</p>
     </div></div>
-    {error && <p className="error-message" role="alert">{error}</p>}
+    {error && !showEditor && !pending && <p className="error-message" role="alert">{error}</p>}
     {loadFailed ? null : !memories ? <p>Loading memories…</p> : <>
       {memories.length === 0 ? <p>No memories saved.</p> : <div className="settings-memory-table-wrap"><table className="settings-memory-table">
         <thead><tr><th scope="col">Memory</th><th scope="col">Updated</th><th scope="col" aria-label="Actions" /></tr></thead>
@@ -79,36 +80,42 @@ export function PortfolioMemorySettings() {
           <td><span>{new Date(memory.updatedAt).toLocaleString()}</span><small>From {memory.source === "chat" ? "chat" : "settings"}</small></td>
           <td><div className="settings-memory-row-actions">
             <button type="button" disabled={busy} onClick={() => {
-              setEditingId(memory.id); setDraft(memory.content); setShowEditor(true); setPending(undefined);
+              setError(""); setEditingId(memory.id); setDraft(memory.content); setShowEditor(true); setPending(undefined);
             }}>Edit</button>
-            <button type="button" disabled={busy} onClick={() => setPending({ kind: "delete", id: memory.id, content: memory.content })}>Delete</button>
+            <button type="button" disabled={busy} onClick={() => { setError(""); setPending({ kind: "delete", id: memory.id, content: memory.content }); }}>Delete</button>
           </div></td>
         </tr>)}</tbody>
       </table></div>}
       {!showEditor && memories.length < MAX_PORTFOLIO_ANALYST_MEMORIES && <button className="settings-memory-add" type="button" onClick={() => {
-        setDraft(""); setEditingId(undefined); setPending(undefined); setShowEditor(true);
+        setError(""); setDraft(""); setEditingId(undefined); setPending(undefined); setShowEditor(true);
       }}>Add memory</button>}
-      {showEditor && <div className="settings-memory-editor">
+      <ReviewDialog open={showEditor} title={editingId ? "Edit memory" : "Add memory"} busy={busy} onClose={() => { setShowEditor(false); setError(""); }}>
+      <div className="settings-memory-editor operation-dialog-content">
         <label htmlFor="memory-draft">{editingId ? "Edit memory" : "Add a memory"}</label>
-        <textarea id="memory-draft" value={draft} maxLength={MAX_PORTFOLIO_ANALYST_MEMORY_CHARS}
+        <textarea id="memory-draft" disabled={busy} value={draft} maxLength={MAX_PORTFOLIO_ANALYST_MEMORY_CHARS}
           onChange={(event) => { setDraft(event.target.value); setPending(undefined); }}
           placeholder="For example: Keep performance explanations brief." />
         <small>Preferences only. Do not enter passwords, keys, screenshots, or financial records. {draft.length}/{MAX_PORTFOLIO_ANALYST_MEMORY_CHARS}</small>
         <div className="settings-memory-actions">
           <button type="button" disabled={busy || !validMemoryContent(draft.trim()) ||
             (editingId ? memories.find((memory) => memory.id === editingId)?.content === draft.trim() : false)}
-            onClick={() => setPending({ kind: "save", id: editingId, content: draft.trim() })}>Review {editingId ? "edit" : "save"}</button>
+            onClick={() => void confirmAction({ kind: "save", id: editingId, content: draft.trim() })}>{busy ? "Saving…" : "Save memory"}</button>
           <button type="button" disabled={busy} onClick={() => {
             setEditingId(undefined); setDraft(""); setPending(undefined); setShowEditor(false);
           }}>Cancel</button>
         </div>
-      </div>}
-      {pending && <div className="settings-memory-confirm" role="group" aria-label="Confirm memory change">
-        <p>{pending.kind === "delete" ? "Delete this memory?" : pending.id ? "Save this edit?" : "Save this new memory?"}</p>
+        {error && <p className="error-message" role="alert">{error}</p>}
+      </div>
+      </ReviewDialog>
+      <ReviewDialog open={Boolean(pending)} title="Delete memory?" busy={busy} onClose={() => { setPending(undefined); setError(""); }}>
+      {pending && <div className="settings-memory-confirm operation-dialog-content" role="group" aria-label="Confirm memory change">
+        <p>This preference will no longer be used in future answers.</p>
         <blockquote>{pending.content}</blockquote>
-        <button type="button" disabled={busy} onClick={() => void confirmAction()}>{busy ? "Working…" : "Confirm"}</button>
+        <button type="button" disabled={busy} onClick={() => void confirmAction(pending)}>{busy ? "Deleting…" : "Delete memory"}</button>
         <button type="button" disabled={busy} onClick={() => setPending(undefined)}>Cancel</button>
+        {error && <p className="error-message" role="alert">{error}</p>}
       </div>}
+      </ReviewDialog>
       <p className="settings-memory-count">{memories.length}/{MAX_PORTFOLIO_ANALYST_MEMORIES} saved memories. All confirmed memories are loaded for ordinary assistant questions.</p>
     </>}
   </section>;
