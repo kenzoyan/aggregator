@@ -50,6 +50,7 @@ import {
   SavedConversationEntries,
   pendingPhaseLabel,
 } from "@/components/portfolio-analyst-transcript";
+import { AgentSaleDraftReview } from "@/components/agent-sale-draft-review";
 import { AgentImportDraftReview } from "@/components/agent-import-draft-review";
 import {
   applyPortfolioAnalystStreamEvent,
@@ -130,6 +131,7 @@ export function PortfolioAnalyst({
     "confirming" | "created" | "failed"
   >>({});
   const selectedProvider = configuration?.providers.find((item) => item.id === provider);
+  const activeSaleTurn = conversation?.turns.findLast((turn) => turn.chat?.saleDraft?.status === "pending");
   const activeImportTarget = pendingScreenshotImportTarget(conversation);
 
   useEffect(() => {
@@ -234,8 +236,16 @@ export function PortfolioAnalyst({
       screenshots: importAttachments.files,
     });
     if (!submission) return;
+    if (activeSaleTurn && submission.screenshots.length > 0) {
+      setError(language === "zh-CN" ? "请先保存或取消当前卖出草稿，再上传下一张截图。" : "Save or cancel the current sale draft before uploading another image.");
+      return;
+    }
     if (submission.screenshots.length > 0) {
       void sendImageMessage(submission);
+      return;
+    }
+    if (activeSaleTurn && conversation) {
+      void submitSaleMessage(activeSaleTurn.id, submission.text);
       return;
     }
     if (activeReview) {
@@ -349,6 +359,7 @@ export function PortfolioAnalyst({
     const controller = new AbortController();
     activeRequest.current = controller;
     let importRequest: { accountId: string; conversation: PortfolioAnalystConversation } | undefined;
+    let saleRequest: PortfolioAnalystConversation | undefined;
     let delegate = false;
     try {
       const response = await fetch("/api/portfolio/analyst/images/intent", {
@@ -363,7 +374,7 @@ export function PortfolioAnalyst({
       });
       const payload = await response.json() as {
         conversation?: PortfolioAnalystConversation;
-        intent?: "clarify" | "answer-image" | "prepare-import" | "delegate";
+        intent?: "clarify" | "answer-image" | "prepare-import" | "prepare-sale" | "delegate";
         accountId?: string;
         answerTurnId?: string;
         error?: string;
@@ -382,6 +393,8 @@ export function PortfolioAnalyst({
         if (payload.intent === "answer-image" && payload.answerTurnId) {
           setAnsweringImageTurnId(payload.answerTurnId);
           await completeImageAnswer(payload.answerTurnId, controller.signal);
+        } else if (payload.intent === "prepare-sale") {
+          saleRequest = payload.conversation;
         } else if (payload.intent === "prepare-import" && payload.accountId) {
           importRequest = { accountId: payload.accountId, conversation: payload.conversation };
         }
@@ -401,9 +414,58 @@ export function PortfolioAnalyst({
       void runAnalyst(followUp);
       return;
     }
+    if (saleRequest) await prepareSaleImage(saleRequest, sourceTurnId);
     if (importRequest) {
       await prepareSavedImageImport(importRequest.conversation, sourceTurnId, importRequest.accountId);
     }
+  }
+
+  async function prepareSaleImage(current: PortfolioAnalystConversation, sourceTurnId: string) {
+    setImportBusy(true); setError(undefined);
+    const controller = new AbortController(); activeRequest.current = controller;
+    try {
+      const response = await fetch("/api/portfolio/analyst/sale", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ conversationId: current.id, sourceTurnId }), signal: controller.signal,
+      });
+      const payload = await response.json();
+      if (payload.conversation) setConversation(payload.conversation);
+      if (!response.ok && !payload.conversation) throw new Error(payload.error ?? "Sale screenshot could not be read.");
+    } catch (cause) {
+      if (!(cause instanceof DOMException && cause.name === "AbortError")) setError(cause instanceof Error ? cause.message : "Sale screenshot could not be read.");
+    } finally { setImportBusy(false); activeRequest.current = undefined; }
+  }
+
+  async function retryWorkflowReply(turnId: string) {
+    if (!conversation || loading || importBusy) return;
+    setImportBusy(true); setError(undefined);
+    try {
+      const response = await fetch("/api/portfolio/analyst/sale/reply", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ conversationId: conversation.id, turnId }),
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload.conversation) throw new Error("Agent reply could not be retried.");
+      setConversation(payload.conversation);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Agent reply could not be retried."); }
+    finally { setImportBusy(false); }
+  }
+
+  async function submitSaleMessage(turnId: string, text: string) {
+    if (!conversation || importBusy || loading) return;
+    setImportBusy(true); setPendingImportReply(text); setError(undefined);
+    const controller = new AbortController(); activeRequest.current = controller;
+    try {
+      const response = await fetch("/api/portfolio/analyst/sale", {
+        method: "PATCH", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ conversationId: conversation.id, turnId, text }), signal: controller.signal,
+      });
+      const payload = await response.json();
+      if (payload.conversation) { setConversation(payload.conversation); setQuestion(""); }
+      if (!response.ok && !payload.conversation) throw new Error(payload.error ?? "Sale correction could not be read.");
+    } catch (cause) {
+      if (!(cause instanceof DOMException && cause.name === "AbortError")) setError(cause instanceof Error ? cause.message : "Sale correction could not be read.");
+    } finally { setImportBusy(false); setPendingImportReply(undefined); activeRequest.current = undefined; }
   }
 
   async function submitImportMessage(draftId: string, userText: string) {
@@ -822,6 +884,7 @@ export function PortfolioAnalyst({
           {conversation && <SavedConversationEntries
             conversation={conversation}
             importDrafts={importDrafts}
+            onRetryWorkflowReply={(turnId) => void retryWorkflowReply(turnId)}
             activeReviewDraftId={activeReview?.draftId}
             activeDateRequest={activeDateRequest}
             language={language}
@@ -942,7 +1005,12 @@ export function PortfolioAnalyst({
         </div>
         </div>
       </aside>
-      {reviewHost && pendingMemoryTurn?.chat?.memoryProposal && createPortal(
+      {reviewHost && conversation && activeSaleTurn?.chat?.saleDraft && createPortal(
+        <AgentSaleDraftReview key={activeSaleTurn.id} conversationId={conversation.id} turnId={activeSaleTurn.id}
+          draft={activeSaleTurn.chat.saleDraft} language={language} onConversation={setConversation}
+          disabled={loading || importBusy} onBusy={setImportBusy} onSaved={() => onPortfolioChanged?.()} />, reviewHost,
+      )}
+      {reviewHost && !activeSaleTurn && pendingMemoryTurn?.chat?.memoryProposal && createPortal(
         <section className="home-review-panel home-memory-review" aria-label="Review memory">
           <div className="home-review-panel-heading">
             <div><p className="eyebrow">MEMORY REVIEW</p><h2>{language === "zh-CN" ? "确认这条记忆" : "Confirm this memory"}</h2></div>
@@ -957,7 +1025,7 @@ export function PortfolioAnalyst({
         </section>,
         reviewHost,
       )}
-      {reviewHost && !pendingMemoryTurn && selectedEvidenceTurn?.report && createPortal(
+      {reviewHost && !activeSaleTurn && !pendingMemoryTurn && selectedEvidenceTurn?.report && createPortal(
         <section id="agent-sources-panel" className="home-review-panel home-sources-panel" aria-label="Sources for the selected answer" tabIndex={-1}>
           <div className="home-review-panel-heading">
             <div>
@@ -977,7 +1045,7 @@ export function PortfolioAnalyst({
         </section>,
         reviewHost,
       )}
-      {reviewHost && !pendingMemoryTurn && !selectedEvidenceTurn && activeReview && activeDraft && createPortal(
+      {reviewHost && !activeSaleTurn && !pendingMemoryTurn && !selectedEvidenceTurn && activeReview && activeDraft && createPortal(
         <section className="home-review-panel" aria-label={`Review ${activeReview.targetLabel} import`}>
           <div className="home-review-panel-heading">
             <div><p className="eyebrow">IMPORT REVIEW</p><h2>Review {activeReview.targetLabel}</h2></div>

@@ -197,3 +197,17 @@ describe("assistant image conversation", () => {
     expect(state.read().turns).toHaveLength(2);
   });
 });
+
+it("routes a sale screenshot to sale review instead of the holdings import", async () => {
+  const state = fixture("帮我记录这笔卖出");
+  const handler = createAgentImageIntentHandler({
+    ...state, readAccounts: () => state.accounts, imageModel: "test-model",
+    interpret: async () => ({ intent: "prepare-sale", confidence: "high" }),
+  });
+  const response = await handler(request({ conversationId: "conversation", sourceTurnId: imageId }));
+  expect(response.status).toBe(200);
+  const payload = await response.json();
+  expect(payload.intent).toBe("prepare-sale");
+  expect(payload.conversation.turns.at(-1).chat.imageAction.purpose).toBe("sale");
+  expect(payload.conversation.importActivities).toEqual([]);
+});

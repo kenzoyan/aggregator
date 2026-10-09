@@ -10,7 +10,7 @@ export interface AgentImageIntentInput {
 }
 
 export interface AgentImageIntentDecision {
-  intent: "answer-image" | "prepare-import" | "clarify" | "delegate";
+  intent: "answer-image" | "prepare-import" | "prepare-sale" | "clarify" | "delegate";
   confidence: "high" | "low";
   accountId?: string | null;
 }

@@ -1,3 +1,5 @@
+import type { PortfolioWorkflowResult } from "@/application/portfolio-workflow-result";
+import type { AgentSaleDraft } from "@/application/agent-sale-draft";
 import type {
   PortfolioAnalystProviderId,
   PortfolioAnalystReport,
@@ -41,11 +43,15 @@ export interface PortfolioAnalystChatReply {
     content: string;
     status: "pending" | "saved" | "cancelled";
   };
+  saleDraft?: AgentSaleDraft;
+  workflowResult?: PortfolioWorkflowResult;
+  workflowReplyAudit?: import("@/application/portfolio-analyst-agent").PortfolioAnalystAgentAudit;
   imageAction?: {
     sourceTurnId: string;
     stage: "intent" | "account";
     preferredAccountType?: string;
     accountId?: string;
+    purpose?: "sale";
   };
 }
 

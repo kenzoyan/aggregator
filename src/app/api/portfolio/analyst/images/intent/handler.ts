@@ -18,7 +18,7 @@ const requestSchema = z.object({
   text: z.string().trim().min(1).max(600).optional(),
 }).strict().refine((value) => Boolean(value.id) === Boolean(value.text));
 
-type Outcome = "clarify" | "answer-image" | "prepare-import";
+type Outcome = "clarify" | "answer-image" | "prepare-import" | "prepare-sale";
 
 function reply(language: PortfolioAnalystConversation["language"], kind: "intent" | "account" | "missing" | "import", accounts: SourceAccountDefinition[], label?: string) {
   const zh = language === "zh-CN";
@@ -80,6 +80,7 @@ export function createAgentImageIntentHandler(input: {
     const accounts = input.readAccounts().filter((account) => account.updateMethod === "screenshot");
     const stage = action?.stage ?? resumable!.stage;
     const preferredAccountType = action?.preferredAccountType ?? resumable?.preferredAccountType;
+    const salePurpose = action?.purpose === "sale";
     const exactAccount = stage === "account"
       ? accounts.find((candidate) => {
           const normalized = normalizeSourceAccountType(text);
@@ -89,8 +90,10 @@ export function createAgentImageIntentHandler(input: {
       : undefined;
     let decision: AgentImageIntentDecision;
     try {
-      decision = exactAccount
-        ? { intent: "prepare-import", confidence: "high", accountId: exactAccount.id }
+      decision = salePurpose && !body.id
+        ? { intent: "prepare-sale", confidence: "high" }
+        : exactAccount
+        ? { intent: salePurpose ? "prepare-sale" : "prepare-import", confidence: "high", accountId: exactAccount.id }
         : stage === "import-follow-up" && /^(好的|好|可以|确认|继续|yes|ok|okay|go ahead)[.!。！\s]*$/iu.test(text)
         ? { intent: "prepare-import", confidence: "high", accountId: null }
         : !text
@@ -129,7 +132,10 @@ export function createAgentImageIntentHandler(input: {
     const now = (input.now ?? (() => new Date().toISOString()))();
     let assistantText = "";
     let nextStage: "intent" | "account" | undefined;
-    if (outcome === "clarify") {
+    if (outcome === "prepare-sale") {
+      assistantText = "";
+      nextStage = "intent";
+    } else if (outcome === "clarify") {
       assistantText = reply(conversation.language, "intent", accounts);
       nextStage = "intent";
     } else if (outcome === "prepare-import" && !account) {
@@ -179,6 +185,7 @@ export function createAgentImageIntentHandler(input: {
           assistantText,
           ...(nextStage ? { imageAction: {
             sourceTurnId: source.id, stage: nextStage,
+            ...(outcome === "prepare-sale" ? { purpose: "sale" as const } : {}),
             ...(preferredAccountType ? { preferredAccountType } : {}),
             ...(account ? { accountId: account.id } : {}),
           } } : {}),
@@ -192,6 +199,7 @@ export function createAgentImageIntentHandler(input: {
               assistantText,
               ...(nextStage ? { imageAction: {
                 sourceTurnId: source.id, stage: nextStage,
+                ...(outcome === "prepare-sale" ? { purpose: "sale" as const } : {}),
                 ...(preferredAccountType ? { preferredAccountType } : {}),
                 ...(account ? { accountId: account.id } : {}),
               } } : {}),

@@ -1194,3 +1194,33 @@ it.each(["read_holding_history", "read_account_activity"] as const)("executes %s
   expect(result.answer.answer.evidence).toEqual(["call1.history.summary"]);
   expect(result.answer.proposedUpdate).toBeNull();
 });
+
+it("reads a trusted workflow result and saved preferences before producing its own operation reply", async () => {
+  const fail = () => { throw new Error("Unexpected portfolio tool"); };
+  const tools: PortfolioAnalystTools = {
+    readPeriodDrivers: fail, readDataQuality: fail, readPortfolioOverview: fail,
+    readAccounts: fail, readAccountHoldings: fail, readHoldingHistory: fail, readAccountActivity: fail,
+    proposeCreateAccount: fail, prepareAccountImport: fail,
+  };
+  const workflowResult = { workflow: "sale" as const, operation: "prepare" as const, status: "failed" as const,
+    recordedAt: context.factsAsOf, portfolioChanged: false, code: "duplicate-image",
+    details: "This screenshot already has a saved sale." };
+  let calls = 0;
+  const seen: Context[] = [];
+  const streamFn: StreamFn = (_model, piContext) => {
+    seen.push(piContext); calls += 1;
+    if (calls === 1) return completedStream(assistant([{ type: "toolCall", id: "result", name: "read_workflow_result", arguments: {} }], "toolUse"));
+    if (calls === 2) return completedStream(assistant([{ type: "toolCall", id: "memory", name: "read_memories", arguments: {} }], "toolUse"));
+    return completedStream(assistant([{ type: "text", text: "这张截图的卖出已经记录过了，这次没有重复入账。" }], "stop"));
+  };
+  const result = await createPiModelControlledPortfolioAnalyst({ model, streamFn }).runTurn({
+    question: "帮我记录这笔卖出", history: [], tools, workflowResult, language: "en",
+    includeHoldingNames: true, defaultPeriod: "week",
+    memories: [{ id: "m", content: "Answer briefly.", source: "settings", createdAt: context.factsAsOf, updatedAt: context.factsAsOf }],
+  });
+  expect(seen[0].tools?.map((tool) => tool.name)).toEqual(["read_workflow_result", "read_memories"]);
+  expect(seen[1].messages.at(-1)).toMatchObject({ role: "toolResult", toolName: "read_workflow_result" });
+  expect(JSON.stringify(seen[1].messages.at(-1))).toContain("duplicate-image");
+  expect(result).toMatchObject({ kind: "conversation", reply: "这张截图的卖出已经记录过了，这次没有重复入账。" });
+  expect(result.audit.toolCalls.map((call) => call.name)).toEqual(["read_workflow_result", "read_memories"]);
+});

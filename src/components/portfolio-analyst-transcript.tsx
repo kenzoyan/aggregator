@@ -53,6 +53,7 @@ interface SavedConversationEntriesProps {
   onShowSources: (turnId: string) => void;
   onRetryImageQuestion: (turnId: string) => void;
   onPrepareSavedImageImport: (sourceTurnId: string, accountId: string) => void;
+  onRetryWorkflowReply?: (turnId: string) => void;
   onResolveImageMessage: (sourceTurnId: string) => void;
   onReviewDraft: (draftId: string) => void;
 }
@@ -61,7 +62,7 @@ export function SavedConversationEntries({
   conversation, importDrafts, activeReviewDraftId, activeDateRequest, language,
   accountActionStatus, selectedEvidenceId, answeringImageTurnId, streamedImageAnswer,
   loading, importBusy, onConfirmCreateAccount, onShowSources, onRetryImageQuestion,
-  onPrepareSavedImageImport, onResolveImageMessage, onReviewDraft,
+  onPrepareSavedImageImport, onRetryWorkflowReply, onResolveImageMessage, onReviewDraft,
 }: SavedConversationEntriesProps) {
   return <>
     {[
@@ -107,18 +108,30 @@ export function SavedConversationEntries({
                 <ul>{entry.turn.imageAnswer.uncertainties.map((item) => <li key={item}>{item}</li>)}</ul>
               )}
             </>}
-          </div> : entry.turn.chat ? <div className="analyst-primary-answer analyst-assistant-message">
-            <p>{entry.turn.chat.assistantText || (language === "zh-CN" ? "正在查看图片…" : "Reading your image…")}</p>
+          </div> : entry.turn.chat && (entry.turn.chat.assistantText || entry.turn.chat.workflowResult ||
+            entry.turn.chat.imageAction?.purpose !== "sale" ||
+            (entry.turn.id === conversation.turns.at(-1)?.id && !importBusy))
+            ? <div className="analyst-primary-answer analyst-assistant-message">
+            {entry.turn.chat.workflowResult && !entry.turn.chat.assistantText ? <>
+              <small>{language === "zh-CN" ? "操作结果已记录，Agent 回复尚未完成。" : "Operation result recorded; Agent reply is pending."}</small>
+              <button type="button" disabled={loading || importBusy} onClick={() => onRetryWorkflowReply?.(entry.turn.id)}>
+                {language === "zh-CN" ? "重试 Agent 回复" : "Retry Agent reply"}
+              </button>
+            </> : entry.turn.chat.imageAction?.purpose !== "sale" || entry.turn.chat.assistantText ? <p>{entry.turn.chat.assistantText || (language === "zh-CN" ? "正在查看图片…" : "Reading your image…")}</p> : null}
             {entry.turn.chat.memoryProposal?.status === "saved" && <small>{language === "zh-CN" ? "记忆已保存。" : "Memory saved."}</small>}
             {entry.turn.chat.memoryProposal?.status === "cancelled" && <small>{language === "zh-CN" ? "记忆未保存。" : "Memory not saved."}</small>}
-            {entry.turn.id === conversation.turns.at(-1)?.id && entry.turn.chat.imageAction?.accountId &&
+            {entry.turn.id === conversation.turns.at(-1)?.id && entry.turn.chat.imageAction?.purpose === "sale" &&
+              <button type="button" disabled={loading || importBusy} onClick={() => onResolveImageMessage(entry.turn.chat!.imageAction!.sourceTurnId)}>
+                {language === "zh-CN" ? "重试卖出识别" : "Retry sale analysis"}
+              </button>}
+            {entry.turn.id === conversation.turns.at(-1)?.id && entry.turn.chat.imageAction?.purpose !== "sale" && entry.turn.chat.imageAction?.accountId &&
               !conversation.importActivities.some((activity) =>
                 activity.sourceTurnId === entry.turn.chat?.imageAction?.sourceTurnId ||
                 (activity.sourceTurnId === undefined && activity.createdAt >= entry.turn.createdAt)
               ) && (
                 <button type="button" disabled={loading || importBusy} onClick={() => onPrepareSavedImageImport(entry.turn.chat!.imageAction!.sourceTurnId, entry.turn.chat!.imageAction!.accountId!)}>{language === "zh-CN" ? "重试导入" : "Retry import"}</button>
               )}
-            {!entry.turn.chat.assistantText && !importBusy && (
+            {!entry.turn.chat.workflowResult && entry.turn.chat.imageAction && entry.turn.chat.imageAction.purpose !== "sale" && !entry.turn.chat.assistantText && !importBusy && (
               <button type="button" onClick={() => onResolveImageMessage(entry.turn.chat!.imageAction!.sourceTurnId)}>
                 {language === "zh-CN" ? "重试回复" : "Retry response"}
               </button>
@@ -278,6 +291,7 @@ function analystToolLabel(
     propose_create_account: "账户创建提议",
     prepare_account_import: "资产导入准备",
     search_web: "网络搜索",
+    read_workflow_result: "操作结果",
     read_memories: "已保存的记忆",
     propose_memory: "记忆提议",
   } : {
@@ -291,6 +305,7 @@ function analystToolLabel(
     propose_create_account: "account creation proposal",
     prepare_account_import: "asset import preparation",
     search_web: "web research",
+    read_workflow_result: "operation result",
     read_memories: "saved memories",
     propose_memory: "memory proposal",
   };

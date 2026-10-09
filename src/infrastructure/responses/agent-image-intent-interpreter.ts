@@ -4,7 +4,7 @@ import type { AgentImageIntentInput, AgentImageIntentDecision } from "@/applicat
 import { requestStructuredResponse } from "@/infrastructure/responses/structured-response-client";
 
 const decisionSchema = z.object({
-  intent: z.enum(["answer-image", "prepare-import", "clarify", "delegate"]),
+  intent: z.enum(["answer-image", "prepare-import", "prepare-sale", "clarify", "delegate"]),
   confidence: z.enum(["high", "low"]),
   accountId: z.string().nullable(),
 }).strict();
@@ -27,6 +27,7 @@ export function createAgentImageIntentInterpreter(input: {
       instructions: [
         "Choose how a personal portfolio assistant should handle an attached image, using only the user's text and current workflow context.",
         "Choose answer-image when the user asks to explain, inspect, summarize, or answer a question about the image without changing a portfolio draft.",
+        "Choose prepare-sale when the user asks to record a completed sale/redemption using the image. Sale confirmations are not holdings snapshots. A request to explain a sale image only is answer-image. Never route a sale recording request to prepare-import.",
         "Choose prepare-import only when the user clearly asks to import, update, add, replace, or sync holdings from the image.",
         "If importFlowActive is true and the user is supplying the requested image for that import, choose prepare-import unless they explicitly ask only for an image explanation or reject importing.",
         "When stage is image-follow-up, the image is already saved and may be reused. Choose prepare-import if the user asks to import it. Choose answer-image for another question about it. Choose delegate for an unrelated portfolio question or a new topic.",

@@ -1,3 +1,4 @@
+import type { PortfolioWorkflowResult } from "@/application/portfolio-workflow-result";
 import type { PortfolioAnalystAnswer } from "@/application/portfolio-analyst-answer";
 import type {
   PortfolioAnalystContextV1,
@@ -19,6 +20,7 @@ export const portfolioAnalystToolNames = [
   "propose_create_account",
   "prepare_account_import",
   "search_web",
+  "read_workflow_result",
   "read_memories",
   "propose_memory",
 ] as const;
@@ -85,6 +87,7 @@ export interface PortfolioAnalystAgentTurn {
   memories?: readonly PortfolioAnalystMemory[];
   hasPendingMemoryProposal?: boolean;
   factsAsOf?: string;
+  workflowResult?: PortfolioWorkflowResult;
   signal?: AbortSignal;
   onPhase?: (phase: "reading-current-facts" | "generating-answer") => void;
   onToolActivity?: (activity: PortfolioAnalystToolActivity) => void;
