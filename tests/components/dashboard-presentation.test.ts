@@ -35,8 +35,8 @@ describe("dashboard presentation", () => {
   it("prioritizes current changes and attention without repeating quoted-currency exposure", () => {
     const markup = renderToStaticMarkup(createElement(PortfolioInsights, { insights }));
 
-    expect(markup).toContain("What matters now");
-    expect(markup).toContain("WHAT CHANGED");
+    expect(markup).toContain("Change sources &amp; data status");
+    expect(markup).toContain("LATEST DAILY CHANGE SOURCES");
     expect(markup).toContain("NEEDS ATTENTION");
     expect(markup).toContain("Portfolio shape");
     expect(markup).not.toContain("HOLDING CURRENCY");

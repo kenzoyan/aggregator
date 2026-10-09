@@ -3,7 +3,7 @@ import Decimal from "decimal.js";
 import { buildPortfolioState } from "@/domain/portfolio/ledger";
 import type { PortfolioFacts } from "@/infrastructure/sqlite/portfolio-repository-contract";
 
-export function holdingUpdateHistory(facts: PortfolioFacts, sourceAccountId: string) {
+export function holdingUpdateHistory(facts: Pick<PortfolioFacts, "openingSnapshots" | "events">, sourceAccountId: string) {
   const snapshots = facts.openingSnapshots.filter((snapshot) => snapshot.sourceAccountId === sourceAccountId)
     .toSorted((a, b) => a.asOf.localeCompare(b.asOf));
   const seen = new Set<string>();

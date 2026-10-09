@@ -45,6 +45,8 @@ describe("portfolio insights", () => {
             points: [588, 600],
             priceChange: 10,
             fxChange: 2,
+            baselineAsOf: "2026-08-27",
+            currentAsOf: "2026-08-28",
           },
           week: unavailable,
           month: unavailable,
@@ -66,6 +68,8 @@ describe("portfolio insights", () => {
             points: [255, 250],
             priceChange: -5,
             fxChange: 0,
+            baselineAsOf: "2026-08-28",
+            currentAsOf: "2026-08-29",
           },
           week: unavailable,
           month: unavailable,
@@ -168,5 +172,19 @@ describe("portfolio insights", () => {
       fxChangeEur: 2,
     });
     expect(insights.asOf).toBe("2026-08-30T10:00:00.000Z");
+    expect(insights.latestDailyCoverage).toEqual({
+      includedCount: 2, totalCount: 3, componentsAvailable: true,
+      comparisons: [
+        { holdingId: "trading212:etf-b", name: "ETF B", baselineAsOf: "2026-08-28", currentAsOf: "2026-08-29" },
+        { holdingId: "alipay:fund-a", name: "Fund A", baselineAsOf: "2026-08-27", currentAsOf: "2026-08-28" },
+      ],
+    });
+    holdings[0]!.history!.today.priceChange = undefined;
+    expect(createPortfolioInsightsReadModel({ portfolio, asOf: insights.asOf }).latestDailyCoverage?.componentsAvailable).toBe(false);
+    holdings[0]!.history!.today.available = false;
+    holdings[1]!.history!.today.available = false;
+    expect(createPortfolioInsightsReadModel({ portfolio, asOf: insights.asOf }).latestDailyCoverage).toEqual({
+      includedCount: 0, totalCount: 3, componentsAvailable: false, comparisons: [],
+    });
   });
 });

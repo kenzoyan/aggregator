@@ -91,6 +91,17 @@ export interface PortfolioValuePointReadModel {
   holdingActivities: PortfolioHoldingActivityReadModel[];
 }
 
+export interface PortfolioChartEventReadModel {
+  id: string;
+  asOf: string;
+  sourceAccountId: string;
+  account: string;
+  kind: "sale" | "withdrawal" | "holding-update";
+  label: string;
+  amount: { amount: string; currency: string };
+  note: string;
+}
+
 export interface PortfolioValueHistoryReadModel {
   available: boolean;
   change: number;
@@ -155,6 +166,12 @@ export interface PortfolioInsightMoverReadModel {
 
 export interface PortfolioInsightsReadModel {
   asOf: string;
+  latestDailyCoverage?: {
+    includedCount: number;
+    totalCount: number;
+    componentsAvailable: boolean;
+    comparisons: Array<{ holdingId: string; name: string; baselineAsOf?: string; currentAsOf?: string }>;
+  };
   summary: {
     investmentPositionCount: number;
     sourceAccountCount: number;
@@ -200,6 +217,7 @@ export type MissingValuationInputReadModel = MissingValuationInput & {
 };
 
 export interface PortfolioOverviewReadModel {
+  chartEvents?: PortfolioChartEventReadModel[];
   holdings: HoldingReadModel[];
   totalValueEur: number;
   accountAllocation: SourceAccountAllocationReadModel[];

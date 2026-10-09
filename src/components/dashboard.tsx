@@ -1,5 +1,7 @@
 "use client";
 
+import { motion } from "motion/react";
+import { SummaryDialog } from "@/components/ui/summary-dialog";
 import Image from "next/image";
 import Link from "next/link";
 import {
@@ -8,8 +10,6 @@ import {
 } from "lucide-react";
 import {
   useEffect,
-  useId,
-  useMemo,
   useState,
   type CSSProperties,
 } from "react";
@@ -22,12 +22,7 @@ import type {
   Period,
   PortfolioDailyChangeReadModel,
   PortfolioOverviewReadModel,
-  PortfolioValuePointReadModel,
 } from "@/application/portfolio-read-model";
-import {
-  comparableSparklineModels,
-  type ComparableSparklineModel,
-} from "@/application/sparkline-model";
 import type { MarketRefreshResult } from "@/application/market-refresh";
 import { PortfolioAnalyst } from "@/components/portfolio-analyst";
 import { PortfolioInsights } from "@/components/portfolio-insights";
@@ -78,57 +73,6 @@ function formatRefreshFailures(
   return failures
     .map((failure) => `${failure.instrumentCode} (${failure.message})`)
     .join("; ");
-}
-
-function Sparkline({
-  points,
-  negative,
-  compact = false,
-  detail = false,
-  label = "Portfolio value trend",
-  comparableModel,
-}: {
-  points?: number[];
-  negative: boolean;
-  compact?: boolean;
-  detail?: boolean;
-  label?: string;
-  comparableModel?: ComparableSparklineModel;
-}) {
-  const gradientId = `chart-fill-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
-  const chartPoints = points ?? [];
-  const geometry = useMemo(() => {
-    if (comparableModel) return comparableModel.path;
-    const max = Math.max(...chartPoints);
-    const min = Math.min(...chartPoints);
-    const range = max - min || 1;
-    const coordinates = chartPoints.map((point, index) => {
-        const x = (index / (chartPoints.length - 1)) * 100;
-        const y = 56 - ((point - min) / range) * 44;
-        return { x, y };
-      });
-    return coordinates
-      .map(({ x, y }, index) => `${index === 0 ? "M" : "L"}${x.toFixed(2)},${y.toFixed(2)}`)
-      .join(" ");
-  }, [chartPoints, comparableModel]);
-  const zeroY = comparableModel?.zeroY;
-  const fillBottom = zeroY ?? 64;
-
-  return (
-    <svg className={compact ? "holding-sparkline" : detail ? "detail-sparkline" : "sparkline"} viewBox="0 0 100 64" preserveAspectRatio="none" aria-label={label}>
-      <defs>
-        <linearGradient id={gradientId} x1="0" x2="0" y1="0" y2="1">
-          <stop offset="0%" stopColor={negative ? "#e26d76" : "#13a779"} stopOpacity="0.3" />
-          <stop offset="100%" stopColor={negative ? "#e26d76" : "#13a779"} stopOpacity="0" />
-        </linearGradient>
-      </defs>
-      {zeroY !== undefined && (
-        <line className="sparkline-baseline" x1="0" x2="100" y1={zeroY} y2={zeroY} />
-      )}
-      <path d={`${geometry} L100,${fillBottom} L0,${fillBottom} Z`} fill={`url(#${gradientId})`} />
-      <path d={geometry} fill="none" stroke={negative ? "#d95763" : "#078d68"} strokeWidth="2.2" vectorEffect="non-scaling-stroke" />
-    </svg>
-  );
 }
 
 function formatChartDate(asOf: string) {
@@ -213,6 +157,7 @@ export function Dashboard() {
   const [localPortfolio, setLocalPortfolio] = useState<PortfolioOverviewReadModel>();
   const [localFxOverview, setLocalFxOverview] = useState<FxOverviewReadModel>();
   const [refreshingPrices, setRefreshingPrices] = useState(false);
+  const [refreshFailed, setRefreshFailed] = useState(false);
   const [refreshMessage, setRefreshMessage] = useState<string>();
   async function loadLocalPortfolio(signal?: AbortSignal) {
     setPortfolioLoadError(undefined);
@@ -260,6 +205,7 @@ export function Dashboard() {
   ) {
     setRefreshingPrices(true);
     setRefreshMessage(undefined);
+    setRefreshFailed(false);
     try {
       const response = await fetch(
         `/api/market-data/refresh${mode === "automatic" ? "?mode=automatic" : ""}`,
@@ -286,6 +232,7 @@ export function Dashboard() {
       setRefreshMessage(mode === "automatic" ? `Daily check · ${message}` : message);
     } catch (error) {
       if (signal?.aborted) return;
+      setRefreshFailed(true);
       setRefreshMessage(error instanceof Error ? error.message : "Price refresh failed");
     } finally {
       setRefreshingPrices(false);
@@ -302,13 +249,6 @@ export function Dashboard() {
   };
   const total = localPortfolio?.totalValueEur ?? 0;
   const filtered = source === allAccounts ? holdings : holdings.filter((holding) => holding.source === source);
-  const comparableHoldingSparklines = comparableSparklineModels(
-    filtered.flatMap((holding) =>
-      holding.history?.[period]?.available
-        ? [{ id: holding.id, points: holding.history[period].points }]
-        : []
-    ),
-  );
   const sources = [allAccounts, ...new Set(holdings.map((holding) => holding.source))];
   const latestMarketResult = localPortfolio?.marketData.latestResult;
   const marketRefreshHistory = localPortfolio?.marketData.refreshHistory ?? [];
@@ -335,9 +275,8 @@ export function Dashboard() {
         <div className="home-workspace-main">
         <header className="topbar">
           <div>
-            <p className="eyebrow">YOUR INVESTMENT OVERVIEW</p>
-            <h1>All your investments, together.</h1>
-            <p className="page-intro">A clear view of your holdings and performance, measured in euros.</p>
+            <p className="eyebrow">YOUR PORTFOLIO</p>
+            <h1>Overview</h1>
           </div>
           <div className="header-actions">
             <span className="portfolio-badge">{isLocal ? "Local data" : portfolioLoadError ? "Load failed" : loading ? "Loading" : "No portfolio"}</span>
@@ -386,28 +325,38 @@ export function Dashboard() {
 
 
         <section className="hero-grid">
-          <article className="balance-card">
+          <article className="balance-card" aria-busy={loading}>
             <div className="card-heading">
               <span title="Investments and cash in tracked investment accounts. External bank accounts are excluded.">Tracked portfolio value</span>
-              <span className="coverage">{isLocal ? `${holdings.length} valued positions` : "No confirmed positions"}</span>
+              <span className="coverage">{loading ? "Loading portfolio…" : isLocal ? `${holdings.length} valued positions` : "No confirmed positions"}</span>
             </div>
-            <strong className="total-value">{eur.format(total)}</strong>
+            <strong className="total-value">{loading ? "—" : portfolioLoadError ? "Unavailable" : eur.format(total)}</strong>
             <p className="subtle">EUR base currency · original currencies retained</p>
+            <div className="home-fx-entry">
+              <SummaryDialog title="EUR/CNY" summary={<><strong>{loading ? "Loading rate…" : eurCnyOverview ? `€1 = ¥${fxRate.format(eurCnyOverview.currentRate)}` : "Rate unavailable"}</strong><small>{eurCnyOverview ? `ECB · ${eurCnyOverview.asOf}` : "ECB reference rate"}</small></>}>
+                <h2>Exchange rate</h2>
+                <p className="home-fx-current">{eurCnyOverview ? `€1 = ¥${fxRate.format(eurCnyOverview.currentRate)}` : "CNY rate unavailable"}</p>
+                <p className="subtle">ECB reference rate · {eurCnyOverview?.asOf ?? "No recorded rate yet"}</p>
+                {eurCnyOverview && <table className="home-fx-history"><caption>Recent recorded rates</caption><thead><tr><th>Date</th><th>CNY per EUR</th></tr></thead><tbody>{eurCnyOverview.history.slice(-20).toReversed().map((point) => <tr key={point.asOf}><td>{point.asOf}</td><td>{fxRate.format(point.rate)}</td></tr>)}</tbody></table>}
+              </SummaryDialog>
+            </div>
             <div className="chart-toolbar">
               <div className="chart-mode-tabs" role="group" aria-label="Select chart metric">
-                <button type="button" className={chartMode === "daily-change" ? "selected" : ""} onClick={() => setChartMode("daily-change")} aria-pressed={chartMode === "daily-change"}>Investment change</button>
-                <button type="button" className={chartMode === "value" ? "selected" : ""} onClick={() => setChartMode("value")} aria-pressed={chartMode === "value"} disabled={period === "today"}>Total value</button>
+                <button type="button" className={chartMode === "daily-change" ? "selected" : ""} onClick={() => setChartMode("daily-change")} aria-pressed={chartMode === "daily-change"}>Investment change{chartMode === "daily-change" && <motion.span className="tab-selection" layoutId="chart-metric" />}</button>
+                <button type="button" className={chartMode === "value" ? "selected" : ""} onClick={() => setChartMode("value")} aria-pressed={chartMode === "value"} disabled={period === "today"}>Total value{chartMode === "value" && <motion.span className="tab-selection" layoutId="chart-metric" />}</button>
               </div>
               <div className="period-tabs" role="group" aria-label="Select chart period">
                 {(Object.keys(periodLabels) as Period[]).map((key) => (
                   <button key={key} className={period === key ? "selected" : ""} onClick={() => { setPeriod(key); if (key === "today") setChartMode("daily-change"); setSelectedDailyDate(undefined); }} aria-pressed={period === key}>
-                    {periodLabels[key]}
+                    {periodLabels[key]}{period === key && <motion.span className="tab-selection" layoutId="chart-period" />}
                   </button>
                 ))}
               </div>
             </div>
             <div className="period-summary">
-              {chartMode === "value" && valueHistory?.available ? (
+              {loading ? (
+                <div><span>Portfolio performance</span><strong className="pending-change">Loading…</strong></div>
+              ) : chartMode === "value" && valueHistory?.available ? (
                 <div>
                   <span>{current.label} value movement</span>
                   <strong className={valueHistory.change >= 0 ? "positive" : "negative"}>
@@ -464,6 +413,7 @@ export function Dashboard() {
                 negative={valueHistory.change < 0}
                 label={`${periodLabels[period]} total portfolio value trend`}
                 timeline={valueHistory.timeline}
+                events={localPortfolio?.chartEvents}
               />
             ) : chartMode === "value" && period === "today" ? null : chartMode === "value" ? (
               <div className="sparkline-empty">Value trend appears after another dated valuation</div>
@@ -480,21 +430,24 @@ export function Dashboard() {
           </article>
         </section>
 
+        <section className="home-summary-strip" aria-label="Portfolio context">
+        <SummaryDialog title="Data & refresh" summary={<><strong>{loading ? "Loading…" : portfolioLoadError ? "Unavailable" : !isLocal ? "No portfolio" : refreshFailed ? "Refresh failed" : (latestMarketResult?.failed ?? 0) > 0 ? `${latestMarketResult!.failed} refresh issues` : "Local records"}</strong><small>{localPortfolio?.marketData.lastRefreshedAt ? `Checked ${refreshDateTime.format(new Date(localPortfolio.marketData.lastRefreshedAt))}` : "View data status and refresh history"}</small></>}>
+          <h2>Data &amp; refresh</h2>
+          {portfolioLoadError && <p className="market-intelligence-error" role="alert">{portfolioLoadError}</p>}
         <section className="data-status-bar" aria-label="Data status">
           <span><i className="status-indicator current" />{isLocal ? "Local ledger" : "Ledger ready"}</span>
           <span title={isLocal ? refreshMessage ?? persistedMarketMessage : undefined}><i className="status-indicator market" />{isLocal ? refreshMessage ?? persistedMarketMessage : "No price history yet"}</span>
-          <span><i className="status-indicator fx" />{eurCnyOverview ? `€1 = ¥${fxRate.format(eurCnyOverview.currentRate)} · ECB ${eurCnyOverview.asOf}` : isLocal ? "CNY rate unavailable" : "ECB rates with local data"}</span>
         </section>
 
         {isLocal && marketRefreshHistory.length > 0 && (
-          <details className="refresh-history">
-            <summary>
+          <section className="refresh-history">
+            <header className="home-refresh-heading">
               <span>
                 <strong>Refresh history</strong>
                 <small>Latest 10 Market Data checks · holdings never change here</small>
               </span>
               <span>{marketRefreshHistory.length} run{marketRefreshHistory.length === 1 ? "" : "s"}</span>
-            </summary>
+            </header>
             <div className="refresh-history-list">
               {marketRefreshHistory.map((run, index) => (
                 <article key={`${run.completedAt}:${index}`} className="refresh-history-run">
@@ -530,15 +483,17 @@ export function Dashboard() {
                 </article>
               ))}
             </div>
-          </details>
+          </section>
         )}
 
+        {marketRefreshHistory.length === 0 && <p className="subtle">No recorded market data checks yet.</p>}
+        </SummaryDialog>
         {isLocal && localPortfolio?.insights && (
           <PortfolioInsights insights={localPortfolio.insights} />
         )}
 
         <MarketIntelligence />
-
+        </section>
         <section className="holdings-section" id="holdings">
           <div className="section-title">
             <div><p className="eyebrow">PORTFOLIO</p><h2>Holdings</h2></div>
@@ -575,16 +530,8 @@ export function Dashboard() {
                           value={holding.history[period].change}
                           percent={holding.history[period].percent}
                         />
-                        <small>Price {signedEur(holding.history[period].priceChange ?? 0)} · FX {signedEur(holding.history[period].fxChange ?? 0)}</small>
-                        <small>{holding.history[period].coverage === "partial" ? "Partial range · " : ""}{holding.history[period].baselineAsOf?.slice(0, 10)} → {holding.history[period].currentAsOf?.slice(0, 10)}</small>
+                        {holding.history[period].coverage === "partial" && <small>Partial range</small>}
                       </div>
-                      <Sparkline
-                        compact
-                        points={holding.history[period].points}
-                        negative={holding.history[period].change < 0}
-                        label={`${holding.name} ${period} value trend`}
-                        comparableModel={comparableHoldingSparklines[holding.id]}
-                      />
                     </div>
                   ) : (
                     <span className="pending-change-cell">Awaiting baseline<small>
@@ -597,7 +544,7 @@ export function Dashboard() {
               </article>
             ))}
             {filtered.length === 0 && (
-              <div className="empty-holdings"><strong>No confirmed holdings</strong><small>Add or import assets to populate this table.</small></div>
+              <div className="empty-holdings"><strong>{loading ? "Loading holdings…" : "No confirmed holdings"}</strong><small>{loading ? "Reading your local portfolio" : "Add or import assets to populate this table."}</small></div>
             )}
           </div>
         </section>

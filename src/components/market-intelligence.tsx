@@ -1,9 +1,8 @@
 "use client";
 
+import { SummaryDialog } from "@/components/ui/summary-dialog";
 import {
   CalendarDays,
-  ChevronDown,
-  ChevronUp,
   ExternalLink,
   RefreshCw,
 } from "lucide-react";
@@ -85,7 +84,6 @@ export function MarketIntelligence() {
   const [configuration, setConfiguration] = useState<MarketIntelligencePayload>();
   const [brief, setBrief] = useState<MarketIntelligenceBrief>();
   const [refreshing, setRefreshing] = useState(false);
-  const [expanded, setExpanded] = useState(false);
   const [error, setError] = useState<string>();
 
   useEffect(() => {
@@ -121,7 +119,6 @@ export function MarketIntelligence() {
         throw new Error(payload.error ?? "Official market calendars could not be refreshed.");
       }
       setBrief(payload.brief);
-      setExpanded(false);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Official market calendars could not be refreshed.");
     } finally {
@@ -130,7 +127,8 @@ export function MarketIntelligence() {
   }
 
   return (
-    <section className="market-intelligence" aria-labelledby="market-intelligence-title">
+    <SummaryDialog title="Market events" summary={<><strong role={error ? "alert" : undefined}>{error ? "Check failed" : refreshing ? "Checking…" : brief ? `${brief.events.length} upcoming` : configuration?.configured === false ? "Not configured" : "No calendar yet"}</strong>{brief?.events[0] && <small>{formatDate(brief.events[0].date, brief.language)} · {brief.events[0].title}</small>}</>}>
+      <section className="market-intelligence">
       <header className="market-intelligence-heading">
         <div>
           <p className="eyebrow">EXTERNAL MARKET WATCH</p>
@@ -149,7 +147,7 @@ export function MarketIntelligence() {
 
       {error && <p className="market-intelligence-error" role="alert">{error}</p>}
       {configuration?.configured === false && (
-        <p className="market-intelligence-empty">Add OPENAI_API_KEY to use official-source web search.</p>
+        <p className="market-intelligence-empty">Configure a provider in Settings to check official market calendars.</p>
       )}
       {!brief && configuration?.configured === true && !error && (
         <div className="market-intelligence-empty">
@@ -167,7 +165,7 @@ export function MarketIntelligence() {
             <p className="market-intelligence-empty">No confirmed high-impact events were found in this window.</p>
           ) : (
             <div className="market-intelligence-events" id="market-intelligence-events">
-              {(expanded ? brief.events : brief.events.slice(0, 1)).map((event, eventIndex) => (
+              {brief.events.map((event, eventIndex) => (
                 <article key={`${event.date}:${event.category}:${event.title}:${eventIndex}`}>
                   <div className="market-event-date">
                     <strong>{formatDate(event.date, brief.language)}</strong>
@@ -196,23 +194,12 @@ export function MarketIntelligence() {
                   </div>
                 </article>
               ))}
-              {brief.events.length > 1 && (
-                <button
-                  type="button"
-                  className="market-intelligence-expand"
-                  aria-expanded={expanded}
-                  aria-controls="market-intelligence-events"
-                  onClick={() => setExpanded((current) => !current)}
-                >
-                  {expanded ? <ChevronUp aria-hidden="true" /> : <ChevronDown aria-hidden="true" />}
-                  {expanded ? "Show less" : `+${brief.events.length - 1} more events`}
-                </button>
-              )}
             </div>
           )}
           <p className="market-intelligence-disclaimer">{brief.disclaimer}</p>
         </>
       )}
-    </section>
+      </section>
+    </SummaryDialog>
   );
 }

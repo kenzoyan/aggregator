@@ -84,6 +84,17 @@ export function createPortfolioInsightsReadModel(input: {
 
   return {
     asOf: input.asOf,
+    latestDailyCoverage: {
+      includedCount: todayMovers.length,
+      totalCount: investmentHoldings.length,
+      componentsAvailable: todayMovers.length > 0 && todayMovers.every((holding) =>
+        holding.history!.today.priceChange !== undefined && holding.history!.today.fxChange !== undefined),
+      comparisons: todayMovers.map((holding) => ({
+        holdingId: holding.id, name: holding.name,
+        baselineAsOf: holding.history!.today.baselineAsOf,
+        currentAsOf: holding.history!.today.currentAsOf,
+      })),
+    },
     summary: {
       investmentPositionCount: investmentHoldings.length,
       sourceAccountCount: new Set(holdings.map((holding) =>
