@@ -1,3 +1,4 @@
+import type { PortfolioFacts } from "@/infrastructure/sqlite/portfolio-repository-contract";
 import { NextResponse } from "next/server";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
@@ -134,6 +135,7 @@ export function createPortfolioAnalystHandlers(
   options: {
     readCurrentPortfolio: () => AnalystPortfolioReadModel | undefined;
     readSourceAccounts?: () => SourceAccountDefinition[];
+    readActivityFacts?: () => PortfolioFacts;
     now?: () => string;
     createId?: () => string;
     conversations?: PortfolioAnalystConversationStore;
@@ -300,6 +302,7 @@ export function createPortfolioAnalystHandlers(
         const tools = createPortfolioAnalystTools(
           portfolio,
           options.readSourceAccounts?.() ?? [],
+          options.readActivityFacts?.(),
         );
         emit?.({ type: "status", phase: "selecting-tool" });
         const result = await agentRuntime.runTurn({
@@ -445,6 +448,7 @@ function getProductionHandlers() {
           new Date().toISOString(),
         ),
         readSourceAccounts: () => database.readSourceAccounts(),
+        readActivityFacts: () => database.readPortfolioFacts(),
         conversations: database,
         memory: database,
         deleteImage: (attachment) => createLocalPortfolioAnalystImageStore().delete(attachment),

@@ -14,6 +14,8 @@ export const portfolioAnalystToolNames = [
   "read_portfolio_overview",
   "read_accounts",
   "read_account_holdings",
+  "read_holding_history",
+  "read_account_activity",
   "propose_create_account",
   "prepare_account_import",
   "search_web",
@@ -34,7 +36,7 @@ export type PortfolioAnalystToolFailureCode =
 export interface PortfolioAnalystToolAudit {
   toolCallId: string;
   name: PortfolioAnalystToolName;
-  input: { period?: Period; accountType?: string; label?: string; query?: string };
+  input: { period?: Period; accountType?: string; holding?: string; fromDate?: string; toDate?: string; label?: string; query?: string };
   status: "completed" | "blocked" | "failed";
   factsAsOf?: string;
   evidenceKeys: string[];

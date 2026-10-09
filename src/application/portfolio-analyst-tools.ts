@@ -1,3 +1,5 @@
+import { createActivityHistoryContext } from "@/application/portfolio-analyst-activity";
+import type { PortfolioFacts } from "@/infrastructure/sqlite/portfolio-repository-contract";
 import type { Period } from "@/application/portfolio-read-model";
 import type {
   AnalystEvidenceBundleV1,
@@ -252,8 +254,11 @@ export function combinePortfolioAnalystContexts(
 export function createPortfolioAnalystTools(
   portfolio: AnalystPortfolioReadModel,
   accounts: readonly SourceAccountDefinition[] = [],
+  activityFacts?: PortfolioFacts,
 ): PortfolioAnalystTools {
   return {
+    readHoldingHistory: (request) => createActivityHistoryContext({ request, accounts, facts: activityFacts, factsAsOf: portfolio.insights.asOf }),
+    readAccountActivity: (request) => createActivityHistoryContext({ request, accounts, facts: activityFacts, factsAsOf: portfolio.insights.asOf }),
     readPeriodDrivers(input: {
       period: Period;
       language: PortfolioAnalystLanguage;

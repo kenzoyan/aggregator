@@ -66,6 +66,14 @@ export function portfolioAnalystEvidenceValue(
   language: PortfolioAnalystLanguage,
 ): string {
   switch (fact.kind) {
+    case "activity-history-summary":
+      return [fact.status, fact.requestedAccount, fact.requestedHolding, `${fact.shownRecordCount}/${fact.recordCount}`, fact.coverage].filter(Boolean).join(" · ");
+    case "recorded-activity":
+      return [fact.asOf.slice(0, 10), fact.activity, fact.status, fact.name, `${fact.amount} ${fact.currency}`, fact.amountMeaning,
+        fact.netProceeds === undefined ? undefined : `net ${fact.netProceeds}`,
+        fact.realizedResult === undefined ? undefined : `realized result ${fact.realizedResult}`,
+        fact.destinationKnown === false ? "destination unknown" : fact.destination,
+        fact.destinationName].filter(Boolean).join(" · ");
     case "portfolio-total":
       return eur.format(fact.valueEur);
     case "period-performance": {

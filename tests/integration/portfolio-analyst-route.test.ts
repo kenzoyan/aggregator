@@ -1,3 +1,5 @@
+import { createSourceAccountDefinition } from "@/domain/source-accounts";
+import { buildPortfolioState } from "@/domain/portfolio/ledger";
 import { describe, expect, it } from "vitest";
 
 import { createPortfolioAnalystHandlers } from "@/app/api/portfolio/analyst/handler";
@@ -1099,4 +1101,32 @@ describe("/api/portfolio/analyst", () => {
     });
     expect(store.readLatestPortfolioAnalystConversation()).toBeUndefined();
   });
+});
+
+it("passes one saved activity snapshot into both read-only history tools", async () => {
+  const account = createSourceAccountDefinition({ id: "private-account", accountType: "Private Account" });
+  const snapshots = [{ id: "initial", sourceAccountId: account.id, asOf: "2026-09-01T00:00:00Z",
+    positions: [{ instrumentId: "fund", displayName: "Synthetic Fund", quantity: "10", costBasis: "100", currency: "EUR" }] }];
+  const saved = { openingSnapshots: snapshots, events: [], confirmedImports: [], confirmedSnapshots: [],
+    state: buildPortfolioState({ openingSnapshots: snapshots, events: [] }) };
+  let reads = 0;
+  const handlers = createPortfolioAnalystHandlers({
+    models: { openai: "gpt-synthetic" }, defaultProvider: "openai",
+    agentRuntimes: { openai: { async runTurn(input) {
+      const params = { accountType: "Private Account", language: input.language, includeHoldingNames: true };
+      const context = input.tools.readHoldingHistory({ ...params, holding: "Synthetic Fund" });
+      expect(context.facts).toContainEqual(expect.objectContaining({ activity: "holding-created", name: "Synthetic Fund" }));
+      expect(input.tools.readAccountActivity(params).facts[0]).toMatchObject({ status: "found", recordCount: 0 });
+      return { kind: "report", context, answer: answer(context),
+        audit: { runtime: "pi-agent-core", modelTurns: 1, stopReason: "completed", toolCalls: [] } };
+    } } },
+  }, { readCurrentPortfolio: portfolio, readSourceAccounts: () => [account],
+    readActivityFacts: () => { reads += 1; return saved; } });
+  const response = await handlers.POST(request({
+    provider: "openai", mode: "agent", language: "en", defaultPeriod: "week",
+    includeHoldingNames: true, question: "What is the history of Synthetic Fund?",
+  }));
+  expect(response.status).toBe(200);
+  expect(reads).toBe(1);
+  expect(saved.events).toEqual([]);
 });

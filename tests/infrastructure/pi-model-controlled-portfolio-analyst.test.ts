@@ -131,7 +131,7 @@ describe("Pi model-controlled Portfolio Analyst", () => {
     const fail = () => { throw new Error("Unexpected portfolio tool call"); };
     const tools: PortfolioAnalystTools = {
       readPeriodDrivers: fail, readDataQuality: fail, readPortfolioOverview: fail,
-      readAccounts: fail, readAccountHoldings: fail, proposeCreateAccount: fail,
+      readAccounts: fail, readHoldingHistory: fail, readAccountActivity: fail, readAccountHoldings: fail, proposeCreateAccount: fail,
       prepareAccountImport: fail,
     };
     const result = await createPiModelControlledPortfolioAnalyst({ model, streamFn }).runTurn({
@@ -153,7 +153,7 @@ describe("Pi model-controlled Portfolio Analyst", () => {
     const fail = () => { throw new Error("Unexpected portfolio tool call"); };
     const tools: PortfolioAnalystTools = {
       readPeriodDrivers: fail, readDataQuality: fail, readPortfolioOverview: fail,
-      readAccounts: fail, readAccountHoldings: fail, proposeCreateAccount: fail,
+      readAccounts: fail, readHoldingHistory: fail, readAccountActivity: fail, readAccountHoldings: fail, proposeCreateAccount: fail,
       prepareAccountImport: fail,
     };
     const result = await createPiModelControlledPortfolioAnalyst({ model, streamFn }).runTurn({
@@ -178,7 +178,7 @@ describe("Pi model-controlled Portfolio Analyst", () => {
     const fail = () => { throw new Error("Unexpected portfolio tool call"); };
     const tools: PortfolioAnalystTools = {
       readPeriodDrivers: fail, readDataQuality: fail, readPortfolioOverview: fail,
-      readAccounts: fail, readAccountHoldings: fail, proposeCreateAccount: fail,
+      readAccounts: fail, readHoldingHistory: fail, readAccountActivity: fail, readAccountHoldings: fail, proposeCreateAccount: fail,
       prepareAccountImport: fail,
     };
     const result = await createPiModelControlledPortfolioAnalyst({ model, streamFn }).runTurn({
@@ -212,6 +212,8 @@ describe("Pi model-controlled Portfolio Analyst", () => {
       readDataQuality: unexpected,
       readPortfolioOverview: unexpected,
       readAccounts: unexpected,
+      readHoldingHistory: () => { throw new Error("unexpected history tool"); },
+      readAccountActivity: () => { throw new Error("unexpected activity tool"); },
       readAccountHoldings: unexpected,
       proposeCreateAccount: unexpected,
       prepareAccountImport: unexpected,
@@ -270,6 +272,8 @@ describe("Pi model-controlled Portfolio Analyst", () => {
       readDataQuality: () => { throw new Error("unexpected portfolio read"); },
       readPortfolioOverview: () => { throw new Error("unexpected portfolio read"); },
       readAccounts: () => { throw new Error("unexpected account read"); },
+      readHoldingHistory: () => { throw new Error("unexpected history tool"); },
+      readAccountActivity: () => { throw new Error("unexpected activity tool"); },
       readAccountHoldings: () => { throw new Error("unexpected account read"); },
       proposeCreateAccount: () => { throw new Error("unexpected account action"); },
       prepareAccountImport: () => { throw new Error("unexpected import action"); },
@@ -309,7 +313,7 @@ describe("Pi model-controlled Portfolio Analyst", () => {
     const fail = () => { throw new Error("Unexpected tool call"); };
     const tools: PortfolioAnalystTools = {
       readPeriodDrivers: fail, readDataQuality: fail, readPortfolioOverview: fail,
-      readAccounts: fail, readAccountHoldings: fail, proposeCreateAccount: fail,
+      readAccounts: fail, readHoldingHistory: fail, readAccountActivity: fail, readAccountHoldings: fail, proposeCreateAccount: fail,
       prepareAccountImport: fail,
     };
     const result = await createPiModelControlledPortfolioAnalyst({ model, streamFn }).runTurn({
@@ -328,6 +332,8 @@ describe("Pi model-controlled Portfolio Analyst", () => {
       readDataQuality: () => { throw new Error("unexpected portfolio read"); },
       readPortfolioOverview: () => { throw new Error("unexpected portfolio read"); },
       readAccounts: () => { throw new Error("unexpected account read"); },
+      readHoldingHistory: () => { throw new Error("unexpected history tool"); },
+      readAccountActivity: () => { throw new Error("unexpected activity tool"); },
       readAccountHoldings: () => { throw new Error("unexpected account read"); },
       proposeCreateAccount: () => { throw new Error("unexpected account action"); },
       prepareAccountImport: () => { throw new Error("unexpected import action"); },
@@ -392,6 +398,8 @@ describe("Pi model-controlled Portfolio Analyst", () => {
       readDataQuality: () => { throw new Error("wrong tool"); },
       readPortfolioOverview: () => { throw new Error("wrong tool"); },
       readAccounts: () => { throw new Error("wrong tool"); },
+      readHoldingHistory: () => { throw new Error("unexpected history tool"); },
+      readAccountActivity: () => { throw new Error("unexpected activity tool"); },
       readAccountHoldings: () => accountContext,
       proposeCreateAccount: () => { throw new Error("wrong tool"); },
       prepareAccountImport: () => { throw new Error("wrong tool"); },
@@ -436,6 +444,8 @@ describe("Pi model-controlled Portfolio Analyst", () => {
       readDataQuality: () => { throw new Error("wrong tool"); },
       readPortfolioOverview: () => { throw new Error("wrong tool"); },
       readAccounts: () => { throw new Error("wrong tool"); },
+      readHoldingHistory: () => { throw new Error("unexpected history tool"); },
+      readAccountActivity: () => { throw new Error("unexpected activity tool"); },
       readAccountHoldings: () => { throw new Error("wrong tool"); },
       proposeCreateAccount: () => { throw new Error("wrong tool"); },
       prepareAccountImport: () => { throw new Error("wrong tool"); },
@@ -460,6 +470,8 @@ describe("Pi model-controlled Portfolio Analyst", () => {
       "read_portfolio_overview",
       "read_accounts",
       "read_account_holdings",
+      "read_holding_history",
+      "read_account_activity",
       "propose_create_account",
       "prepare_account_import",
       "read_memories",
@@ -530,6 +542,8 @@ describe("Pi model-controlled Portfolio Analyst", () => {
       readDataQuality: () => context,
       readPortfolioOverview: () => context,
       readAccounts: () => context,
+      readHoldingHistory: () => { throw new Error("unexpected history tool"); },
+      readAccountActivity: () => { throw new Error("unexpected activity tool"); },
       readAccountHoldings: () => context,
       proposeCreateAccount: () => context,
       prepareAccountImport: () => context,
@@ -575,6 +589,8 @@ describe("Pi model-controlled Portfolio Analyst", () => {
       readDataQuality: () => { reads += 1; return context; },
       readPortfolioOverview: () => { throw new Error("wrong tool"); },
       readAccounts: () => { throw new Error("wrong tool"); },
+      readHoldingHistory: () => { throw new Error("unexpected history tool"); },
+      readAccountActivity: () => { throw new Error("unexpected activity tool"); },
       readAccountHoldings: () => { throw new Error("wrong tool"); },
       proposeCreateAccount: () => { throw new Error("wrong tool"); },
       prepareAccountImport: () => { throw new Error("wrong tool"); },
@@ -611,7 +627,7 @@ describe("Pi model-controlled Portfolio Analyst", () => {
     const tools: PortfolioAnalystTools = {
       readDataQuality: () => { reads += 1; return context; },
       readPeriodDrivers: fail, readPortfolioOverview: fail,
-      readAccounts: fail, readAccountHoldings: fail,
+      readAccounts: fail, readHoldingHistory: fail, readAccountActivity: fail, readAccountHoldings: fail,
       proposeCreateAccount: fail, prepareAccountImport: fail,
     };
     const result = await createPiModelControlledPortfolioAnalyst({ model, streamFn }).runTurn({
@@ -642,6 +658,8 @@ describe("Pi model-controlled Portfolio Analyst", () => {
       readDataQuality: () => { throw new Error("Synthetic read failed"); },
       readPortfolioOverview: () => { throw new Error("wrong tool"); },
       readAccounts: () => { throw new Error("wrong tool"); },
+      readHoldingHistory: () => { throw new Error("unexpected history tool"); },
+      readAccountActivity: () => { throw new Error("unexpected activity tool"); },
       readAccountHoldings: () => { throw new Error("wrong tool"); },
       proposeCreateAccount: () => { throw new Error("wrong tool"); },
       prepareAccountImport: () => { throw new Error("wrong tool"); },
@@ -685,7 +703,7 @@ describe("Pi model-controlled Portfolio Analyst", () => {
     const fail = () => { throw new Error("Synthetic internal failure"); };
     const tools: PortfolioAnalystTools = {
       readDataQuality: fail, readPeriodDrivers: () => context,
-      readPortfolioOverview: fail, readAccounts: fail, readAccountHoldings: fail,
+      readPortfolioOverview: fail, readAccounts: fail, readHoldingHistory: fail, readAccountActivity: fail, readAccountHoldings: fail,
       proposeCreateAccount: fail, prepareAccountImport: fail,
     };
     const result = await createPiModelControlledPortfolioAnalyst({ model, streamFn }).runTurn({
@@ -717,7 +735,7 @@ describe("Pi model-controlled Portfolio Analyst", () => {
     const fail = () => { throw new Error("Request timed out: private internal endpoint"); };
     const tools: PortfolioAnalystTools = {
       readDataQuality: fail, readPeriodDrivers: fail, readPortfolioOverview: fail,
-      readAccounts: fail, readAccountHoldings: fail, proposeCreateAccount: fail,
+      readAccounts: fail, readHoldingHistory: fail, readAccountActivity: fail, readAccountHoldings: fail, proposeCreateAccount: fail,
       prepareAccountImport: fail,
     };
     const result = await createPiModelControlledPortfolioAnalyst({ model, streamFn }).runTurn({
@@ -744,6 +762,8 @@ describe("Pi model-controlled Portfolio Analyst", () => {
     const tools: PortfolioAnalystTools = {
       readPeriodDrivers: () => context,
       readDataQuality: unexpected, readPortfolioOverview: unexpected, readAccounts: unexpected,
+      readHoldingHistory: () => { throw new Error("unexpected history tool"); },
+      readAccountActivity: () => { throw new Error("unexpected activity tool"); },
       readAccountHoldings: unexpected, proposeCreateAccount: unexpected, prepareAccountImport: unexpected,
     };
     await expect(createPiModelControlledPortfolioAnalyst({ model, streamFn }).runTurn({
@@ -772,7 +792,7 @@ describe("Pi model-controlled Portfolio Analyst", () => {
     const fail = () => { throw new Error("Unexpected tool"); };
     const tools: PortfolioAnalystTools = {
       readPeriodDrivers: () => context, readDataQuality: fail, readPortfolioOverview: fail,
-      readAccounts: fail, readAccountHoldings: fail, proposeCreateAccount: fail,
+      readAccounts: fail, readHoldingHistory: fail, readAccountActivity: fail, readAccountHoldings: fail, proposeCreateAccount: fail,
       prepareAccountImport: fail,
     };
     const result = await createPiModelControlledPortfolioAnalyst({ model, streamFn }).runTurn({
@@ -808,6 +828,8 @@ describe("Pi model-controlled Portfolio Analyst", () => {
     const tools: PortfolioAnalystTools = {
       readPeriodDrivers: () => periodContext,
       readDataQuality: unexpected, readPortfolioOverview: unexpected, readAccounts: unexpected,
+      readHoldingHistory: () => { throw new Error("unexpected history tool"); },
+      readAccountActivity: () => { throw new Error("unexpected activity tool"); },
       readAccountHoldings: unexpected, proposeCreateAccount: unexpected, prepareAccountImport: unexpected,
     };
     const result = await createPiModelControlledPortfolioAnalyst({ model, streamFn }).runTurn({
@@ -872,6 +894,8 @@ describe("Pi model-controlled Portfolio Analyst", () => {
       },
       readPortfolioOverview: () => { throw new Error("wrong tool"); },
       readAccounts: () => { throw new Error("wrong tool"); },
+      readHoldingHistory: () => { throw new Error("unexpected history tool"); },
+      readAccountActivity: () => { throw new Error("unexpected activity tool"); },
       readAccountHoldings: () => { throw new Error("wrong tool"); },
       proposeCreateAccount: () => { throw new Error("wrong tool"); },
       prepareAccountImport: () => { throw new Error("wrong tool"); },
@@ -936,6 +960,8 @@ describe("Pi model-controlled Portfolio Analyst", () => {
       readDataQuality: () => { throw new Error("wrong tool"); },
       readPortfolioOverview: () => overviewContext,
       readAccounts: () => { throw new Error("wrong tool"); },
+      readHoldingHistory: () => { throw new Error("unexpected history tool"); },
+      readAccountActivity: () => { throw new Error("unexpected activity tool"); },
       readAccountHoldings: () => { throw new Error("wrong tool"); },
       proposeCreateAccount: () => { throw new Error("wrong tool"); },
       prepareAccountImport: () => { throw new Error("wrong tool"); },
@@ -1015,6 +1041,8 @@ describe("Pi model-controlled Portfolio Analyst", () => {
       readDataQuality: () => { throw new Error("wrong tool"); },
       readPortfolioOverview: () => { throw new Error("wrong tool"); },
       readAccounts: () => { throw new Error("wrong tool"); },
+      readHoldingHistory: () => { throw new Error("unexpected history tool"); },
+      readAccountActivity: () => { throw new Error("unexpected activity tool"); },
       readAccountHoldings: () => { throw new Error("wrong tool"); },
       proposeCreateAccount: () => proposalContext,
       prepareAccountImport: () => { throw new Error("wrong tool"); },
@@ -1100,6 +1128,8 @@ describe("Pi model-controlled Portfolio Analyst", () => {
       readDataQuality: () => { throw new Error("wrong tool"); },
       readPortfolioOverview: () => { throw new Error("wrong tool"); },
       readAccounts: () => { throw new Error("wrong tool"); },
+      readHoldingHistory: () => { throw new Error("unexpected history tool"); },
+      readAccountActivity: () => { throw new Error("unexpected activity tool"); },
       readAccountHoldings: () => { throw new Error("wrong tool"); },
       proposeCreateAccount: () => { throw new Error("wrong tool"); },
       prepareAccountImport: () => importContext,
@@ -1126,4 +1156,41 @@ describe("Pi model-controlled Portfolio Analyst", () => {
       status: "completed",
     });
   });
+});
+
+
+it.each(["read_holding_history", "read_account_activity"] as const)("executes %s and validates its namespaced citations without writes", async (name) => {
+  const historyContext: PortfolioAnalystContextV1 = {
+    ...context, job: "manage-accounts", scope: {},
+    facts: [{ key: "history.summary", kind: "activity-history-summary", label: "Recorded history summary",
+      requestedAccount: "Test", status: "found", recordCount: 1, shownRecordCount: 1,
+      coverage: "recorded-history-only", provenance: "portfolio-ledger" }],
+    limitations: [], allowedActions: [],
+  };
+  let calls = 0;
+  const fail = () => { throw new Error("Unexpected tool"); };
+  const params = { accountType: "Test", fromDate: "2026-01-01", ...(name === "read_holding_history" ? { holding: "Fund" } : {}) };
+  const historyRead = (input: unknown) => {
+    expect(input).toMatchObject({ ...params, language: "zh-CN", includeHoldingNames: true });
+    return historyContext;
+  };
+  const tools: PortfolioAnalystTools = {
+    readHoldingHistory: historyRead, readAccountActivity: historyRead,
+    readPeriodDrivers: fail, readDataQuality: fail, readPortfolioOverview: fail,
+    readAccounts: fail, readAccountHoldings: fail, proposeCreateAccount: fail, prepareAccountImport: fail,
+  };
+  const streamFn: StreamFn = () => ++calls === 1
+    ? completedStream(assistant([{ type: "toolCall", id: "history-call", name, arguments: params }], "toolUse"))
+    : completedStream(assistant([{ type: "text", text: JSON.stringify({
+      factsAsOf: context.factsAsOf,
+      answer: { text: "有一条已记录的活动。", classification: "fact", evidence: ["call1.history.summary"] },
+      claims: [], limitations: [], proposedUpdate: null,
+    }) }], "stop"));
+  const result = await createPiModelControlledPortfolioAnalyst({ model, streamFn }).runTurn({
+    question: "查询历史", history: [], tools, language: "zh-CN", includeHoldingNames: true, defaultPeriod: "week",
+  });
+  if (result.kind !== "report") throw new Error("Expected evidenced report");
+  expect(result.audit.toolCalls[0]).toMatchObject({ name, input: params, status: "completed", evidenceKeys: ["call1.history.summary"] });
+  expect(result.answer.answer.evidence).toEqual(["call1.history.summary"]);
+  expect(result.answer.proposedUpdate).toBeNull();
 });

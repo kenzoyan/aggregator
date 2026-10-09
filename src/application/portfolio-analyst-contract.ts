@@ -264,6 +264,8 @@ export interface WebResearchStatusFact {
 }
 
 export type AnalystEvidenceFact =
+  | ActivityHistorySummaryFact
+  | RecordedActivityFact
   | PortfolioTotalFact
   | PeriodPerformanceFact
   | HoldingDriverFact
@@ -280,6 +282,56 @@ export type AnalystEvidenceFact =
   | SourceAccountImportTargetFact
   | WebResearchSourceFact
   | WebResearchStatusFact;
+
+export interface ActivityHistorySummaryFact {
+  key: string;
+  kind: "activity-history-summary";
+  label: "Recorded history summary";
+  requestedAccount: string;
+  requestedHolding?: string;
+  status: "found" | "account-not-found" | "account-ambiguous" | "holding-not-found" | "holding-ambiguous" | "unavailable";
+  recordCount: number;
+  shownRecordCount: number;
+  coverage: "recorded-history-only";
+  fromDate?: string;
+  toDate?: string;
+  provenance: "portfolio-ledger";
+}
+
+export interface RecordedActivityFact {
+  key: string;
+  kind: "recorded-activity";
+  label: "Recorded activity";
+  activity: "holding-created" | "units-added" | "holding-updated" | "sale" | "cash-withdrawal";
+  asOf: string;
+  recordedAt?: string;
+  voidedAt?: string;
+  status: "active" | "undone";
+  name?: string;
+  symbol?: string;
+  quantity?: string;
+  currency: string;
+  amount: string;
+  amountMeaning: "initial-cost" | "cost-change" | "gross-sale-proceeds" | "withdrawal";
+  fees?: string;
+  netProceeds?: string;
+  soldCostBasis?: string;
+  realizedResult?: string;
+  destination?: "investment-account" | "external-account";
+  destinationName?: string;
+  destinationKnown?: boolean;
+  excludedFromTrackedAssets?: boolean;
+  source: "confirmed-holding-update" | "manual-record" | "confirmed-import";
+  provenance: "portfolio-ledger";
+}
+
+export interface ActivityHistoryToolInput {
+  accountType: string;
+  fromDate?: string;
+  toDate?: string;
+  language: PortfolioAnalystLanguage;
+  includeHoldingNames: boolean;
+}
 
 export const analystLimitationCodes = [
   "period-unavailable",
@@ -338,6 +390,8 @@ export interface PortfolioAnalystContextV1 {
 export type AnalystEvidenceBundleV1 = PortfolioAnalystContextV1;
 
 export interface PortfolioAnalystTools {
+  readHoldingHistory(input: ActivityHistoryToolInput & { holding: string }): AnalystEvidenceBundleV1;
+  readAccountActivity(input: ActivityHistoryToolInput): AnalystEvidenceBundleV1;
   readPeriodDrivers(input: {
     period: Period;
     language: PortfolioAnalystLanguage;
