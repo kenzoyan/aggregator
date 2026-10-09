@@ -1,10 +1,15 @@
 import type { StreamFn } from "@earendil-works/pi-agent-core";
-import type { Model } from "@earendil-works/pi-ai";
+import type { Message, Model } from "@earendil-works/pi-ai";
 import { openaiProvider } from "@earendil-works/pi-ai/providers/openai";
 
 import type { PortfolioAnalystAgentRuntime } from "@/application/portfolio-analyst-agent";
 import type { WebResearch } from "@/application/portfolio-web-research";
 import { createPiModelControlledPortfolioAnalyst } from "@/infrastructure/pi/pi-model-controlled-portfolio-analyst";
+
+export function portfolioAnalystOutputTokenLimit(messages: readonly Message[]) {
+  return messages.some((message) => message.role === "toolResult" && message.toolName === "read_all_holdings" && !message.isError)
+    ? 8_000 : 1_100;
+}
 
 function fallbackModel(modelId: string): Model<any> {
   return {
@@ -17,7 +22,7 @@ function fallbackModel(modelId: string): Model<any> {
     input: ["text"],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     contextWindow: 32_000,
-    maxTokens: 1_100,
+    maxTokens: 8_000,
   };
 }
 
@@ -37,7 +42,7 @@ export function createPiNativePortfolioAnalystRuntime(input: {
       ...options,
       apiKey: input.apiKey,
       fetch: input.fetch,
-      maxTokens: 1_100,
+      maxTokens: portfolioAnalystOutputTokenLimit(context.messages),
       timeoutMs: 30_000,
       cacheRetention: "none",
     },

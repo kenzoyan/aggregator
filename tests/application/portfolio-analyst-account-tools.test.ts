@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import type { AnalystPortfolioReadModel } from "@/application/portfolio-analyst-contract";
 import { createPortfolioAnalystTools } from "@/application/portfolio-analyst-tools";
+import { createPortfolioInsightsReadModel } from "@/application/portfolio-insights";
+import { namespacePortfolioAnalystContext } from "@/application/portfolio-analyst-tools";
 import { createSourceAccountDefinition } from "@/domain/source-accounts";
 
 const portfolio = {
@@ -46,6 +48,34 @@ const accountPortfolio = {
 } as AnalystPortfolioReadModel;
 
 describe("portfolio analyst account tools", () => {
+  it("reads five accounts including empty accounts with complete linked holdings in one call", () => {
+    const registry = [...accounts, ...["other-account", "empty-1", "empty-2", "empty-3"].map((id) =>
+      createSourceAccountDefinition({ id, accountType: id }))];
+    const unavailable = { available: false, change: 0, percent: 0, points: [] };
+    const current = { ...accountPortfolio, totalValueEur: 239, accountAllocation: [], missingInputs: [], marketData: {},
+      history: { today: unavailable, week: unavailable, month: unavailable } };
+    const complete = { ...current, insights: createPortfolioInsightsReadModel({ portfolio: current, asOf: portfolio.insights.asOf }) };
+    const tools = createPortfolioAnalystTools(complete, registry);
+    const context = namespacePortfolioAnalystContext(tools.readAllHoldings({ language: "en", includeHoldingNames: true }), "call1");
+    expect(context.facts.filter((fact) => fact.kind === "source-account")).toHaveLength(5);
+    const summaries = context.facts.filter((fact) => fact.kind === "account-holdings-summary");
+    expect(summaries).toHaveLength(5);
+    expect(summaries.filter((fact) => fact.holdingCount === 0)).toHaveLength(3);
+    const holdings = context.facts.filter((fact) => fact.kind === "account-holding");
+    expect(holdings).toHaveLength(2);
+    for (const holding of holdings) expect(summaries.some((summary) => summary.key === holding.accountEvidenceKey)).toBe(true);
+    expect(context.allowedActions).toEqual([]);
+    expect(new Set(context.facts.map((fact) => fact.key)).size).toBe(context.facts.length);
+    const redacted = JSON.stringify(tools.readAllHoldings({ language: "en", includeHoldingNames: false }));
+    expect(redacted).not.toContain("Synthetic Fund");
+    expect(redacted).not.toContain("SYNTH-1");
+    expect(redacted).not.toContain('"displayName"');
+    const large = { ...complete, holdings: Array.from({ length: 35 }, (_, index) => ({ ...complete.holdings[0]!, id: `synthetic-${index}` })) };
+    const many = createPortfolioAnalystTools(large, registry).readAllHoldings({ language: "en", includeHoldingNames: true });
+    expect(many.facts.filter((fact) => fact.kind === "account-holding")).toHaveLength(35);
+    expect(many.facts.find((fact) => fact.kind === "account-holdings-summary")).toMatchObject({ holdingCount: 35, shownHoldingCount: 35 });
+    expect(() => createPortfolioAnalystTools(complete, accounts).readAllHoldings({ language: "en", includeHoldingNames: true })).toThrow("could not be matched");
+  });
   it("reads only one account's confirmed holdings as bounded current evidence", () => {
     const context = createPortfolioAnalystTools(accountPortfolio, accounts)
       .readAccountHoldings({ accountType: "Trading 212", language: "en", includeHoldingNames: true });

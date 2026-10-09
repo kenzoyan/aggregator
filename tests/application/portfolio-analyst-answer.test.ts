@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   PortfolioAnalystAnswerValidationError,
   portfolioAnalystAnswerJsonSchema,
+  PORTFOLIO_ANALYST_MAX_ANSWER_CHARS,
   validatePortfolioAnalystAnswer,
 } from "@/application/portfolio-analyst-answer";
 import type { PortfolioAnalystContextV1 } from "@/application/portfolio-analyst-contract";
@@ -98,6 +99,18 @@ function expectValidationCode(
 }
 
 describe("portfolio analyst answer contract", () => {
+  it("preserves a complete long holdings list instead of forcing it into 800 characters", () => {
+    const facts = Array.from({ length: 22 }, (_, index) => ({ ...context.facts[0]!, key: `holding.${index}` }));
+    const extendedContext = { ...context, facts: [...context.facts, ...facts] };
+    const text = Array.from({ length: 17 }, (_, index) => `- Synthetic holding ${index + 1}: EUR 100.00, recorded valuation.\n`).join("");
+    expect(text.length).toBeGreaterThan(800);
+    const candidate = { ...validCandidate, answer: { ...validCandidate.answer, text, evidence: facts.map((fact) => fact.key) } };
+    expect(validatePortfolioAnalystAnswer({ context: extendedContext, candidate }).answer.text).toBe(text.trim());
+    expect(portfolioAnalystAnswerJsonSchema).toMatchObject({ properties: { answer: { properties: {
+      text: { maxLength: PORTFOLIO_ANALYST_MAX_ANSWER_CHARS }, evidence: { maxItems: 128 },
+    } } } });
+    expectValidationCode({ ...validCandidate, answer: { ...validCandidate.answer, text: "x".repeat(PORTFOLIO_ANALYST_MAX_ANSWER_CHARS + 1) } }, "invalid-structure");
+  });
   it("accepts a fully cited answer that copies server-owned boundaries", () => {
     expect(validatePortfolioAnalystAnswer({ context, candidate: validCandidate }))
       .toEqual(validCandidate);

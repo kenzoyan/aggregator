@@ -205,6 +205,7 @@ export interface AccountHoldingFact {
   kind: "account-holding";
   label: "Account holding";
   name?: string;
+  accountEvidenceKey?: string;
   symbol?: string;
   category: HoldingReadModel["category"];
   quantity?: string;
@@ -402,6 +403,10 @@ export interface PortfolioAnalystTools {
     includeHoldingNames: boolean;
   }): AnalystEvidenceBundleV1;
   readPortfolioOverview(input: {
+    language: PortfolioAnalystLanguage;
+    includeHoldingNames: boolean;
+  }): AnalystEvidenceBundleV1;
+  readAllHoldings(input: {
     language: PortfolioAnalystLanguage;
     includeHoldingNames: boolean;
   }): AnalystEvidenceBundleV1;

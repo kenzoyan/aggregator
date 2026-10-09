@@ -16,10 +16,12 @@ export const analystClaimClassifications = [
 ] as const;
 
 const evidenceKeySchema = z.string().min(1).max(80);
-const claimSchema = (maximumTextLength: number) => z.object({
+export const PORTFOLIO_ANALYST_MAX_ANSWER_CHARS = 12_000;
+
+const claimSchema = (maximumTextLength: number, maximumEvidenceCount = 4) => z.object({
   text: z.string().trim().min(1).max(maximumTextLength),
   classification: z.enum(analystClaimClassifications),
-  evidence: z.array(evidenceKeySchema).min(1).max(4),
+  evidence: z.array(evidenceKeySchema).min(1).max(maximumEvidenceCount),
 }).strict();
 
 const limitationSchema = z.object({
@@ -69,7 +71,7 @@ const factualUpdateSchemaValues = Object.values(factualUpdateSchemas) as [
 ];
 export const portfolioAnalystAnswerCandidateSchema = z.object({
   factsAsOf: z.string().min(1).max(64),
-  answer: claimSchema(800),
+  answer: claimSchema(PORTFOLIO_ANALYST_MAX_ANSWER_CHARS, 128),
   claims: z.array(claimSchema(400)).max(6),
   limitations: z.array(limitationSchema).max(8),
   proposedUpdate: z.union([...factualUpdateSchemaValues, z.null()]),
@@ -85,7 +87,7 @@ const { $schema: _schemaDialect, ...generatedAnswerJsonSchema } =
 export const portfolioAnalystAnswerJsonSchema = generatedAnswerJsonSchema;
 
 export const portfolioAnalystConversationalAnswerInstruction =
-  "Make answer.text a self-contained conversational response that directly and fully answers the current question, including any material limitations. It must remain useful without opening claims or evidence details; use claims only as a supporting factual breakdown.";
+  "Make answer.text a self-contained conversational response that directly and fully answers the current question, including any material limitations. It must remain useful without opening claims or evidence details; use claims only as a supporting factual breakdown. Keep ordinary answers concise, but when asked for every holding, include every returned holding grouped by account and cite the account and holding evidence. Finish complete sentences and list items; do not stop partway through a name or move requested holdings into hidden claims.";
 
 export function projectPartialPortfolioAnalystAnswer(
   json: string,

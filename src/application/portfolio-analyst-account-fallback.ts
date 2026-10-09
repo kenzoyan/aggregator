@@ -1,4 +1,4 @@
-import type { PortfolioAnalystAnswer } from "@/application/portfolio-analyst-answer";
+import { PORTFOLIO_ANALYST_MAX_ANSWER_CHARS, type PortfolioAnalystAnswer } from "@/application/portfolio-analyst-answer";
 import type {
   AccountHoldingFact,
   AccountHoldingsSummaryFact,
@@ -13,6 +13,34 @@ const euro = new Intl.NumberFormat("en-FI", {
 export function createAccountHoldingsFallback(
   context: PortfolioAnalystContextV1,
 ): PortfolioAnalystAnswer | undefined {
+  const summaries = context.facts.filter((fact): fact is AccountHoldingsSummaryFact => fact.kind === "account-holdings-summary");
+  const allHoldings = context.facts.filter((fact): fact is AccountHoldingFact => fact.kind === "account-holding");
+  const registeredAccounts = context.facts.filter((fact) => fact.kind === "source-account");
+  const allAccountsRead = context.job === "summarize-portfolio" && summaries.length > 0 &&
+    (allHoldings.some((holding) => holding.accountEvidenceKey) ||
+      (registeredAccounts.length === summaries.length && summaries.every((summary) => summary.holdingCount === 0)));
+  if (allAccountsRead) {
+    const chinese = context.language === "zh-CN";
+    const safeName = (value: string) => value.replace(/[\\`*_\[\]#|]/g, "\\$&").replace(/[\r\n]+/g, " ");
+    const sections: string[] = [];
+    const evidence: string[] = [];
+    for (const summary of summaries) {
+      const holdings = allHoldings.filter((holding) => holding.accountEvidenceKey === summary.key);
+      if (!summary.found || summary.shownHoldingCount !== summary.holdingCount || holdings.length !== summary.holdingCount) return undefined;
+      const name = safeName(summary.displayName ?? summary.accountType ?? summary.requestedAccount);
+      sections.push(`## ${name} — ${euro.format(summary.totalValueEur)}`);
+      if (holdings.length === 0) sections.push(chinese ? "目前没有已确认的持仓。" : "No confirmed holdings.");
+      for (const [index, holding] of holdings.entries()) {
+        sections.push(`- ${safeName(holding.name ?? (chinese ? `资产 ${index + 1}` : `Holding ${index + 1}`))}: ${euro.format(holding.valueEur)} (${safeName(holding.originalValue)})`);
+      }
+      evidence.push(summary.key, ...holdings.map((holding) => holding.key));
+    }
+    const intro = chinese ? "以下按账户列出已记录的持仓与估值。" : "Recorded holdings and valuations by account.";
+    const text = [intro, ...sections].join("\n\n");
+    if (text.length > PORTFOLIO_ANALYST_MAX_ANSWER_CHARS || evidence.length > 128) return undefined;
+    return { factsAsOf: context.factsAsOf, answer: { text, classification: "fact", evidence },
+      claims: [], limitations: context.limitations, proposedUpdate: null };
+  }
   const summary = context.facts.findLast(
     (fact): fact is AccountHoldingsSummaryFact => fact.kind === "account-holdings-summary",
   );

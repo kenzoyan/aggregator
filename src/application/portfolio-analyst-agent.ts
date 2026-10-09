@@ -13,6 +13,7 @@ export const portfolioAnalystToolNames = [
   "read_period_drivers",
   "read_data_quality",
   "read_portfolio_overview",
+  "read_all_holdings",
   "read_accounts",
   "read_account_holdings",
   "read_holding_history",

@@ -23,16 +23,19 @@ function accountHoldingsContext(input: {
   accountType: string;
   language: PortfolioAnalystLanguage;
   includeHoldingNames: boolean;
+  resolvedAccount?: SourceAccountDefinition;
+  maxHoldings?: number;
 }): PortfolioAnalystContextV1 {
   const requestedAccount = input.accountType.trim();
   const normalized = normalizeSourceAccountType(requestedAccount);
-  const account = input.accounts.find((candidate) =>
+  const account = input.resolvedAccount ?? input.accounts.find((candidate) =>
     candidate.normalizedAccountType === normalized ||
     normalizeSourceAccountType(candidate.label) === normalized
   );
   const holdings = account
     ? input.portfolio.holdings.filter((holding) => holding.sourceAccountId === account.id)
     : [];
+  const maxHoldings = input.maxHoldings ?? MAX_ACCOUNT_HOLDINGS;
   return {
     version: "portfolio-analyst-context.v1",
     job: "manage-accounts",
@@ -56,11 +59,11 @@ function accountHoldingsContext(input: {
           ...(input.includeHoldingNames ? { displayName: account.label } : {}),
         } : {}),
         holdingCount: holdings.length,
-        shownHoldingCount: Math.min(holdings.length, MAX_ACCOUNT_HOLDINGS),
+        shownHoldingCount: Math.min(holdings.length, maxHoldings),
         totalValueEur: holdings.reduce((sum, holding) => sum + holding.eurValue, 0),
         provenance: "portfolio-read-model",
       },
-      ...holdings.slice(0, MAX_ACCOUNT_HOLDINGS).map((holding, index) => ({
+      ...holdings.slice(0, maxHoldings).map((holding, index) => ({
         key: `account.holding.${index + 1}`,
         kind: "account-holding" as const,
         label: "Account holding" as const,
@@ -218,6 +221,8 @@ export function namespacePortfolioAnalystContext(
     facts: context.facts.map((fact) => ({
       ...fact,
       key: namespaceEvidenceKey(namespace, fact.key),
+      ...(fact.kind === "account-holding" && fact.accountEvidenceKey
+        ? { accountEvidenceKey: namespaceEvidenceKey(namespace, fact.accountEvidenceKey) } : {}),
     })),
     limitations: context.limitations.map((limitation) => ({
       ...limitation,
@@ -257,6 +262,24 @@ export function createPortfolioAnalystTools(
   activityFacts?: PortfolioFacts,
 ): PortfolioAnalystTools {
   return {
+    readAllHoldings(input) {
+      const overview = createPortfolioAnalystContext({ portfolio, request: { job: "summarize-portfolio", ...input } });
+      const registry = accountContext({ accounts, factsAsOf: portfolio.insights.asOf,
+        language: input.language, includeAccountNames: input.includeHoldingNames });
+      const contexts = [namespacePortfolioAnalystContext(overview, "overview"), namespacePortfolioAnalystContext(registry, "registry")];
+      if (portfolio.holdings.some((holding) => !accounts.some((account) => account.id === holding.sourceAccountId))) {
+        throw new Error("Some holdings could not be matched to the account registry; a complete account summary is unavailable.");
+      }
+      for (const [index, account] of accounts.entries()) {
+        const context = accountHoldingsContext({ portfolio, accounts, accountType: account.accountType,
+          resolvedAccount: account, maxHoldings: portfolio.holdings.length, ...input });
+        context.facts = context.facts.map((fact) => fact.kind === "account-holding"
+          ? { ...fact, accountEvidenceKey: "account.holdings.summary" } : fact);
+        contexts.push(namespacePortfolioAnalystContext(context, `account${index + 1}`));
+      }
+      const combined = combinePortfolioAnalystContexts(contexts);
+      return { ...combined, allowedActions: [] };
+    },
     readHoldingHistory: (request) => createActivityHistoryContext({ request, accounts, facts: activityFacts, factsAsOf: portfolio.insights.asOf }),
     readAccountActivity: (request) => createActivityHistoryContext({ request, accounts, facts: activityFacts, factsAsOf: portfolio.insights.asOf }),
     readPeriodDrivers(input: {

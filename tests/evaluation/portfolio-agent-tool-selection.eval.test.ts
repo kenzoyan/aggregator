@@ -73,6 +73,7 @@ describe.skipIf(!runCloudEvaluation)("Portfolio Agent real-provider tool selecti
       readAccounts: () => { throw new Error("wrong tool"); },
       readHoldingHistory: () => { throw new Error("unexpected history tool"); },
       readAccountActivity: () => { throw new Error("unexpected activity tool"); },
+      readAllHoldings: () => { throw new Error("Unexpected all-holdings read"); },
       readAccountHoldings: () => { throw new Error("wrong tool"); },
       proposeCreateAccount: () => { throw new Error("wrong tool"); },
       prepareAccountImport: () => { throw new Error("wrong tool"); },
