@@ -1,3 +1,6 @@
+import { completePortfolioWorkflowReply, type WorkflowReplyGenerator } from "@/application/portfolio-workflow-reply";
+import type { PortfolioWorkflowResult } from "@/application/portfolio-workflow-result";
+import { createPortfolioWorkflowReply } from "@/server/portfolio-workflow-reply";
 import { randomUUID } from "node:crypto";
 
 import { z } from "zod";
@@ -5,11 +8,10 @@ import { z } from "zod";
 import { createImportConfirmHandler } from "@/app/api/imports/[id]/confirm/handler";
 import { createImportDraftReviewHandler } from "@/app/api/imports/[id]/review/handler";
 import {
-  appendPortfolioAnalystImportFollowUp,
-  cancelPortfolioAnalystImport,
+  appendPortfolioAnalystTurn,
   normalizePortfolioAnalystConversation,
 } from "@/application/portfolio-analyst-conversation";
-import { importDateFollowUpQuestion, nextImportDateFollowUp } from "@/application/imports/import-chat-follow-up";
+import { createImportWorkflowResult } from "@/application/imports/import-workflow-result";
 import { createImportDraftConfirmationPayload, createImportDraftReadModel } from "@/application/imports/import-draft-read-model";
 import { applyImportDraftEdit } from "@/application/imports/import-review-editor";
 import { resolveImportMessageDecision, type ImportMessageInterpreter } from "@/application/imports/import-message-intent";
@@ -38,6 +40,8 @@ function json(body: unknown, status = 200) {
 export function createImportMessageHandler(input: {
   database: ImportMessageDatabase;
   interpreter: ImportMessageInterpreter;
+  respond?: WorkflowReplyGenerator;
+  allowConfirmation?: boolean;
   now?: () => string;
   createId?: () => string;
 }) {
@@ -58,7 +62,7 @@ export function createImportMessageHandler(input: {
     const activity = conversation.importActivities.find((item) => item.draftId === body.draftId);
     if (!activity) return json({ error: "This draft does not belong to the conversation." }, 404);
     const prior = activity.followUps?.find((item) => item.id === body.id);
-    if (prior) {
+    if (prior || conversation.turns.some((turn) => turn.id === body.id && turn.chat?.workflowResult?.importDraft?.id === body.draftId)) {
       const existing = input.database.getImportDraft(body.draftId);
       return json({ conversation, ...(existing ? { draft: createImportDraftReadModel(existing) } : {}),
         portfolioChanged: existing?.status === "confirmed", cancelled: Boolean(activity.cancelledAt) });
@@ -68,112 +72,86 @@ export function createImportMessageHandler(input: {
       return json({ error: "There is no active screenshot draft to update." }, 409);
     }
     const reviewed = createImportDraftReadModel(draft);
-    let decision;
-    try {
-      decision = resolveImportMessageDecision(await input.interpreter.interpret({
-        message: body.message,
-        draft: reviewed,
-        language: conversation.language,
-        recentConversation: (activity.followUps ?? []).slice(-3).flatMap((item) => [
-          { role: "user" as const, text: item.userText },
-          { role: "assistant" as const, text: item.assistantText },
-        ]),
-        signal: request.signal,
-      }), body.message, reviewed, conversation.language);
-    } catch {
-      return json({ error: "I couldn't understand that request. Your draft has not changed; please try again." }, 502);
-    }
-    if (decision.intent === "other") return json({ delegate: true });
-
-    let assistantText: string;
     let resultingDraft = draft;
     let portfolioChanged = false;
     let cancelled = false;
-    const language = conversation.language;
-    if (decision.intent === "reply") {
-      assistantText = decision.reply;
-    } else if (decision.intent === "cancel") {
-      if (input.database.discardImportDraft(draft.id)) {
-        cancelled = true;
-        assistantText = language === "zh-CN"
-          ? "已取消这次导入并删除未确认的草稿。持仓没有变化。"
-          : "I cancelled this import and removed the unconfirmed draft. Your holdings were not changed.";
-      } else {
-        assistantText = language === "zh-CN" ? "未能取消草稿，请刷新后重试。" : "I couldn't cancel the draft. Please refresh and try again.";
-      }
-    } else if (decision.intent === "confirm") {
-      const response = await createImportConfirmHandler({
-        database: input.database,
-        newId: input.createId ?? randomUUID,
+    const finish = async (operation: PortfolioWorkflowResult["operation"], status: "succeeded" | "failed", details?: string, code?: string) => {
+      const createdAt = input.now?.() ?? new Date().toISOString();
+      const latest = input.database.readPortfolioAnalystConversation(conversation.id);
+      if (!latest || input.database.readLatestPortfolioAnalystConversation()?.id !== conversation.id) return json({ error: "Conversation changed." }, 409);
+      const model = createImportDraftReadModel(resultingDraft);
+      const result = createImportWorkflowResult({ draft: resultingDraft, accountName: activity.targetLabel,
+        operation, status, recordedAt: createdAt, portfolioChanged, cancelled, details, code });
+      const next = appendPortfolioAnalystTurn({ ...latest, importActivities: latest.importActivities.map((item) =>
+        item.draftId === draft.id && cancelled ? { ...item, cancelledAt: createdAt } : item) }, {
+        id: body.id, question: body.message, userText: body.message, createdAt,
+        chat: { assistantText: "", requestStatus: "pending", workflowResult: result },
+      });
+      input.database.savePortfolioAnalystConversation(next);
+      const reply = input.respond ? await completePortfolioWorkflowReply({ conversations: input.database, conversation: next,
+        turnId: body.id, generate: input.respond, signal: request.signal }) : { conversation: next, replyUnavailable: true, replyTurnId: body.id };
+      return json({ ...reply, ...(cancelled ? {} : { draft: model }), portfolioChanged, cancelled });
+    };
+    let decision;
+    try {
+      decision = resolveImportMessageDecision(await input.interpreter.interpret({
+        message: body.message, draft: reviewed, language: conversation.language,
+        recentConversation: [
+          ...(activity.followUps ?? []).slice(-3).flatMap((item) => [
+            { role: "user" as const, text: item.userText }, { role: "assistant" as const, text: item.assistantText },
+          ]),
+          ...conversation.turns.filter((turn) => turn.chat?.workflowResult?.importDraft?.id === draft.id).slice(-3).flatMap((turn) => [
+            { role: "user" as const, text: turn.userText ?? turn.question }, { role: "assistant" as const, text: turn.chat!.assistantText },
+          ]),
+        ].slice(-6), signal: request.signal,
+      }), body.message, reviewed, conversation.language);
+    } catch {
+      return finish("update", "failed", undefined, "interpretation-unavailable");
+    }
+    request.signal.throwIfAborted();
+    // The interpreter is not allowed to overwrite changes made while its request was running.
+    if (JSON.stringify(input.database.getImportDraft(draft.id)) !== JSON.stringify(draft) ||
+      JSON.stringify(input.database.readPortfolioAnalystConversation(conversation.id)) !== JSON.stringify(stored)) {
+      return finish("update", "failed", undefined, "draft-changed");
+    }
+    if (decision.intent === "other") return json({ delegate: true });
+    if (decision.intent === "reply") return finish("review", "succeeded", decision.reply);
+    if (decision.intent === "cancel") {
+      cancelled = input.database.discardImportDraft(draft.id);
+      return finish("cancel", cancelled ? "succeeded" : "failed");
+    }
+    if (decision.intent === "confirm") {
+      if (input.allowConfirmation === false) return finish("review", "succeeded", undefined, "explicit-confirmation-required");
+      const response = await createImportConfirmHandler({ database: input.database, newId: input.createId ?? randomUUID,
         now: input.now ?? (() => new Date().toISOString()),
       })(new Request(`http://localhost/api/imports/${encodeURIComponent(draft.id)}/confirm`, {
         method: "POST", headers: { "content-type": "application/json" },
         body: JSON.stringify(createImportDraftConfirmationPayload(reviewed)),
       }), draft.id);
-      const payload = await response.json() as { error?: string; draft?: ReturnType<typeof createImportDraftReadModel> };
-      resultingDraft = input.database.getImportDraft(draft.id) ?? draft;
-      portfolioChanged = resultingDraft.status === "confirmed";
-      assistantText = portfolioChanged
-        ? (language === "zh-CN" ? `已确认 ${activity.targetLabel} 的导入，资产已更新。` : `I confirmed the import for ${activity.targetLabel}. Your assets are updated.`)
-        : (language === "zh-CN" ? `还未更新资产：${payload.error ?? "请检查右侧草稿。"}` : `I haven't updated your assets: ${payload.error ?? "Please review the draft on the right."}`);
-    } else {
-      let edit;
-      let label = "";
-      if (decision.intent === "set-date") {
-        if (decision.field === "valuation-date") {
-          edit = { type: "update-as-of" as const, value: decision.value };
-        } else {
-          const index = reviewed.portfolio.holdings.findIndex((item) => item.lineId === decision.holdingLineId);
-          if (index < 0) return json({ error: "The holding was not found in the draft." }, 409);
-          label = reviewed.portfolio.holdings[index]!.displayName || reviewed.portfolio.holdings[index]!.instrumentId;
-          edit = { type: "update-holding" as const, index, field: "priceAsOf" as const, value: decision.value };
-        }
-      } else {
-        const index = decision.holdingLineId
-          ? reviewed.portfolio.holdings.findIndex((item) => item.lineId === decision.holdingLineId)
-          : reviewed.portfolio.holdings.length === 1 ? 0 : -1;
-        if (index < 0) {
-          assistantText = language === "zh-CN" ? "这个代码属于哪一项持仓？" : "Which holding should receive that code?";
-          const next = appendPortfolioAnalystImportFollowUp(conversation, draft.id, {
-            id: body.id, userText: body.message, assistantText,
-            createdAt: input.now?.() ?? new Date().toISOString(),
-          });
-          input.database.savePortfolioAnalystConversation(next);
-          return json({ conversation: next, draft: reviewed, portfolioChanged: false });
-        }
-        label = reviewed.portfolio.holdings[index]!.displayName || reviewed.portfolio.holdings[index]!.instrumentId;
-        edit = { type: "update-holding" as const, index, field: "instrumentCode" as const, value: decision.value };
-      }
-      const changed = applyImportDraftEdit(reviewed, edit);
-      const response = await createImportDraftReviewHandler(input.database)(new Request(
-        `http://localhost/api/imports/${encodeURIComponent(draft.id)}/review`, {
-          method: "PUT", headers: { "content-type": "application/json" },
-          body: JSON.stringify(createImportDraftConfirmationPayload(changed)),
-        }), draft.id);
       const payload = await response.json() as { error?: string };
       resultingDraft = input.database.getImportDraft(draft.id) ?? draft;
-      if (!response.ok) {
-        assistantText = language === "zh-CN" ? `草稿未更新：${payload.error ?? "请检查右侧草稿。"}` : `I couldn't update the draft: ${payload.error ?? "Please review it on the right."}`;
-      } else if (decision.intent === "set-code") {
-        assistantText = language === "zh-CN" ? `已将 ${decision.value} 填入 ${label} 的代码栏。` : `I saved ${decision.value} as the code for ${label}.`;
-      } else {
-        assistantText = decision.field === "valuation-date"
-          ? (language === "zh-CN" ? `已记录估值日期 ${decision.value}。` : `I saved ${decision.value} as the valuation date.`)
-          : (language === "zh-CN" ? `已记录 ${label} 的价格日期 ${decision.value}。` : `I saved ${decision.value} as the price date for ${label}.`);
-        const nextQuestion = nextImportDateFollowUp(createImportDraftReadModel(resultingDraft));
-        if (nextQuestion) assistantText += `\n${importDateFollowUpQuestion(nextQuestion, language)}`;
-      }
+      portfolioChanged = resultingDraft.status === "confirmed";
+      return finish("save", portfolioChanged ? "succeeded" : "failed", payload.error);
     }
+    let edit;
+    if (decision.intent === "set-date" && decision.field === "valuation-date") {
+      edit = { type: "update-as-of" as const, value: decision.value };
+    } else {
+      const index = decision.holdingLineId ? reviewed.portfolio.holdings.findIndex((item) => item.lineId === decision.holdingLineId)
+        : reviewed.portfolio.holdings.length === 1 ? 0 : -1;
+      if (index < 0) return finish("update", "failed", undefined, "holding-required");
+      edit = { type: "update-holding" as const, index,
+        field: decision.intent === "set-code" ? "instrumentCode" as const : "priceAsOf" as const, value: decision.value };
+    }
+    const changed = applyImportDraftEdit(reviewed, edit);
+    const response = await createImportDraftReviewHandler(input.database)(new Request(
+      `http://localhost/api/imports/${encodeURIComponent(draft.id)}/review`, {
+        method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(createImportDraftConfirmationPayload(changed)),
+      }), draft.id);
+    const payload = await response.json() as { error?: string };
+    resultingDraft = input.database.getImportDraft(draft.id) ?? draft;
+    return finish("update", response.ok ? "succeeded" : "failed", payload.error);
 
-    const createdAt = input.now?.() ?? new Date().toISOString();
-    const next = cancelled
-      ? cancelPortfolioAnalystImport(conversation, draft.id, { id: body.id, userText: body.message, cancelledAt: createdAt })
-      : appendPortfolioAnalystImportFollowUp(conversation, draft.id, {
-          id: body.id, userText: body.message, assistantText, createdAt,
-        });
-    input.database.savePortfolioAnalystConversation(next);
-    return json({ conversation: next, ...(cancelled ? {} : { draft: createImportDraftReadModel(resultingDraft) }),
-      portfolioChanged, cancelled });
   };
 }
 
@@ -185,5 +163,5 @@ export async function POST(request: Request) {
   const interpreter = createImportMessageInterpreter({
     apiKey: apiKey.trim(), model: registry.models.openai,
   });
-  return createImportMessageHandler({ database, interpreter })(request);
+  return createImportMessageHandler({ database, interpreter, respond: createPortfolioWorkflowReply(database) })(request);
 }

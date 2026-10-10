@@ -107,6 +107,7 @@ describe("portfolio analyst account tools", () => {
     expect(context.job).toBe("manage-accounts");
     expect(context.facts).toEqual([expect.objectContaining({
       kind: "source-account",
+      accountId: "trading212-main",
       accountType: "Trading 212",
     })]);
     expect(context.allowedActions).toEqual([{

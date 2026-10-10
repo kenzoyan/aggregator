@@ -181,6 +181,8 @@ export function portfolioAnalystEvidenceValue(
         : language === "zh-CN"
           ? `未找到 ${fact.requestedAccountType}`
           : `${fact.requestedAccountType} was not found`;
+    case "conversation-image":
+      return language === "zh-CN" ? `用户上传的第 ${fact.imageNumber} 张图片（截图内容，非实时账户数据）` : `Uploaded image ${fact.imageNumber} (screenshot content, not live account data)`;
     case "web-research-source":
       return `${fact.title} · ${fact.summary} · ${fact.retrievedAt}`;
     case "web-research-status":

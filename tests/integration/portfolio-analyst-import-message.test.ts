@@ -31,13 +31,17 @@ function fixture() {
       screenshotCount: 1, createdAt: "2026-10-03T10:01:00.000Z" },
   ));
   let count = 0;
-  const send = (message: string, id: string, decision: ImportMessageDecision) => {
+  const send = (message: string, id: string, decision: ImportMessageDecision, allowConfirmation = true) => {
     const interpreter: ImportMessageInterpreter = { interpret: async () => {
       count += 1;
       return decision;
     } };
     const handler = createImportMessageHandler({
-      database, interpreter, now: () => `2026-10-03T10:02:${String(count).padStart(2, "0")}.000Z`,
+      database, interpreter, allowConfirmation,
+      respond: async (_conversation, result) => ({
+        text: result.details ?? (result.operation === "cancel" ? "Synthetic agent: holdings were not changed" : result.portfolioChanged ? "Synthetic agent: assets are updated" : "Synthetic agent: draft updated"),
+        audit: { runtime: "pi-agent-core", modelTurns: 1, stopReason: "completed", toolCalls: [] },
+      }), now: () => `2026-10-03T10:02:${String(count).padStart(2, "0")}.000Z`,
       createId: () => `confirmed-${count}`,
     });
     return handler(new Request("http://localhost/api/portfolio/analyst/import-message", {
@@ -64,14 +68,14 @@ describe("assistant import message tools", () => {
         intent: "set-date", field: "valuation-date", value: "2026-10-03",
       });
       expect(ambiguous.status).toBe(200);
-      expect((await ambiguous.json()).conversation.importActivities[0].followUps.at(-1).assistantText).toContain("can't tell");
+      expect((await ambiguous.json()).conversation.turns.at(-1).chat.assistantText).toContain("can't tell");
       expect(test.database.getImportDraft("synthetic-draft")?.portfolio.asOf.status).toBe("known");
 
       const reply = await test.send("what is in this draft?", "33333333-3333-4333-8333-333333333333", {
         intent: "reply", reply: "The draft contains Synthetic Fund.",
       });
       expect(reply.status).toBe(200);
-      expect((await reply.json()).conversation.importActivities[0].followUps.at(-1).assistantText).toBe("The draft contains Synthetic Fund.");
+      expect((await reply.json()).conversation.turns.at(-1).chat.assistantText).toBe("The draft contains Synthetic Fund.");
 
       const confirmId = "44444444-4444-4444-8444-444444444444";
       const confirmed = await test.send("looks good help me save it", confirmId, { intent: "confirm" });
@@ -79,14 +83,14 @@ describe("assistant import message tools", () => {
       const payload = await confirmed.json();
       expect(payload.portfolioChanged).toBe(true);
       expect(payload.draft.status).toBe("confirmed");
-      expect(payload.conversation.importActivities[0].followUps).toHaveLength(4);
-      expect(payload.conversation.importActivities[0].followUps.at(-1)).toMatchObject({
-        userText: "looks good help me save it", assistantText: expect.stringContaining("assets are updated"),
+      expect(payload.conversation.turns).toHaveLength(4);
+      expect(payload.conversation.turns.at(-1)).toMatchObject({
+        userText: "looks good help me save it", chat: { assistantText: expect.stringContaining("assets are updated") },
       });
       expect(test.database.readPortfolioFacts().state.positions).toHaveLength(1);
       const repeated = await test.send("looks good help me save it", confirmId, { intent: "confirm" });
       expect(repeated.status).toBe(200);
-      expect((await repeated.json()).conversation.importActivities[0].followUps).toHaveLength(4);
+      expect((await repeated.json()).conversation.turns).toHaveLength(4);
       expect(test.count()).toBe(4);
     } finally {
       test.database.close();
@@ -117,8 +121,8 @@ describe("assistant import message tools", () => {
       const payload = await response.json();
       expect(payload.cancelled).toBe(true);
       expect(payload.portfolioChanged).toBe(false);
-      expect(payload.conversation.importActivities[0].followUps).toHaveLength(1);
-      expect(payload.conversation.importActivities[0].followUps[0].assistantText).toContain("holdings were not changed");
+      expect(payload.conversation.turns).toHaveLength(1);
+      expect(payload.conversation.turns[0].chat.assistantText).toContain("holdings were not changed");
       expect(test.database.getImportDraft("synthetic-draft")).toBeUndefined();
       expect(test.database.readPortfolioFacts().state.positions).toHaveLength(0);
       const repeated = await test.send("I don't want to keep this import", cancelId, { intent: "cancel" });
@@ -157,7 +161,7 @@ describe("assistant import message tools", () => {
         expect(reopened.getImportDraft("synthetic-draft")).toBeUndefined();
         expect(reopened.readLatestPortfolioAnalystConversation()?.importActivities[0]).toMatchObject({
           cancelledAt: expect.any(String),
-          followUps: [{ userText: "Cancel this import" }],
+
         });
         expect(reopened.readPortfolioFacts().state.positions).toHaveLength(0);
       } finally {
@@ -167,4 +171,42 @@ describe("assistant import message tools", () => {
       rmSync(test.directory, { recursive: true, force: true });
     }
   });
+});
+
+
+it("does not confirm an import when a draft-tool interpreter chooses confirmation", async () => {
+  const test = fixture();
+  try {
+    const response = await test.send("Please save this", "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", { intent: "confirm" }, false);
+    expect(response.status).toBe(200);
+    const payload = await response.json();
+    expect(payload.portfolioChanged).toBe(false);
+    expect(payload.conversation.turns.at(-1).chat.workflowResult).toMatchObject({ operation: "review", code: "explicit-confirmation-required", portfolioChanged: false });
+    expect(test.database.getImportDraft("synthetic-draft")?.status).toBe("draft");
+    expect(test.database.readPortfolioFacts().state.positions).toEqual([]);
+  } finally { test.database.close(); rmSync(test.directory, { recursive: true, force: true }); }
+});
+
+it("exposes pending import inspection and cancellation without any ledger changes", async () => {
+  const test = fixture();
+  try {
+    const { createPortfolioDraftTools } = await import("@/server/portfolio-draft-tools");
+    const originalDraft = test.database.getImportDraft("synthetic-draft")!;
+    test.database.saveImportDraft({ ...originalDraft, id: "other-draft" });
+    const current = test.database.readLatestPortfolioAnalystConversation()!;
+    test.database.savePortfolioAnalystConversation({ ...current,
+      importActivities: [...current.importActivities, { ...current.importActivities[0], draftId: "other-draft", targetLabel: "Other account" }],
+      turns: [...current.turns, {
+      id: "synthetic-message", question: "Cancel this draft", createdAt: "2026-10-03T10:02:00Z", chat: { assistantText: "" },
+    }] });
+    const tools = createPortfolioDraftTools(test.database, "synthetic-conversation", "synthetic-message", undefined, undefined, "synthetic-draft");
+    expect(tools.pending).toMatchObject({ importAccount: "Synthetic account" });
+    expect(await tools.execute("review_import_draft")).toMatchObject({ workflow: "import", operation: "review", portfolioChanged: false, importDraft: { holdingCount: 1, status: "draft" } });
+    expect(test.database.getImportDraft("synthetic-draft")?.status).toBe("draft");
+    expect(await tools.execute("cancel_import_draft")).toMatchObject({ workflow: "import", operation: "cancel", status: "succeeded", portfolioChanged: false });
+    expect(test.database.getImportDraft("synthetic-draft")).toBeUndefined();
+    expect(test.database.getImportDraft("other-draft")?.status).toBe("draft");
+    expect(test.database.readPortfolioFacts().state.positions).toEqual([]);
+    expect((await tools.execute("read_import_draft")).status).toBe("failed");
+  } finally { test.database.close(); rmSync(test.directory, { recursive: true, force: true }); }
 });

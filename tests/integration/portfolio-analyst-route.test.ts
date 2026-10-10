@@ -446,8 +446,7 @@ describe("/api/portfolio/analyst", () => {
     }), (event) => events.push(event));
 
     expect(response.status).toBe(200);
-    expect(runtimeQuestion).toContain("image contents are not visible");
-    expect(runtimeQuestion).toContain("prepare_account_import");
+    expect(runtimeQuestion).toBe("Is my data current?");
     const saved = store.readLatestPortfolioAnalystConversation();
     expect(saved?.turns[0]?.question).toBe("Is my data current?");
     expect(saved?.turns[0]?.report).toMatchObject({
@@ -726,7 +725,7 @@ describe("/api/portfolio/analyst", () => {
     expect(deletedImageIds).toEqual(["11111111-1111-4111-8111-111111111111"]);
   });
 
-  it("keeps an Agent memory proposal as a chat turn and excludes pending review from history", async () => {
+  it("keeps a pending memory review in full chat history without treating it as confirmed", async () => {
     const store = conversationStore();
     const ids = ["memory-conversation", "memory-turn", "answer-turn"];
     const histories: unknown[] = [];
@@ -770,7 +769,10 @@ describe("/api/portfolio/analyst", () => {
       mode: "agent", provider: "openai", language: "en", includeHoldingNames: true,
       defaultPeriod: "week", conversationId: "memory-conversation", question: "What changed today?",
     }));
-    expect(histories).toEqual([[]]);
+    expect(histories[0]).toMatchObject([
+      { role: "user", text: "Remember: Keep my answers brief." },
+      { role: "assistant", text: "I put the rewritten memory in the review panel on the right." },
+    ]);
     expect(store.readLatestPortfolioAnalystConversation()?.turns).toHaveLength(2);
     expect(calls).toBe(2);
   });
@@ -872,7 +874,7 @@ describe("/api/portfolio/analyst", () => {
     }));
     expect(store.readLatestPortfolioAnalystConversation()?.turns.map((turn) => turn.question))
       .toEqual(["Latest NASDAQ news?", "How is my portfolio?"]);
-    expect(histories).toEqual([[]]);
+    expect(histories).toEqual([[{ role: "user", text: "Latest NASDAQ news?" }]]);
   });
 
   it("stores a question before model work and replaces its pending turn when finished", async () => {
@@ -1129,4 +1131,70 @@ it("passes one saved activity snapshot into both read-only history tools", async
   expect(response.status).toBe(200);
   expect(reads).toBe(1);
   expect(saved.events).toEqual([]);
+});
+
+
+it.each([false, true])("preserves stored draft outcomes and merges intermediate turns when reply failure is %s", async (failReply) => {
+  const store = conversationStore();
+  const ids = ["draft-chat", "user-turn"];
+  const fields = { sourceAccountId: "a", instrumentId: "f", date: "2026-10-10", quantity: "2", amount: "29", amountType: "net" as const, fees: "1", destination: "external-account" as const, destinationName: "Bank" };
+  const outcome = { workflow: "sale" as const, operation: "prepare" as const, status: "succeeded" as const, recordedAt: "2026-10-10", portfolioChanged: false, draft: fields };
+  const handlers = createPortfolioAnalystHandlers({ models: { openai: "synthetic" }, defaultProvider: "openai", agentRuntimes: { openai: {
+    async runTurn(input) {
+      await input.draftTools!.execute("prepare_sale_draft");
+      if (failReply) throw new Error("Synthetic reply failure");
+      await input.draftTools!.execute("review_sale_draft");
+      return { kind: "conversation", reply: "Owner, review the draft.", audit: { runtime: "pi-agent-core", modelTurns: 3, stopReason: "completed", toolCalls: [] } };
+    },
+  } } }, { conversations: store, readCurrentPortfolio: portfolio, createId: () => ids.shift()!,
+    createDraftTools: (conversationId, userTurnId) => {
+      const created: string[] = [];
+      return { resultTurnId: () => created.at(-1), resultTurnIds: () => created,
+        async execute(name) {
+          const latest = store.readPortfolioAnalystConversation(conversationId)!;
+          const id = `result-${created.length}`; created.push(id);
+          store.savePortfolioAnalystConversation({ ...latest, turns: [...latest.turns, { id, question: "", createdAt: "2026-10-10",
+            chat: { assistantText: "", requestStatus: "pending", workflowResult: outcome,
+              ...(name === "prepare_sale_draft" ? { saleDraft: { sourceTurnId: userTurnId, imageDigest: "synthetic", status: "pending",
+                fields, extraction: { status: "completed", accountName: "Test", name: "Fund", symbol: "123", date: fields.date, quantity: fields.quantity, gross: null, net: "29", fees: "1", currency: "EUR", destination: "external-account", destinationName: "Bank", warnings: [] } } } : {}) },
+          }] });
+          return outcome;
+        },
+      };
+    },
+  });
+  const response = await handlers.POST(request({ provider: "openai", mode: "agent", language: "en", defaultPeriod: "week", question: "Record this completed sale" }));
+  expect(response.status).toBe(200);
+  const saved = store.readLatestPortfolioAnalystConversation()!;
+  expect(saved.turns).toHaveLength(1);
+  expect(saved.turns[0]).toMatchObject({ id: "user-turn", question: "Record this completed sale", chat: { workflowResult: outcome, saleDraft: { status: "pending", fields } } });
+  if (failReply) expect(saved.turns[0].chat).toMatchObject({ requestStatus: "pending", assistantText: "" });
+  else expect(saved.turns[0].chat).toMatchObject({ assistantText: "Owner, review the draft." });
+});
+
+it("answers an uploaded image through the main Agent, preserves it, then passes it with complete history on a later text question", async () => {
+  const store = conversationStore();
+  const attachment = { id: "11111111-1111-4111-8111-111111111111", mimeType: "image/png" as const, byteLength: 1 };
+  store.savePortfolioAnalystConversation({ version: "portfolio-analyst-conversation.v1", id: "images", provider: "openai", language: "en",
+    includeHoldingNames: true, createdAt: "2026-01-01", updatedAt: "2026-01-01", importActivities: [],
+    turns: [{ id: "image-turn", question: "", userText: "", createdAt: "2026-01-01", attachments: [attachment], chat: { assistantText: "" } }],
+  });
+  const received: PortfolioAnalystAgentTurn[] = [];
+  const handlers = createPortfolioAnalystHandlers({ defaultProvider: "openai", models: { openai: "synthetic" },
+    agentRuntimes: { openai: { async runTurn(input) {
+      received.push(input);
+      return { kind: "conversation", reply: "Main Agent answer", audit: { runtime: "pi-agent-core", modelTurns: 1, stopReason: "completed", toolCalls: [] } };
+    } } },
+  }, { conversations: store, readCurrentPortfolio: portfolio, readImage: async () => new Uint8Array([1]), createId: () => "follow-up", now: () => "2026-01-02" });
+  expect((await handlers.POST(request({ mode: "agent", provider: "openai", language: "en", defaultPeriod: "week",
+    conversationId: "images", imageSourceTurnId: "image-turn", question: "Explain these images." }))).status).toBe(200);
+  expect(received[0].images).toEqual([{ data: "AQ==", mimeType: "image/png" }]);
+  expect(received[0].history).toEqual([]);
+  expect(received[0].question).toContain("Image 1:");
+  expect(store.readLatestPortfolioAnalystConversation()?.turns).toHaveLength(1);
+  expect(store.readLatestPortfolioAnalystConversation()?.turns[0]).toMatchObject({ question: "", userText: "", attachments: [attachment], chat: { assistantText: "Main Agent answer" } });
+  await handlers.POST(request({ mode: "agent", provider: "openai", language: "en", defaultPeriod: "week", conversationId: "images", question: "Use the first image later." }));
+  expect(received[1].history[0]).toMatchObject({ role: "user", images: [{ id: attachment.id, data: "AQ==" }] });
+  expect(received[1].history[1]).toMatchObject({ role: "assistant", text: "Main Agent answer" });
+  expect(received[1].question).toBe("Use the first image later.");
 });

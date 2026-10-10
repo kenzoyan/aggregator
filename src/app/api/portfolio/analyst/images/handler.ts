@@ -9,9 +9,17 @@ import {
   normalizePortfolioAnalystConversation,
   type PortfolioAnalystConversationStore,
   type PortfolioAnalystImageAttachment,
+  type PortfolioAnalystConversation,
 } from "@/application/portfolio-analyst-conversation";
 import type { PortfolioAnalystImageStore } from "@/infrastructure/local/portfolio-analyst-image-store";
 import type { ImageQuestionAnswer, ImageQuestionInput } from "@/infrastructure/openai/openai-image-question";
+import type { PortfolioAnalystAgentAudit } from "@/application/portfolio-analyst-agent";
+
+export type ImageReplyGenerator = (input: {
+  conversation: PortfolioAnalystConversation; question: string;
+  read: () => Promise<ImageQuestionAnswer>; signal: AbortSignal;
+  onAnswerTextDelta?: (delta: string) => void;
+}) => Promise<{ text: string; audit: PortfolioAnalystAgentAudit; model?: string }>;
 
 const MAX_IMAGE_COUNT = 6;
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
@@ -97,6 +105,7 @@ export function createPortfolioAnalystImageHandlers(input: {
   createId?: () => string;
   imageQuestion?: (input: ImageQuestionInput) => Promise<ImageQuestionAnswer>;
   imageModel?: string;
+  replyToImage?: ImageReplyGenerator;
 }) {
   return {
     async SEND(request: Request) {
@@ -138,10 +147,7 @@ export function createPortfolioAnalystImageHandlers(input: {
           const next = appendPortfolioAnalystTurn({ ...conversation, language }, {
             id, question: userText, userText,
             attachments: saved, createdAt: now,
-            chat: { assistantText: "", imageAction: {
-              sourceTurnId: id, stage: "intent",
-              ...(preferredAccountType ? { preferredAccountType } : {}),
-            } },
+            chat: { assistantText: "" },
           });
           input.conversations.savePortfolioAnalystConversation(next);
           return { next, id };
@@ -258,7 +264,7 @@ export function createPortfolioAnalystImageHandlers(input: {
     },
 
     async COMPLETE(turnId: string, request: Request, onAnswerTextDelta?: (delta: string) => void) {
-      if (!input.imageQuestion) return errorResponse("Image questions are not configured.", 503);
+      if (!input.imageQuestion || !input.replyToImage) return errorResponse("Image questions are not configured.", 503);
       const conversation = input.conversations.readLatestPortfolioAnalystConversation();
       const turn = conversation?.turns.find((item) => item.id === turnId);
       const source = turn?.imageAnswer?.sourceTurnId
@@ -287,14 +293,27 @@ export function createPortfolioAnalystImageHandlers(input: {
         bytes: image.bytes!,
       }));
       let answer: ImageQuestionAnswer;
+      let reply: Awaited<ReturnType<ImageReplyGenerator>>;
       try {
-        answer = await input.imageQuestion({
-          question: turn.userText ?? turn.question,
-          language: conversation.language,
-          images,
-          signal: request.signal,
-          onAnswerTextDelta,
+        let cached = turn.imageAnswer.observations;
+        reply = await input.replyToImage({
+          conversation, question: turn.userText ?? turn.question, signal: request.signal, onAnswerTextDelta,
+          read: async () => {
+            if (cached) return cached;
+            cached = await input.imageQuestion!({ question: turn.userText ?? turn.question,
+              language: conversation.language, images, signal: request.signal });
+            request.signal.throwIfAborted();
+            const latest = input.conversations.readPortfolioAnalystConversation(conversation.id);
+            if (!latest || input.conversations.readLatestPortfolioAnalystConversation()?.id !== latest.id ||
+              !latest.turns.some((item) => item.id === turnId && item.imageAnswer)) throw new Error("Image message changed.");
+            input.conversations.savePortfolioAnalystConversation({ ...latest, turns: latest.turns.map((item) =>
+              item.id === turnId && item.imageAnswer ? { ...item, imageAnswer: { ...item.imageAnswer, observations: cached } } : item) });
+            return cached;
+          },
         });
+        request.signal.throwIfAborted();
+        if (!cached || !reply.text.trim() || reply.text.length > 6000) throw new Error("Image result was not read.");
+        answer = cached;
       } catch {
         if (request.signal.aborted) return errorResponse("Image analysis was interrupted.", 499);
         const latest = input.conversations.readPortfolioAnalystConversation(conversation.id);
@@ -308,7 +327,7 @@ export function createPortfolioAnalystImageHandlers(input: {
             : item),
         };
         input.conversations.savePortfolioAnalystConversation(failed);
-        return Response.json({ conversation: failed, error: "The image could not be analyzed. Try again." }, {
+        return Response.json({ conversation: failed, error: "The image reply could not be completed. Try again." }, {
           headers: { "cache-control": "no-store" },
         });
       }
@@ -322,7 +341,10 @@ export function createPortfolioAnalystImageHandlers(input: {
           ? { ...item, imageAnswer: {
               ...item.imageAnswer,
               status: "complete" as const,
-              text: answer.answer,
+              text: reply.text,
+              agentAudit: reply.audit,
+              observationModel: item.imageAnswer.observationModel ?? item.imageAnswer.model,
+              model: reply.model ?? item.imageAnswer.model,
               uncertainties: answer.uncertainties,
               generatedAt: new Date().toISOString(),
             } }

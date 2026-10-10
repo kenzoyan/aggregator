@@ -4,7 +4,7 @@ import type { PortfolioWorkflowResult } from "@/application/portfolio-workflow-r
 
 export type WorkflowReplyGenerator = (conversation: PortfolioAnalystConversation, result: PortfolioWorkflowResult, signal: AbortSignal) => Promise<{ text: string; audit: PortfolioAnalystAgentAudit }>;
 export async function completePortfolioWorkflowReply(input: {
-  conversations: PortfolioAnalystConversationStore; conversation: PortfolioAnalystConversation;
+  conversations: Pick<PortfolioAnalystConversationStore, "readPortfolioAnalystConversation" | "readLatestPortfolioAnalystConversation" | "savePortfolioAnalystConversation">; conversation: PortfolioAnalystConversation;
   turnId: string; generate: WorkflowReplyGenerator; signal: AbortSignal;
 }) {
   const turn = input.conversation.turns.find((item) => item.id === input.turnId);

@@ -22,11 +22,39 @@ export const portfolioAnalystToolNames = [
   "prepare_account_import",
   "search_web",
   "read_workflow_result",
+  "read_image",
+  "read_sale_draft",
+  "prepare_sale_draft",
+  "update_sale_draft",
+  "cancel_sale_draft",
+  "review_sale_draft",
+  "prepare_import_draft",
+  "read_import_draft",
+  "update_import_draft",
+  "cancel_import_draft",
+  "review_import_draft",
   "read_memories",
   "propose_memory",
 ] as const;
 
 export type PortfolioAnalystToolName = typeof portfolioAnalystToolNames[number];
+export type SaleDraftToolName = "read_sale_draft" | "prepare_sale_draft" | "update_sale_draft" | "cancel_sale_draft" | "review_sale_draft";
+export type PortfolioAnalystDraftToolName = SaleDraftToolName | "prepare_import_draft" | "read_import_draft" | "update_import_draft" | "cancel_import_draft" | "review_import_draft";
+export interface PortfolioAnalystDraftArguments {
+  sourceTurnId?: string;
+  imageIds?: string[];
+  accountId?: string;
+  sale?: import("@/application/agent-sale-draft").SaleScreenshot;
+  fields?: import("@/application/agent-sale-draft").SaleDraftFields;
+  importEdit?: { field: "valuation-date" | "price-date" | "instrument-code" | "quantity" | "costBasis" | "displayName" | "currency" | "observedPrice" | "reportedPriorReturn" | "reportedMarketValue" | "averageCost"; value: string; holdingLineId?: string };
+  holdings?: import("@/application/imports/vision-extraction-contract").ScreenshotExtraction;
+}
+export interface PortfolioAnalystDraftTools {
+  execute(name: PortfolioAnalystDraftToolName, signal?: AbortSignal, args?: PortfolioAnalystDraftArguments): Promise<PortfolioWorkflowResult>;
+  pending?: { sale: boolean; importAccount?: string; hasImage?: boolean };
+  resultTurnId?: () => string | undefined;
+  resultTurnIds?: () => readonly string[];
+}
 
 export type PortfolioAnalystToolFailureCode =
   | "tool-execution-failed"
@@ -80,6 +108,7 @@ export type PortfolioAnalystToolActivity =
 
 export interface PortfolioAnalystAgentTurn {
   question: string;
+  images?: { data: string; mimeType: string }[];
   history: PortfolioAnalystHistoryMessage[];
   tools: PortfolioAnalystTools;
   language: PortfolioAnalystLanguage;
@@ -89,6 +118,8 @@ export interface PortfolioAnalystAgentTurn {
   hasPendingMemoryProposal?: boolean;
   factsAsOf?: string;
   workflowResult?: PortfolioWorkflowResult;
+  imageAnalysis?: { read: () => Promise<{ answer: string; uncertainties: string[] }> };
+  draftTools?: PortfolioAnalystDraftTools;
   signal?: AbortSignal;
   onPhase?: (phase: "reading-current-facts" | "generating-answer") => void;
   onToolActivity?: (activity: PortfolioAnalystToolActivity) => void;

@@ -10,6 +10,8 @@ import {
   type PortfolioAnalystConversationTurn,
 } from "@/application/portfolio-analyst-conversation";
 import { normalizeSourceAccountType, type SourceAccountDefinition } from "@/domain/source-accounts";
+import { completePortfolioWorkflowReply, type WorkflowReplyGenerator } from "@/application/portfolio-workflow-reply";
+import type { PortfolioWorkflowResult } from "@/application/portfolio-workflow-result";
 
 const requestSchema = z.object({
   conversationId: z.string().min(1).max(80),
@@ -20,27 +22,12 @@ const requestSchema = z.object({
 
 type Outcome = "clarify" | "answer-image" | "prepare-import" | "prepare-sale";
 
-function reply(language: PortfolioAnalystConversation["language"], kind: "intent" | "account" | "missing" | "import", accounts: SourceAccountDefinition[], label?: string) {
-  const zh = language === "zh-CN";
-  if (kind === "intent") return zh
-    ? "我收到了图片。你希望我解释图片内容，还是根据图片准备一份导入草稿供你审核？"
-    : "I received your image. Would you like me to explain it or prepare an import draft for review?";
-  if (kind === "missing") return zh
-    ? "目前没有可接收截图的账户。请先在账户页添加账户，再告诉我继续处理这张图片。"
-    : "There is no screenshot account yet. Add one on the Accounts page, then tell me to continue with this image.";
-  if (kind === "account") return zh
-    ? `这张图片属于哪个账户？请回复账户名称：${accounts.map((account) => account.label).join("、")}。`
-    : `Which account is this image for? Reply with an account name: ${accounts.map((account) => account.label).join(", ")}.`;
-  return zh
-    ? `我会用「${label}」准备导入草稿，完成后请先审核并确认。`
-    : `I'll prepare an import draft for ${label}. Please review and confirm it before anything changes.`;
-}
-
 export function createAgentImageIntentHandler(input: {
   conversations: PortfolioAnalystConversationStore;
   readAccounts: () => SourceAccountDefinition[];
   interpret: (value: AgentImageIntentInput & { signal: AbortSignal }) => Promise<AgentImageIntentDecision>;
   imageModel: string;
+  respond?: WorkflowReplyGenerator;
   now?: () => string;
   createId?: () => string;
 }) {
@@ -130,20 +117,19 @@ export function createAgentImageIntentHandler(input: {
     if (outcome === "prepare-import" && !account && accounts.length === 1) account = accounts[0];
 
     const now = (input.now ?? (() => new Date().toISOString()))();
-    let assistantText = "";
+    const assistantText = "";
+    let nextStep: NonNullable<PortfolioWorkflowResult["imageIntent"]>["nextStep"] | undefined;
     let nextStage: "intent" | "account" | undefined;
     if (outcome === "prepare-sale") {
-      assistantText = "";
       nextStage = "intent";
     } else if (outcome === "clarify") {
-      assistantText = reply(conversation.language, "intent", accounts);
+      nextStep = "choose-intent";
       nextStage = "intent";
     } else if (outcome === "prepare-import" && !account) {
-      assistantText = reply(conversation.language, accounts.length ? "account" : "missing", accounts);
+      nextStep = accounts.length ? "choose-account" : "create-account";
       nextStage = "account";
       outcome = "clarify";
     } else if (outcome === "prepare-import") {
-      assistantText = reply(conversation.language, "import", accounts, account?.label);
       nextStage = "account";
     }
 
@@ -207,9 +193,18 @@ export function createAgentImageIntentHandler(input: {
           : turn),
       };
     }
+    const replyTurnId = body.id ?? source.id;
+    if (nextStep) {
+      const workflowResult: PortfolioWorkflowResult = { workflow: "image", operation: "review", status: "succeeded",
+        recordedAt: now, portfolioChanged: false, imageIntent: { nextStep, accounts: accounts.map(({ id, label }) => ({ id, name: label })) } };
+      next = { ...next, turns: next.turns.map((turn) => turn.id === replyTurnId && turn.chat
+        ? { ...turn, chat: { ...turn.chat, requestStatus: "pending", workflowResult } } : turn) };
+    }
     input.conversations.savePortfolioAnalystConversation(next);
+    const replyResult = nextStep && input.respond ? await completePortfolioWorkflowReply({ conversations: input.conversations,
+      conversation: next, turnId: replyTurnId, generate: input.respond, signal: request.signal }) : { conversation: next };
     return Response.json({
-      conversation: next, intent: outcome,
+      ...replyResult, intent: outcome,
       ...(account && outcome === "prepare-import" ? { accountId: account.id } : {}),
       ...(answerTurnId ? { answerTurnId } : {}),
       sourceTurnId: source.id,

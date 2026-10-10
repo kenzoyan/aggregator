@@ -1,4 +1,5 @@
-import { createPortfolioAnalystHistory, type PortfolioAnalystConversation } from "@/application/portfolio-analyst-conversation";
+import { portfolioAnalystHistory } from "@/server/portfolio-analyst-history";
+import { type PortfolioAnalystConversation } from "@/application/portfolio-analyst-conversation";
 import type { PortfolioWorkflowResult } from "@/application/portfolio-workflow-result";
 import { createPortfolioAnalystTools } from "@/application/portfolio-analyst-tools";
 import type { PortfolioDatabase } from "@/infrastructure/sqlite/portfolio-repository";
@@ -14,7 +15,7 @@ export function createPortfolioWorkflowReply(database: PortfolioDatabase) {
     const userText = latestUser?.userText ?? latestUser?.question;
     const result = await runtime.runTurn({
       question: userText || "Explain the recorded workflow result.",
-      history: createPortfolioAnalystHistory(conversation),
+      history: await portfolioAnalystHistory(conversation),
       tools: createPortfolioAnalystTools(portfolio, database.readSourceAccounts(), database.readPortfolioFacts()),
       language: conversation.language, includeHoldingNames: true, defaultPeriod: "week",
       memories: database.listPortfolioAnalystMemories(), workflowResult, signal,

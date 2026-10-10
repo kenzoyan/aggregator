@@ -10,14 +10,6 @@ import {
   portfolioAnalystLimitationLabel,
 } from "@/application/portfolio-analyst-presentation";
 
-const MAX_MODEL_HISTORY_TURNS = 5;
-const MAX_HISTORY_USER_CHARS = 600;
-const MAX_HISTORY_ASSISTANT_CHARS = 1_400;
-
-function boundedHistoryText(value: string, maxChars: number): string {
-  return value.length > maxChars ? `${value.slice(0, maxChars)}…` : value;
-}
-
 export interface PortfolioAnalystImageAttachment {
   id: string;
   mimeType: "image/jpeg" | "image/png" | "image/webp";
@@ -32,6 +24,9 @@ export interface PortfolioAnalystImageAnswer {
   model: string;
   generatedAt: string;
   sourceTurnId?: string;
+  observations?: { answer: string; uncertainties: string[] };
+  observationModel?: string;
+  agentAudit?: import("@/application/portfolio-analyst-agent").PortfolioAnalystAgentAudit;
 }
 
 export interface PortfolioAnalystChatReply {
@@ -185,7 +180,7 @@ export interface PortfolioAnalystConversationStore {
 }
 
 export type PortfolioAnalystHistoryMessage =
-  | { role: "user"; text: string }
+  | { role: "user"; text: string; sourceTurnId?: string; attachments?: PortfolioAnalystImageAttachment[]; images?: { data: string; mimeType: string; id: string }[] }
   | { role: "assistant"; text: string; factsAsOf: string };
 
 function historicalAssistantText(report: PortfolioAnalystReport): string {
@@ -305,48 +300,40 @@ export function createPortfolioAnalystHistory(
   conversation: PortfolioAnalystConversation,
 ): PortfolioAnalystHistoryMessage[] {
   const exchanges = conversation.turns.flatMap((turn) => {
-    if (turn.chat?.memoryProposal?.status === "pending" || turn.chat?.failureCode || turn.chat?.requestStatus === "pending") return [];
-    if (turn.importImage) return [];
-    if (turn.imageAnswer && turn.imageAnswer.status && turn.imageAnswer.status !== "complete") return [];
-    if (!conversation.includeHoldingNames && (turn.chat || turn.imageAnswer)) return [];
-    const assistantText = turn.report
-      ? historicalAssistantText(turn.report)
+    // Pending/failure placeholders are UI state, never assistant context.
+    const assistantText = turn.chat?.failureCode || turn.chat?.requestStatus === "pending"
+      ? "" : turn.report ? historicalAssistantText(turn.report)
+      : turn.imageAnswer?.status && turn.imageAnswer.status !== "complete" ? ""
       : turn.imageAnswer?.text ?? turn.chat?.assistantText ?? "";
-    if (!assistantText.trim()) return [];
-    const memoryReview = turn.chat?.memoryProposal?.status;
+    const userText = turn.userText ?? turn.question;
+    if (!userText && !turn.attachments?.length && !assistantText) return [];
     return [{
-      createdAt: turn.createdAt,
-      userText: turn.question.trim() || "Shared an image",
-      assistantText: memoryReview === "saved" || memoryReview === "cancelled"
-        ? `${assistantText}\nMemory review: ${memoryReview}.`
-        : assistantText,
+      createdAt: turn.createdAt, userText, assistantText,
+      ...(turn.attachments?.length ? { sourceTurnId: turn.id, attachments: turn.attachments } : {}),
       factsAsOf: turn.report?.factsAsOf ?? turn.imageAnswer?.generatedAt ?? turn.createdAt,
     }];
   });
-  if (conversation.includeHoldingNames) {
-    for (const activity of conversation.importActivities) {
-      for (const followUp of activity.followUps ?? []) {
-        if (!followUp.userText.trim() || !followUp.assistantText.trim()) continue;
-        exchanges.push({
-          createdAt: followUp.createdAt,
-          userText: followUp.userText,
-          assistantText: followUp.assistantText,
-          factsAsOf: followUp.createdAt,
-        });
-      }
+  for (const activity of conversation.importActivities) {
+    for (const followUp of activity.followUps ?? []) {
+      if (!followUp.userText.trim() || !followUp.assistantText.trim()) continue;
+      exchanges.push({
+        createdAt: followUp.createdAt,
+        userText: followUp.userText,
+        assistantText: followUp.assistantText,
+        factsAsOf: followUp.createdAt,
+      });
     }
   }
   const recent = exchanges
-    .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
-    .slice(-MAX_MODEL_HISTORY_TURNS);
+    .sort((left, right) => left.createdAt.localeCompare(right.createdAt));
   const history: PortfolioAnalystHistoryMessage[] = recent.flatMap((exchange) => [
-    { role: "user" as const, text: boundedHistoryText(exchange.userText, MAX_HISTORY_USER_CHARS) },
-    { role: "assistant" as const, text: boundedHistoryText(exchange.assistantText, MAX_HISTORY_ASSISTANT_CHARS), factsAsOf: exchange.factsAsOf },
+    ...(exchange.userText || exchange.attachments?.length ? [{ role: "user" as const, text: exchange.userText,
+      ...(exchange.attachments ? { sourceTurnId: exchange.sourceTurnId, attachments: exchange.attachments } : {}) }] : []),
+    ...(exchange.assistantText ? [{ role: "assistant" as const, text: exchange.assistantText, factsAsOf: exchange.factsAsOf }] : []),
   ]);
   const recentImport = conversation.importActivities.at(-1);
   const latestExchangeAt = recent.at(-1)?.createdAt;
   if (
-    conversation.includeHoldingNames &&
     recentImport &&
     !recentImport.followUps?.length &&
     (!latestExchangeAt || recentImport.createdAt > latestExchangeAt)

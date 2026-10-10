@@ -1,15 +1,19 @@
+import { portfolioAnalystHistory } from "@/server/portfolio-analyst-history";
 import type { PortfolioFacts } from "@/infrastructure/sqlite/portfolio-repository-contract";
 import { NextResponse } from "next/server";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 
 import type { PortfolioAnalystAnswer } from "@/application/portfolio-analyst-answer";
-import type { PortfolioAnalystAgentAudit } from "@/application/portfolio-analyst-agent";
+import type { PortfolioAnalystAgentAudit, PortfolioAnalystDraftTools } from "@/application/portfolio-analyst-agent";
+import { createPortfolioDraftTools } from "@/server/portfolio-draft-tools";
+import { createImportWorkflowResult } from "@/application/imports/import-workflow-result";
+import { completePortfolioWorkflowReply, type WorkflowReplyGenerator } from "@/application/portfolio-workflow-reply";
+import { createPortfolioWorkflowReply } from "@/server/portfolio-workflow-reply";
 import {
   attachPortfolioAnalystImport,
   appendPortfolioAnalystTurn,
   createPortfolioAnalystConversation,
-  createPortfolioAnalystHistory,
   normalizePortfolioAnalystConversation,
   replacePortfolioAnalystTurn,
   type PortfolioAnalystImageAttachment,
@@ -70,6 +74,8 @@ const agentRequestSchema = z.object({
   defaultPeriod: z.enum(["today", "week", "month"]),
   question: z.string().trim().min(1).max(600),
   screenshotCount: z.number().int().min(1).max(6).optional(),
+  imageSourceTurnId: z.string().min(1).max(80).optional(),
+  importDraftId: z.string().min(1).max(100).optional(),
 }).strict();
 const requestSchema = z.union([agentRequestSchema, legacyRequestSchema]);
 const importActivitySchema = z.object({
@@ -104,12 +110,6 @@ function requestDefaultPeriod(body: AnalystApiRequest) {
   return body.job === "explain-period-drivers" ? body.period : "week";
 }
 
-function runtimeQuestion(body: AnalystApiRequest): string {
-  const question = requestQuestion(body);
-  if (!("mode" in body) || !body.screenshotCount) return question;
-  return `The user attached ${body.screenshotCount} screenshot(s). Their image contents are not visible in this text turn. Read the registered accounts and use prepare_account_import when the user's text clearly identifies one. Do not claim to have read or extracted the images; the application will analyze them after account selection. User request: ${question}`;
-}
-
 function json(body: unknown, init?: ResponseInit) {
   return NextResponse.json(body, {
     ...init,
@@ -140,10 +140,18 @@ export function createPortfolioAnalystHandlers(
     createId?: () => string;
     conversations?: PortfolioAnalystConversationStore;
     memory?: PortfolioAnalystMemoryStore;
+    readImage?: (attachment: PortfolioAnalystImageAttachment) => Promise<Uint8Array | undefined>;
     deleteImage?: (attachment: PortfolioAnalystImageAttachment) => Promise<void>;
     getImportDraft?: (id: string) => StoredImportDraft | undefined;
+    createDraftTools?: (conversationId: string, userTurnId: string, imageSourceTurnId?: string, importDraftId?: string) => PortfolioAnalystDraftTools;
+    workflowReply?: WorkflowReplyGenerator;
   },
 ) {
+  const importDraftsFor = (conversation: ReturnType<PortfolioAnalystConversationStore["readPortfolioAnalystConversation"]>) =>
+    conversation?.importActivities.flatMap((activity) => {
+      const draft = options.getImportDraft?.(activity.draftId);
+      return draft ? [createImportDraftReadModel(draft)] : [];
+    }) ?? [];
   return {
     async GET() {
       const stored = options.conversations?.readLatestPortfolioAnalystConversation();
@@ -207,6 +215,19 @@ export function createPortfolioAnalystHandlers(
         createdAt: options.now?.() ?? new Date().toISOString(),
       });
       options.conversations?.savePortfolioAnalystConversation(nextConversation);
+      if (options.workflowReply && options.conversations && !nextConversation.turns.some((turn) =>
+        turn.chat?.workflowResult?.operation === "prepare" && turn.chat.workflowResult.importDraft?.id === draft.id)) {
+        const now = options.now?.() ?? new Date().toISOString();
+        const turnId = (options.createId ?? randomUUID)();
+        const next = appendPortfolioAnalystTurn(nextConversation, { id: turnId, question: "", createdAt: now,
+          chat: { assistantText: "", requestStatus: "pending", workflowResult: createImportWorkflowResult({
+            draft, accountName: targetLabel, operation: "prepare", status: "succeeded", recordedAt: now,
+          }) } });
+        options.conversations.savePortfolioAnalystConversation(next);
+        const reply = await completePortfolioWorkflowReply({ conversations: options.conversations, conversation: next,
+          turnId, generate: options.workflowReply, signal: request.signal });
+        return json({ ...reply, importDraft: createImportDraftReadModel(draft) });
+      }
       return json({
         conversation: nextConversation,
         importDraft: createImportDraftReadModel(draft),
@@ -274,30 +295,60 @@ export function createPortfolioAnalystHandlers(
         now: generatedAt,
       });
 
-      const pendingTurnId = "mode" in body && options.conversations ? createId() : undefined;
+      const imageSource = "mode" in body && body.imageSourceTurnId
+        ? conversation.turns.find((turn) => turn.id === body.imageSourceTurnId) : undefined;
+      if ("mode" in body && body.importDraftId && !conversation.importActivities.some((activity) => activity.draftId === body.importDraftId)) {
+        return json({ error: "Import draft does not belong to this conversation.", code: "import-draft-not-found" }, { status: 404 });
+      }
+      const reuseImageTurn = imageSource?.id === conversation.turns.at(-1)?.id && Boolean(imageSource?.chat &&
+        !imageSource.chat.assistantText && !imageSource.chat.workflowResult && (requestQuestion(body) === (imageSource.userText ?? imageSource.question) || !(imageSource.userText ?? imageSource.question)));
+      const pendingTurnId = "mode" in body && options.conversations ? reuseImageTurn ? imageSource!.id : createId() : undefined;
+      if ("mode" in body && body.imageSourceTurnId && !conversation.turns.some((turn) =>
+        turn.id === body.imageSourceTurnId && turn.attachments?.length)) {
+        return json({ error: "Saved image was not found in this conversation.", code: "image-not-found" }, { status: 404 });
+      }
       if (pendingTurnId) {
-        conversation = appendPortfolioAnalystTurn({ ...conversation, language: body.language }, {
+        const pending = {
           id: pendingTurnId,
           question: requestQuestion(body),
+          ...(reuseImageTurn ? { userText: imageSource!.userText, attachments: imageSource!.attachments } : {}),
           createdAt: generatedAt,
           chat: {
-            assistantText: body.language === "zh-CN"
-              ? "正在生成回答。如果请求中断，请重新发送问题。"
-              : "Response in progress. If the request is interrupted, send the question again.",
-            requestStatus: "pending",
+            assistantText: "",
+            requestStatus: "pending" as const,
           },
-        });
+        };
+        conversation = reuseImageTurn
+          ? replacePortfolioAnalystTurn({ ...conversation, language: body.language }, pending, generatedAt)
+          : appendPortfolioAnalystTurn({ ...conversation, language: body.language }, pending);
         options.conversations!.savePortfolioAnalystConversation(conversation);
       }
 
       const finishTurn = (turn: Parameters<typeof appendPortfolioAnalystTurn>[1]) =>
         pendingTurnId
-          ? replacePortfolioAnalystTurn(conversation, turn, options.now?.() ?? new Date().toISOString())
+          ? replacePortfolioAnalystTurn(conversation, { ...turn, ...(reuseImageTurn ? { attachments: imageSource!.attachments, userText: imageSource!.userText, question: imageSource!.question } : {}) }, options.now?.() ?? new Date().toISOString())
           : appendPortfolioAnalystTurn({ ...conversation, language: body.language }, turn);
 
       let context: PortfolioAnalystContextV1;
       let answer: PortfolioAnalystAnswer;
       let agentAudit: PortfolioAnalystAgentAudit | undefined;
+      const draftTools = pendingTurnId ? options.createDraftTools?.(conversation.id, pendingTurnId,
+        "mode" in body ? body.imageSourceTurnId : undefined, "mode" in body ? body.importDraftId : undefined) : undefined;
+      const finishDraftReply = (text?: string, audit?: PortfolioAnalystAgentAudit) => {
+        const operationTurnId = draftTools?.resultTurnId?.();
+        if (!operationTurnId || !options.conversations || !pendingTurnId) return undefined;
+        const latest = options.conversations.readPortfolioAnalystConversation(conversation.id);
+        const operation = latest?.turns.find((turn) => turn.id === operationTurnId);
+        if (!latest || !operation?.chat?.workflowResult || options.conversations.readLatestPortfolioAnalystConversation()?.id !== latest.id) throw new Error("Draft operation result was not found.");
+        const intermediateIds = new Set(draftTools?.resultTurnIds?.() ?? [operationTurnId]);
+        const newDraft = latest.turns.findLast((turn) => intermediateIds.has(turn.id) && turn.chat?.saleDraft)?.chat?.saleDraft;
+        const next = { ...latest, turns: latest.turns.filter((turn) => !intermediateIds.has(turn.id)).map((turn) =>
+          turn.id === pendingTurnId && turn.chat ? { ...turn, chat: { ...operation.chat!,
+            ...(newDraft ? { saleDraft: newDraft } : {}), assistantText: text ?? "",
+            requestStatus: text ? undefined : "pending" as const, ...(audit ? { workflowReplyAudit: audit } : {}) } } : turn) };
+        options.conversations.savePortfolioAnalystConversation(next);
+        return next;
+      };
       try {
         const tools = createPortfolioAnalystTools(
           portfolio,
@@ -306,13 +357,19 @@ export function createPortfolioAnalystHandlers(
         );
         emit?.({ type: "status", phase: "selecting-tool" });
         const result = await agentRuntime.runTurn({
-          question: runtimeQuestion(body),
-          history: createPortfolioAnalystHistory(conversation),
+          question: requestQuestion(body) + (reuseImageTurn ? `\n[Attached image sourceTurnId=${imageSource!.id}; ${imageSource!.attachments!.map((a, index) => `Image ${conversation.turns.filter((t) => t.id !== imageSource!.id).reduce((n, t) => n + (t.attachments?.length ?? 0), 0) + index + 1}: ${a.id}`).join("; ")}]` : ""),
+          history: await portfolioAnalystHistory(conversation, { read: options.readImage ?? (async () => undefined) }, pendingTurnId),
+          ...(reuseImageTurn ? { images: await Promise.all((imageSource!.attachments ?? []).map(async (attachment) => {
+            const bytes = await options.readImage?.(attachment);
+            if (!bytes) throw new Error("Saved image is unavailable. Please attach it again.");
+            return { data: Buffer.from(bytes).toString("base64"), mimeType: attachment.mimeType };
+          })) } : {}),
           tools,
           language: body.language,
           includeHoldingNames: body.includeHoldingNames,
           defaultPeriod: requestDefaultPeriod(body),
           memories: options.memory?.listPortfolioAnalystMemories(),
+          draftTools,
           hasPendingMemoryProposal: conversation.turns.some((turn) => turn.chat?.memoryProposal?.status === "pending"),
           factsAsOf: portfolio.insights.asOf,
           signal: request.signal,
@@ -321,12 +378,15 @@ export function createPortfolioAnalystHandlers(
           onAnswerTextDelta: (delta) => emit?.({ type: "answer-delta", delta }),
         });
         if (result.kind === "conversation") {
+          const draftConversation = finishDraftReply(result.reply, result.audit);
+          if (draftConversation) return json({ conversation: draftConversation, importDrafts: importDraftsFor(draftConversation) });
           const nextConversation = finishTurn({
             id: pendingTurnId ?? createId(),
             question: requestQuestion(body),
             createdAt: generatedAt,
             chat: {
               assistantText: result.reply,
+              workflowReplyAudit: result.audit,
               ...(result.memoryProposal ? {
                 memoryProposal: { content: result.memoryProposal.content, status: "pending" as const },
               } : {}),
@@ -340,6 +400,11 @@ export function createPortfolioAnalystHandlers(
         agentAudit = result.audit;
       } catch (error) {
         if ("mode" in body && options.conversations) {
+          // Draft changes are already persisted. A failed reply must not overwrite or repeat them.
+          if (draftTools?.resultTurnId?.()) {
+            const latest = finishDraftReply();
+            return json({ conversation: latest, importDrafts: importDraftsFor(latest), replyUnavailable: true, replyTurnId: pendingTurnId });
+          }
           const code = error instanceof PortfolioAnalystContextError
             ? "context-too-large"
             : error instanceof PortfolioAnalystProviderError ? error.code : "provider-unavailable";
@@ -451,8 +516,11 @@ function getProductionHandlers() {
         readActivityFacts: () => database.readPortfolioFacts(),
         conversations: database,
         memory: database,
+        readImage: (attachment) => createLocalPortfolioAnalystImageStore().read(attachment),
         deleteImage: (attachment) => createLocalPortfolioAnalystImageStore().delete(attachment),
         getImportDraft: (id) => database.getImportDraft(id),
+        createDraftTools: (conversationId, turnId, imageSourceTurnId, importDraftId) => createPortfolioDraftTools(database, conversationId, turnId, imageSourceTurnId, undefined, importDraftId),
+        workflowReply: createPortfolioWorkflowReply(database),
       },
     );
   }
@@ -489,9 +557,10 @@ export async function POST(request: Request) {
             >;
             error?: string;
             code?: string;
+            importDrafts?: ReturnType<typeof createImportDraftReadModel>[];
           };
           if (response.ok && body.conversation) {
-            emit({ type: "completed", conversation: body.conversation });
+            emit({ type: "completed", conversation: body.conversation, ...(body.importDrafts ? { importDrafts: body.importDrafts } : {}) });
           } else {
             emit({
               type: "failed",

@@ -14,6 +14,7 @@ import {
 } from "@/application/imports/import-draft-read-model";
 import type { PortfolioDatabase } from "@/infrastructure/sqlite/portfolio-repository";
 import { getPortfolioDatabase } from "@/server/portfolio-db";
+import { replyToImportConfirmation } from "@/server/portfolio-import-workflow";
 
 type ImportConfirmDatabase = Pick<
   PortfolioDatabase,
@@ -92,9 +93,16 @@ export async function POST(
   context: { params: Promise<{ id: string }> },
 ) {
   const { id } = await context.params;
-  return createImportConfirmHandler({
-    database: getPortfolioDatabase(),
+  const database = getPortfolioDatabase();
+  const response = await createImportConfirmHandler({
+    database,
     newId: randomUUID,
     now: () => new Date().toISOString(),
   })(request, id);
+  const payload = await response.json();
+  // Reply failure must never turn a completed import into a failed confirmation.
+  let reply: object = {};
+  try { reply = await replyToImportConfirmation(database, id, request.signal, response.ok ? undefined : payload.error); }
+  catch { /* The existing draft and confirmation result remain authoritative. */ }
+  return NextResponse.json({ ...payload, ...reply }, { status: response.status, headers: { "cache-control": "no-store" } });
 }

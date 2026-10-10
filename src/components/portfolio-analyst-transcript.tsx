@@ -46,24 +46,19 @@ interface SavedConversationEntriesProps {
   language: PortfolioAnalystLanguage;
   accountActionStatus: Record<string, "confirming" | "created" | "failed">;
   selectedEvidenceId?: string;
-  answeringImageTurnId?: string;
-  streamedImageAnswer: string;
   loading: boolean;
   importBusy: boolean;
   onConfirmCreateAccount: (turnId: string, action: Extract<FactualUpdate, { kind: "create-account" }>) => void;
   onShowSources: (turnId: string) => void;
-  onRetryImageQuestion: (turnId: string) => void;
-  onPrepareSavedImageImport: (sourceTurnId: string, accountId: string) => void;
+  onRetryTurn: (turnId: string) => void;
   onRetryWorkflowReply?: (turnId: string) => void;
-  onResolveImageMessage: (sourceTurnId: string) => void;
   onReviewDraft: (draftId: string) => void;
 }
 
 export function SavedConversationEntries({
   conversation, importDrafts, activeReviewDraftId, activeDateRequest, language,
-  accountActionStatus, selectedEvidenceId, answeringImageTurnId, streamedImageAnswer,
-  loading, importBusy, onConfirmCreateAccount, onShowSources, onRetryImageQuestion,
-  onPrepareSavedImageImport, onRetryWorkflowReply, onResolveImageMessage, onReviewDraft,
+  accountActionStatus, selectedEvidenceId,
+  loading, importBusy, onConfirmCreateAccount, onShowSources, onRetryTurn, onRetryWorkflowReply, onReviewDraft,
 }: SavedConversationEntriesProps) {
   const entries = analystHistoryEntries(conversation);
   // Keep the beginning fixed as new replies arrive, so reading history never removes a visible turn.
@@ -94,55 +89,40 @@ export function SavedConversationEntries({
             sourceId={entry.turn.id}
             sourcesOpen={selectedEvidenceId === entry.turn.id}
             onShowSources={() => onShowSources(entry.turn.id)}
-          /> : entry.turn.imageAnswer ? <div className="analyst-primary-answer analyst-assistant-message" aria-live="polite">
+          /> : entry.turn.imageAnswer ? <>
             {entry.turn.imageAnswer.status === "pending" || entry.turn.imageAnswer.status === "failed" ? (
-              <div className="analyst-image-answer-status">
-                <AssistantMessageContent text={answeringImageTurnId === entry.turn.id
-                  ? (streamedImageAnswer || "Thinking about your image…")
-                  : entry.turn.imageAnswer.status === "failed"
-                    ? "I couldn't finish reading this image."
-                    : "Image sent. Response paused."} />
-                {answeringImageTurnId !== entry.turn.id && (
-                  <button type="button" disabled={loading || importBusy} onClick={() => onRetryImageQuestion(entry.turn.id)}>
-                    Retry response
-                  </button>
-                )}
+              <div className="analyst-import-chat-status" role="status">
+                <span>{language === "zh-CN" ? "图片回复未完成。" : "Image reply is incomplete."}</span>
+                <button type="button" disabled={loading || importBusy} onClick={() => onRetryTurn(entry.turn.id)}>
+                  {language === "zh-CN" ? "重试回复" : "Retry reply"}
+                </button>
               </div>
-            ) : <>
+            ) : <div className="analyst-primary-answer analyst-assistant-message">
               <AssistantMessageContent text={entry.turn.imageAnswer.text} />
-              {entry.turn.imageAnswer.uncertainties.length > 0 && (
-                <ul>{entry.turn.imageAnswer.uncertainties.map((item) => <li key={item}>{item}</li>)}</ul>
-              )}
-            </>}
-          </div> : entry.turn.chat && (entry.turn.chat.assistantText || entry.turn.chat.workflowResult ||
-            entry.turn.chat.imageAction?.purpose !== "sale" ||
-            (entry.turn.id === conversation.turns.at(-1)?.id && !importBusy))
-            ? <div className="analyst-primary-answer analyst-assistant-message">
-            {entry.turn.chat.workflowResult && !entry.turn.chat.assistantText ? <>
-              <small>{language === "zh-CN" ? "操作结果已记录，Agent 回复尚未完成。" : "Operation result recorded; Agent reply is pending."}</small>
-              <button type="button" disabled={loading || importBusy} onClick={() => onRetryWorkflowReply?.(entry.turn.id)}>
-                {language === "zh-CN" ? "重试 Agent 回复" : "Retry Agent reply"}
-              </button>
-            </> : entry.turn.chat.imageAction?.purpose !== "sale" || entry.turn.chat.assistantText ? <AssistantMessageContent text={entry.turn.chat.assistantText || (language === "zh-CN" ? "正在查看图片…" : "Reading your image…")} /> : null}
-            {entry.turn.chat.memoryProposal?.status === "saved" && <small>{language === "zh-CN" ? "记忆已保存。" : "Memory saved."}</small>}
-            {entry.turn.chat.memoryProposal?.status === "cancelled" && <small>{language === "zh-CN" ? "记忆未保存。" : "Memory not saved."}</small>}
-            {entry.turn.id === conversation.turns.at(-1)?.id && entry.turn.chat.imageAction?.purpose === "sale" &&
-              <button type="button" disabled={loading || importBusy} onClick={() => onResolveImageMessage(entry.turn.chat!.imageAction!.sourceTurnId)}>
-                {language === "zh-CN" ? "重试卖出识别" : "Retry sale analysis"}
-              </button>}
-            {entry.turn.id === conversation.turns.at(-1)?.id && entry.turn.chat.imageAction?.purpose !== "sale" && entry.turn.chat.imageAction?.accountId &&
-              !conversation.importActivities.some((activity) =>
-                activity.sourceTurnId === entry.turn.chat?.imageAction?.sourceTurnId ||
-                (activity.sourceTurnId === undefined && activity.createdAt >= entry.turn.createdAt)
-              ) && (
-                <button type="button" disabled={loading || importBusy} onClick={() => onPrepareSavedImageImport(entry.turn.chat!.imageAction!.sourceTurnId, entry.turn.chat!.imageAction!.accountId!)}>{language === "zh-CN" ? "重试导入" : "Retry import"}</button>
-              )}
-            {!entry.turn.chat.workflowResult && entry.turn.chat.imageAction && entry.turn.chat.imageAction.purpose !== "sale" && !entry.turn.chat.assistantText && !importBusy && (
-              <button type="button" onClick={() => onResolveImageMessage(entry.turn.chat!.imageAction!.sourceTurnId)}>
-                {language === "zh-CN" ? "重试回复" : "Retry response"}
-              </button>
-            )}
-          </div> : null}
+              {entry.turn.imageAnswer.uncertainties.length > 0 && <ul>{entry.turn.imageAnswer.uncertainties.map((item) => <li key={item}>{item}</li>)}</ul>}
+            </div>}
+          </> : entry.turn.chat?.failureCode ? <div className="analyst-import-chat-status" role="alert">
+            <span>{entry.turn.chat.assistantText || pendingPhaseLabel("failed", language, entry.turn.chat.failureCode)}</span>
+            <button type="button" disabled={loading || importBusy} onClick={() => onRetryTurn(entry.turn.id)}>
+              {language === "zh-CN" ? "重试回复" : "Retry reply"}
+            </button>
+          </div> : entry.turn.chat?.requestStatus === "pending" && !entry.turn.chat.workflowResult && !loading && !importBusy ? <div className="analyst-import-chat-status" role="status">
+            <span>{language === "zh-CN" ? "回复未完成。" : "Reply is incomplete."}</span>
+            <button type="button" onClick={() => onRetryTurn(entry.turn.id)}>{language === "zh-CN" ? "重试回复" : "Retry reply"}</button>
+          </div> : entry.turn.chat && (entry.turn.chat.assistantText && entry.turn.chat.requestStatus !== "pending" || entry.turn.chat.workflowResult && !loading && !importBusy)
+            ? <>
+              {entry.turn.chat.assistantText && entry.turn.chat.requestStatus !== "pending" && <div className="analyst-primary-answer analyst-assistant-message">
+                <AssistantMessageContent text={entry.turn.chat.assistantText} />
+                {entry.turn.chat.memoryProposal?.status === "saved" && <small>{language === "zh-CN" ? "记忆已保存。" : "Memory saved."}</small>}
+                {entry.turn.chat.memoryProposal?.status === "cancelled" && <small>{language === "zh-CN" ? "记忆未保存。" : "Memory not saved."}</small>}
+              </div>}
+              {entry.turn.chat.workflowResult && (!entry.turn.chat.assistantText || entry.turn.chat.requestStatus === "pending") && <div className="analyst-import-chat-status" role="status">
+                <span>{language === "zh-CN" ? "操作结果已记录，回复未完成。" : "Operation result recorded; reply is incomplete."}</span>
+                <button type="button" disabled={loading || importBusy} onClick={() => onRetryWorkflowReply?.(entry.turn.id)}>
+                  {language === "zh-CN" ? "重试回复" : "Retry reply"}
+                </button>
+              </div>}
+            </> : null}
         </div>
       ) : entry.kind === "import-follow-up" ? (
         <div className="analyst-turn" key={entry.followUp.id}>
@@ -301,6 +281,10 @@ function analystToolLabel(
     prepare_account_import: "资产导入准备",
     search_web: "网络搜索",
     read_workflow_result: "操作结果",
+    read_image: "截图内容",
+    prepare_import_draft: "准备导入草稿", read_import_draft: "导入草稿", update_import_draft: "修改导入草稿", cancel_import_draft: "取消导入草稿", review_import_draft: "核对导入草稿",
+    read_sale_draft: "卖出草稿", prepare_sale_draft: "准备卖出草稿", update_sale_draft: "修改卖出草稿",
+    cancel_sale_draft: "取消卖出草稿", review_sale_draft: "核对卖出草稿",
     read_memories: "已保存的记忆",
     propose_memory: "记忆提议",
   } : {
@@ -316,6 +300,10 @@ function analystToolLabel(
     prepare_account_import: "asset import preparation",
     search_web: "web research",
     read_workflow_result: "operation result",
+    read_image: "image observations",
+    prepare_import_draft: "prepare import draft", read_import_draft: "import draft", update_import_draft: "update import draft", cancel_import_draft: "cancel import draft", review_import_draft: "review import draft",
+    read_sale_draft: "sale draft", prepare_sale_draft: "prepare sale draft", update_sale_draft: "update sale draft",
+    cancel_sale_draft: "cancel sale draft", review_sale_draft: "review sale draft",
     read_memories: "saved memories",
     propose_memory: "memory proposal",
   };

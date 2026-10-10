@@ -9,8 +9,6 @@ import { ReviewDialog } from "@/components/ui/review-dialog";
 import { useEffect, useRef, useState } from "react";
 
 import type { PortfolioAnalystConversation } from "@/application/portfolio-analyst-conversation";
-import { pendingScreenshotImportTarget, resumableImageContext } from "@/application/agent-image-intent";
-import { consumePortfolioAnalystImageStream } from "@/application/portfolio-analyst-image-stream";
 import type {
   FactualUpdate,
   PortfolioAnalystLanguage,
@@ -116,6 +114,7 @@ export function PortfolioAnalyst({
   const [selectedEvidenceId, setSelectedEvidenceId] = useState<string>();
   const includeHoldingNames = true;
   const [conversation, setConversation] = useState<PortfolioAnalystConversation>();
+  const [pendingTurnImageId, setPendingTurnImageId] = useState<string>();
   const [pendingTurn, setPendingTurn] = useState<PendingPortfolioAnalystTurn>();
   const [question, setQuestion] = useState("");
   const [loading, setLoading] = useState(false);
@@ -127,9 +126,6 @@ export function PortfolioAnalyst({
     () => createAgentImageAttachmentState<File>(),
   );
   const [pendingImageMessage, setPendingImageMessage] = useState<{ text: string; files: readonly File[] }>();
-  const [pendingImportReply, setPendingImportReply] = useState<string>();
-  const [answeringImageTurnId, setAnsweringImageTurnId] = useState<string>();
-  const [streamedImageAnswer, setStreamedImageAnswer] = useState("");
   const [importDrafts, setImportDrafts] = useState<Record<string, ImportDraftReadModel>>({});
   const importDraftsRef = useRef<Record<string, ImportDraftReadModel>>({});
   const saveQueue = useRef<Promise<void>>(Promise.resolve());
@@ -142,7 +138,6 @@ export function PortfolioAnalyst({
   >>({});
   const selectedProvider = configuration?.providers.find((item) => item.id === provider);
   const activeSaleTurn = conversation?.turns.findLast((turn) => turn.chat?.saleDraft?.status === "pending");
-  const activeImportTarget = pendingScreenshotImportTarget(conversation);
 
   useEffect(() => {
     let active = true;
@@ -226,87 +221,14 @@ export function PortfolioAnalyst({
 
   useEffect(() => () => { activeRequest.current?.abort(); }, []);
 
-  async function analyzeAccountImport(
-    currentConversation: PortfolioAnalystConversation,
-    chosenAccountId: string,
-    sourceTurnId: string,
-  ) {
-    if (importBusy) return;
-    setImportBusy(true);
-    setError(undefined);
-    setImportAttachments((current) => lockAgentImageAttachments(current));
-    const controller = new AbortController();
-    activeRequest.current = controller;
-    try {
-      const form = new FormData();
-      form.set("mode", "image");
-      form.set("sourceAccountId", chosenAccountId);
-      form.set("conversationId", currentConversation.id);
-      form.set("sourceTurnId", sourceTurnId);
-      const response = await fetch("/api/imports/analyze", {
-        method: "POST",
-        body: form,
-        signal: controller.signal,
-      });
-      const payload = (await response.json()) as {
-        draft?: ImportDraftReadModel;
-        conversation?: PortfolioAnalystConversation;
-        error?: string;
-      };
-      if (!response.ok || !payload.draft || !payload.conversation) {
-        throw new Error(payload.error ?? "Image analysis failed.");
-      }
-      setConversation(payload.conversation);
-      importDraftsRef.current = { ...importDraftsRef.current, [payload.draft.id]: payload.draft };
-      setImportDrafts(importDraftsRef.current);
-      setSelectedEvidenceId(undefined);
-      setSelectedReviewId(payload.draft.id);
-      setImportAttachments((current) => resetAgentImageAttachments(current));
-      setQuestion("");
-    } catch (cause) {
-      if (!(cause instanceof DOMException && cause.name === "AbortError")) {
-        setError(cause instanceof Error ? cause.message : "Image analysis failed.");
-      }
-    } finally {
-      activeRequest.current = undefined;
-      setImportAttachments((current) => unlockAgentImageAttachments(current));
-      setImportBusy(false);
-    }
-  }
-
   function submitComposer() {
     const submission = createAgentComposerSubmission({
       text: question,
       screenshots: importAttachments.files,
     });
     if (!submission) return;
-    if (activeSaleTurn && submission.screenshots.length > 0) {
-      setError(language === "zh-CN" ? "请先保存或取消当前卖出草稿，再上传下一张截图。" : "Save or cancel the current sale draft before uploading another image.");
-      return;
-    }
     if (submission.screenshots.length > 0) {
       void sendImageMessage(submission);
-      return;
-    }
-    if (activeSaleTurn && conversation) {
-      void submitSaleMessage(activeSaleTurn.id, submission.text);
-      return;
-    }
-    if (activeReview) {
-      void submitImportMessage(activeReview.draftId, submission.text);
-      return;
-    }
-    const waiting = conversation?.turns.at(-1)?.chat?.imageAction;
-    const laterImport = conversation?.importActivities.some((activity) =>
-      activity.createdAt >= (conversation.turns.at(-1)?.createdAt ?? "")
-    );
-    if (waiting && conversation && !laterImport) {
-      void resolveImageMessage(conversation, waiting.sourceTurnId, submission.text);
-      return;
-    }
-    const resumable = resumableImageContext(conversation);
-    if (resumable && conversation) {
-      void resolveImageMessage(conversation, resumable.sourceTurnId, submission.text);
       return;
     }
     void runAnalyst(submission.text);
@@ -353,7 +275,6 @@ export function PortfolioAnalyst({
       form.set("provider", provider);
       form.set("includeHoldingNames", String(includeHoldingNames));
       if (conversation) form.set("conversationId", conversation.id);
-      if (activeImportTarget) form.set("preferredAccountType", activeImportTarget.accountType);
       submission.screenshots.forEach((file) => form.append("images", file));
       const response = await fetch("/api/portfolio/analyst/images/message", {
         method: "POST", body: form, signal: controller.signal,
@@ -380,111 +301,14 @@ export function PortfolioAnalyst({
       setImportAttachments((current) => unlockAgentImageAttachments(current));
       setImportBusy(false);
     }
-    if (saved && turnId) void resolveImageMessage(saved, turnId);
-  }
-
-  async function prepareSavedImageImport(
-    currentConversation: PortfolioAnalystConversation,
-    sourceTurnId: string,
-    accountId: string,
-  ) {
-    await analyzeAccountImport(currentConversation, accountId, sourceTurnId);
-  }
-
-  async function resolveImageMessage(
-    currentConversation: PortfolioAnalystConversation,
-    sourceTurnId: string,
-    followUp?: string,
-  ) {
-    if (loading || importBusy) return;
-    setImportBusy(true);
-    if (followUp) setPendingImportReply(followUp);
-    setError(undefined);
-    const controller = new AbortController();
-    activeRequest.current = controller;
-    let importRequest: { accountId: string; conversation: PortfolioAnalystConversation } | undefined;
-    let saleRequest: PortfolioAnalystConversation | undefined;
-    let delegate = false;
-    try {
-      const response = await fetch("/api/portfolio/analyst/images/intent", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          conversationId: currentConversation.id,
-          sourceTurnId,
-          ...(followUp ? { id: crypto.randomUUID(), text: followUp } : {}),
-        }),
-        signal: controller.signal,
-      });
-      const payload = await response.json() as {
-        conversation?: PortfolioAnalystConversation;
-        intent?: "clarify" | "answer-image" | "prepare-import" | "prepare-sale" | "delegate";
-        accountId?: string;
-        answerTurnId?: string;
-        error?: string;
-      };
-      if (!response.ok || !payload.conversation) {
-        throw new Error(payload.error ?? "I couldn't process that image message.");
-      }
-      if (payload.intent === "delegate") {
-        delegate = true;
-      } else {
-        setConversation(payload.conversation);
-        if (followUp) {
-          setQuestion("");
-          setPendingImportReply(undefined);
-        }
-        if (payload.intent === "answer-image" && payload.answerTurnId) {
-          setAnsweringImageTurnId(payload.answerTurnId);
-          await completeImageAnswer(payload.answerTurnId, controller.signal);
-        } else if (payload.intent === "prepare-sale") {
-          saleRequest = payload.conversation;
-        } else if (payload.intent === "prepare-import" && payload.accountId) {
-          importRequest = { accountId: payload.accountId, conversation: payload.conversation };
-        }
-      }
-    } catch (cause) {
-      if (!(cause instanceof DOMException && cause.name === "AbortError")) {
-        setError(cause instanceof Error ? cause.message : "I couldn't process that image message.");
-      }
-    } finally {
-      activeRequest.current = undefined;
-      setAnsweringImageTurnId(undefined);
-      setStreamedImageAnswer("");
-      setPendingImportReply(undefined);
-      setImportBusy(false);
-    }
-    if (delegate && followUp) {
-      void runAnalyst(followUp);
-      return;
-    }
-    if (saleRequest) await prepareSaleImage(saleRequest, sourceTurnId);
-    if (importRequest) {
-      await prepareSavedImageImport(importRequest.conversation, sourceTurnId, importRequest.accountId);
-    }
-  }
-
-  async function prepareSaleImage(current: PortfolioAnalystConversation, sourceTurnId: string) {
-    setImportBusy(true); setError(undefined);
-    const controller = new AbortController(); activeRequest.current = controller;
-    try {
-      const response = await fetch("/api/portfolio/analyst/sale", {
-        method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ conversationId: current.id, sourceTurnId }), signal: controller.signal,
-      });
-      const payload = await response.json();
-      if (payload.conversation) setConversation(payload.conversation);
-      if (!response.ok && !payload.conversation) throw new Error(payload.error ?? "Sale screenshot could not be read.");
-    } catch (cause) {
-      if (!(cause instanceof DOMException && cause.name === "AbortError")) setError(cause instanceof Error ? cause.message : "Sale screenshot could not be read.");
-    } finally { setImportBusy(false); activeRequest.current = undefined; }
+    if (saved && turnId) void runAnalyst(submission.text || (language === "zh-CN" ? "请解释这些图片。" : "Explain these images."), { conversation: saved, imageSourceTurnId: turnId });
   }
 
   async function retryWorkflowReply(turnId: string) {
     if (!conversation || loading || importBusy) return;
     setImportBusy(true); setError(undefined);
     try {
-      const response = await fetch("/api/portfolio/analyst/sale/reply", {
+      const response = await fetch("/api/portfolio/analyst/workflow/reply", {
         method: "POST", headers: { "content-type": "application/json" },
         body: JSON.stringify({ conversationId: conversation.id, turnId }),
       });
@@ -495,129 +319,12 @@ export function PortfolioAnalyst({
     finally { setImportBusy(false); }
   }
 
-  async function submitSaleMessage(turnId: string, text: string) {
-    if (!conversation || importBusy || loading) return;
-    setImportBusy(true); setPendingImportReply(text); setError(undefined);
-    const controller = new AbortController(); activeRequest.current = controller;
-    try {
-      const response = await fetch("/api/portfolio/analyst/sale", {
-        method: "PATCH", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ conversationId: conversation.id, turnId, text }), signal: controller.signal,
-      });
-      const payload = await response.json();
-      if (payload.conversation) { setConversation(payload.conversation); setQuestion(""); }
-      if (!response.ok && !payload.conversation) throw new Error(payload.error ?? "Sale correction could not be read.");
-    } catch (cause) {
-      if (!(cause instanceof DOMException && cause.name === "AbortError")) setError(cause instanceof Error ? cause.message : "Sale correction could not be read.");
-    } finally { setImportBusy(false); setPendingImportReply(undefined); activeRequest.current = undefined; }
-  }
-
-  async function submitImportMessage(draftId: string, userText: string) {
-    if (!conversation || loading || importBusy) return;
-    setImportBusy(true);
-    setPendingImportReply(userText);
-    setError(undefined);
-    let delegate = false;
-    try {
-      await saveQueue.current;
-      if (saveErrors.current[draftId]) throw new Error("Please fix the draft save error before continuing.");
-      const response = await fetch("/api/portfolio/analyst/import-message", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ id: crypto.randomUUID(), conversationId: conversation.id, draftId, message: userText }),
-      });
-      const payload = await response.json() as {
-        conversation?: PortfolioAnalystConversation;
-        draft?: ImportDraftReadModel;
-        delegate?: boolean;
-        cancelled?: boolean;
-        portfolioChanged?: boolean;
-        error?: string;
-      };
-      if (!response.ok) throw new Error(payload.error ?? "I couldn't complete that request. Please try again.");
-      if (payload.delegate) {
-        delegate = true;
-      } else {
-        if (!payload.conversation) throw new Error("I couldn't save the chat reply. Please refresh and check the draft.");
-        setConversation(payload.conversation);
-        if (payload.cancelled) {
-          const remaining = { ...importDraftsRef.current };
-          delete remaining[draftId];
-          importDraftsRef.current = remaining;
-          setImportDrafts(remaining);
-          setSelectedReviewId(undefined);
-        } else if (payload.draft) {
-          importDraftsRef.current = { ...importDraftsRef.current, [draftId]: payload.draft };
-          setImportDrafts(importDraftsRef.current);
-          if (payload.portfolioChanged) {
-            setSelectedReviewId(undefined);
-            onPortfolioChanged?.();
-          }
-        }
-        setQuestion("");
-        setPendingTurn(undefined);
-      }
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "I couldn't complete that request. Please try again.");
-    } finally {
-      setPendingImportReply(undefined);
-      setImportBusy(false);
-    }
-    if (delegate) void runAnalyst(userText);
-  }
 
   function retryFailedTurn() {
     if (!pendingTurn || loading || importBusy) return;
     const text = pendingTurn.question;
-    setPendingTurn(undefined);
-    setError(undefined);
-    if (activeReview) void submitImportMessage(activeReview.draftId, text);
-    else void runAnalyst(text);
-  }
-
-  async function retryImageQuestion(turnId: string) {
-    if (loading || importBusy) return;
-    setImportBusy(true);
-    setAnsweringImageTurnId(turnId);
-    setStreamedImageAnswer("");
-    setError(undefined);
-    const controller = new AbortController();
-    activeRequest.current = controller;
-    try {
-      await completeImageAnswer(turnId, controller.signal);
-    } catch (cause) {
-      if (!(cause instanceof DOMException && cause.name === "AbortError")) {
-        setError(cause instanceof Error ? cause.message : "The image could not be analyzed.");
-      }
-    } finally {
-      activeRequest.current = undefined;
-      setAnsweringImageTurnId(undefined);
-      setStreamedImageAnswer("");
-      setImportBusy(false);
-    }
-  }
-
-  async function completeImageAnswer(turnId: string, signal: AbortSignal) {
-    const response = await fetch(`/api/portfolio/analyst/images/ask/${encodeURIComponent(turnId)}`, {
-      method: "POST",
-      headers: { accept: "application/x-ndjson" },
-      signal,
-    });
-    let finished = false;
-    let failure: string | undefined;
-    await consumePortfolioAnalystImageStream(response, (event) => {
-      if (event.type === "delta") {
-        setStreamedImageAnswer((current) => current + event.delta);
-      } else if (event.type === "completed") {
-        finished = true;
-        setConversation(event.conversation);
-        if (event.error) setError(event.error);
-      } else {
-        failure = event.error;
-      }
-    });
-    if (failure) throw new Error(failure);
-    if (!finished) throw new Error("The image response ended before completion.");
+    setPendingTurn(undefined); setError(undefined);
+    void runAnalyst(text, conversation && pendingTurnImageId ? { conversation, imageSourceTurnId: pendingTurnImageId } : undefined);
   }
 
   function queueDraftSave(draft: ImportDraftReadModel): Promise<void> {
@@ -693,9 +400,11 @@ export function PortfolioAnalyst({
       });
       const payload = (await response.json()) as {
         draft?: ImportDraftReadModel;
+        conversation?: PortfolioAnalystConversation;
         error?: string;
         reconciliation?: ImportDraftReadModel["reconciliation"];
       };
+      if (payload.conversation) setConversation(payload.conversation);
       if (!response.ok || !payload.draft) {
         if (payload.reconciliation) {
           importDraftsRef.current = { ...importDraftsRef.current, [draftId]: { ...importDraft, reconciliation: payload.reconciliation } };
@@ -718,7 +427,7 @@ export function PortfolioAnalyst({
     }
   }
 
-  async function runAnalyst(requestedQuestion?: string, screenshotCount = 0) {
+  async function runAnalyst(requestedQuestion?: string, context?: { conversation: PortfolioAnalystConversation; imageSourceTurnId: string }) {
     const submission = createAgentComposerSubmission({
       text: requestedQuestion ?? question,
       screenshots: [],
@@ -727,11 +436,14 @@ export function PortfolioAnalyst({
     if (!selectedProvider?.configured || loading || !normalizedQuestion) return;
     setLoading(true);
     setError(undefined);
+    setPendingTurnImageId(context?.imageSourceTurnId);
     setPendingTurn(beginPendingPortfolioAnalystTurn(normalizedQuestion));
     setQuestion("");
     const controller = new AbortController();
     activeRequest.current = controller;
     try {
+      await saveQueue.current;
+      if (activeReview && saveErrors.current[activeReview.draftId]) throw new Error("Please fix the draft save error before continuing.");
       const body: {
         mode: "agent";
         provider: PortfolioAnalystProviderId;
@@ -739,7 +451,8 @@ export function PortfolioAnalyst({
         language: PortfolioAnalystLanguage;
         includeHoldingNames: boolean;
         question: string;
-        screenshotCount?: number;
+        imageSourceTurnId?: string;
+        importDraftId?: string;
         conversationId?: string;
       } = {
         mode: "agent",
@@ -748,8 +461,9 @@ export function PortfolioAnalyst({
         language,
         includeHoldingNames,
         question: normalizedQuestion,
-        ...(screenshotCount ? { screenshotCount } : {}),
-        ...(conversation ? { conversationId: conversation.id } : {}),
+        ...((context?.conversation ?? conversation) ? { conversationId: (context?.conversation ?? conversation)!.id } : {}),
+        ...(context ? { imageSourceTurnId: context.imageSourceTurnId } : {}),
+        ...(activeReview ? { importDraftId: activeReview.draftId } : {}),
       };
       const response = await fetch("/api/portfolio/analyst", {
         method: "POST",
@@ -767,7 +481,13 @@ export function PortfolioAnalyst({
         if (event.type === "completed") {
           streamFinished = true;
           completedConversation = event.conversation;
-          if (!screenshotCount) setConversation(event.conversation);
+          setConversation(event.conversation);
+          if (event.importDrafts) {
+            importDraftsRef.current = Object.fromEntries(event.importDrafts.map((draft) => [draft.id, draft]));
+            setImportDrafts(importDraftsRef.current);
+            const newDraft = event.importDrafts.find((draft) => draft.status === "draft" && !conversation?.importActivities.some((a) => a.draftId === draft.id));
+            if (newDraft) { setSelectedReviewId(newDraft.id); setReviewPanel("import"); }
+          }
           if (event.conversation.turns.at(-1)?.chat?.memoryProposal) {
             setSelectedEvidenceId(undefined);
             setMemoryReviewError("");
@@ -921,7 +641,7 @@ export function PortfolioAnalyst({
             Add OPENAI_API_KEY to .env.local, then restart the app.
           </p>
         )}
-        <AnalystConversationView language={language} sending={Boolean(pendingTurn?.phase === "sending" || pendingImageMessage || pendingImportReply || answeringImageTurnId)}>
+        <AnalystConversationView language={language} sending={Boolean(pendingTurn?.phase === "sending" || pendingImageMessage)}>
           {!conversation?.turns.length && !conversation?.importActivities.length && !pendingTurn && (
             <div className="analyst-conversation-empty">
               <h3>{language === "zh-CN" ? "今天想了解什么？" : "What’s on your mind?"}</h3>
@@ -943,14 +663,16 @@ export function PortfolioAnalyst({
           {conversation && <SavedConversationEntries key={conversation.id}
             conversation={conversation}
             importDrafts={importDrafts}
+            onRetryTurn={(turnId) => {
+              const turn = conversation.turns.find((item) => item.id === turnId);
+              if (turn) void runAnalyst(turn.userText || turn.question || (language === "zh-CN" ? "解释这张图片。" : "Explain this image."));
+            }}
             onRetryWorkflowReply={(turnId) => void retryWorkflowReply(turnId)}
             activeReviewDraftId={activeReview?.draftId}
             activeDateRequest={activeDateRequest}
             language={language}
             accountActionStatus={accountActionStatus}
             selectedEvidenceId={reviewPanel === "sources" ? selectedEvidenceId : undefined}
-            answeringImageTurnId={answeringImageTurnId}
-            streamedImageAnswer={streamedImageAnswer}
             loading={loading}
             importBusy={importBusy}
             onConfirmCreateAccount={(turnId, action) => void confirmCreateAccount(turnId, action)}
@@ -958,9 +680,6 @@ export function PortfolioAnalyst({
               setSelectedEvidenceId(turnId);
               setReviewPanel("sources");
             }}
-            onRetryImageQuestion={(turnId) => void retryImageQuestion(turnId)}
-            onPrepareSavedImageImport={(sourceTurnId, accountId) => void prepareSavedImageImport(conversation, sourceTurnId, accountId)}
-            onResolveImageMessage={(sourceTurnId) => void resolveImageMessage(conversation, sourceTurnId)}
             onReviewDraft={(draftId) => {
               setSelectedEvidenceId(undefined);
               setSelectedReviewId(draftId);
@@ -972,20 +691,17 @@ export function PortfolioAnalyst({
               <div className="analyst-user-entry">
                 <PendingAgentMessageImages files={pendingImageMessage.files} />
                 {pendingImageMessage.text && <div className="analyst-user-message"><p>{pendingImageMessage.text}</p></div>}
-                <small className="analyst-user-status">Sending…</small>
+                <AgentActivityTimeline activities={[]} language={language} phase="sending" statusHistory={[]} />
               </div>
             </motion.div>
           )}
-          {pendingImportReply && (
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} data-current-turn="true" className="analyst-turn pending" aria-live="polite">
-              <div className="analyst-user-message"><p>{pendingImportReply}</p><small>Working…</small></div>
-            </motion.div>
-          )}
+          {importBusy && !pendingImageMessage && !loading && <AgentActivityTimeline
+            activities={[]} language={language} phase="generating-answer" statusHistory={[]} />}
           {pendingTurn && !pendingImageMessage && (
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} data-current-turn="true" className="analyst-turn pending">
-              <div className="analyst-user-message">
+              {!pendingTurnImageId && <div className="analyst-user-message">
                 <p>{pendingTurn.question}</p>
-              </div>
+              </div>}
               <AgentActivityTimeline
                 activities={pendingTurn.activities}
                 language={language}
@@ -1100,7 +816,7 @@ export function PortfolioAnalyst({
           <blockquote>{pendingMemoryTurn.chat.memoryProposal.content}</blockquote>
           {memoryReviewError && <p role="alert" className="error-message">{memoryReviewError}</p>}
           <div className="home-memory-review-actions">
-            <button type="button" disabled={memoryReviewBusy} onClick={() => void resolveMemoryProposal("save", pendingMemoryTurn.id)}>{memoryReviewBusy ? "Working…" : language === "zh-CN" ? "确认保存" : "Save memory"}</button>
+            <button type="button" disabled={memoryReviewBusy} onClick={() => void resolveMemoryProposal("save", pendingMemoryTurn.id)}>{memoryReviewBusy ? (language === "zh-CN" ? "正在保存…" : "Saving…") : language === "zh-CN" ? "确认保存" : "Save memory"}</button>
             <button type="button" disabled={memoryReviewBusy} onClick={() => void resolveMemoryProposal("cancel", pendingMemoryTurn.id)}>{language === "zh-CN" ? "不保存" : "Do not save"}</button>
           </div>
         </section>
@@ -1142,7 +858,7 @@ export function PortfolioAnalyst({
               draft={activeDraft}
               targetLabel={activeReview.targetLabel}
               language={language}
-              busy={importBusy}
+              busy={loading || importBusy}
               saveStatus={saveStatus[activeReview.draftId]}
               onEdit={(edit) => editImportDraft(activeReview.draftId, edit)}
               onAddHolding={() => addImportHolding(activeReview.draftId)}

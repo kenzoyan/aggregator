@@ -1,3 +1,4 @@
+import { createPortfolioImageReply } from "@/server/portfolio-image-reply";
 import { createPortfolioAnalystImageHandlers } from "../handler";
 
 import { createLocalPortfolioAnalystImageStore } from "@/infrastructure/local/portfolio-analyst-image-store";
@@ -20,5 +21,6 @@ export async function POST(request: Request) {
     images: createLocalPortfolioAnalystImageStore(),
     imageQuestion: createOpenAIImageQuestion({ apiKey, model }),
     imageModel: model,
+    replyToImage: createPortfolioImageReply(getPortfolioDatabase()),
   }).ASK(request);
 }

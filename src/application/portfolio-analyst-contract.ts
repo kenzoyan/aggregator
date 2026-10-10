@@ -178,6 +178,7 @@ export interface PortfolioMoverFact {
 export interface SourceAccountFact {
   key: string;
   kind: "source-account";
+  accountId: string;
   label: "Source account";
   accountType: string;
   displayName?: string;
@@ -244,6 +245,16 @@ export interface SourceAccountImportTargetFact {
   provenance: "source-account-registry";
 }
 
+export interface ConversationImageFact {
+  key: string;
+  kind: "conversation-image";
+  label: "User image";
+  imageNumber: number;
+  imageId?: string;
+  sourceTurnId?: string;
+  provenance: "user-supplied-image";
+}
+
 export interface WebResearchSourceFact {
   key: string;
   kind: "web-research-source";
@@ -281,6 +292,7 @@ export type AnalystEvidenceFact =
   | AccountHoldingFact
   | SourceAccountProposalFact
   | SourceAccountImportTargetFact
+  | ConversationImageFact
   | WebResearchSourceFact
   | WebResearchStatusFact;
 

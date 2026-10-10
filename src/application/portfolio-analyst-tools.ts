@@ -111,6 +111,7 @@ function accountContext(input: {
     facts: input.accounts.map((account, index) => ({
       key: `account.${index + 1}`,
       kind: "source-account" as const,
+      accountId: account.id,
       label: "Source account" as const,
       accountType: account.accountType,
       ...(input.includeAccountNames ? { displayName: account.label } : {}),

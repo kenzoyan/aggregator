@@ -296,8 +296,8 @@ describe("Pi model-controlled Portfolio Analyst", () => {
       onToolActivity: (activity) => activities.push(activity),
     });
 
-    expect(prompt).toContain("Call read_memories once");
-    expect(prompt).not.toContain("Keep answers brief.");
+    expect(prompt).toContain("Confirmed answer preferences are loaded");
+    expect(prompt).toContain("Keep answers brief.");
     expect(readResult).toContain("Keep answers brief.");
 
     expect(result).toMatchObject({
@@ -1314,4 +1314,134 @@ it("reads a trusted workflow result and saved preferences before producing its o
   expect(JSON.stringify(seen[1].messages.at(-1))).toContain("duplicate-image");
   expect(result).toMatchObject({ kind: "conversation", reply: "这张截图的卖出已经记录过了，这次没有重复入账。" });
   expect(result.audit.toolCalls.map((call) => call.name)).toEqual(["read_workflow_result", "read_memories"]);
+});
+
+
+it("loads confirmed preferences before the first model request and lets the main agent explain image observations", async () => {
+  let calls = 0;
+  let reads = 0;
+  const streamFn: StreamFn = (_model, ctx) => {
+    expect(ctx.systemPrompt).toContain("Always address me as Owner.");
+    expect(ctx.tools?.map((tool) => tool.name)).toEqual(["read_image", "read_memories"]);
+    if (++calls === 1) return completedStream(assistant([{ type: "toolCall", id: "image", name: "read_image", arguments: {} }], "toolUse"));
+    expect(JSON.stringify(ctx.messages.at(-1))).toContain("Visible balance: 100 EUR");
+    return completedStream(assistant([{ type: "text", text: "Owner, the screenshot shows 100 EUR." }], "stop"));
+  };
+  const fail = () => { throw new Error("Unexpected portfolio read"); };
+  const result = await createPiModelControlledPortfolioAnalyst({ model, streamFn }).runTurn({
+    question: "Explain this", history: [], language: "en", includeHoldingNames: true, defaultPeriod: "week",
+    tools: { readPeriodDrivers: fail, readDataQuality: fail, readPortfolioOverview: fail, readAllHoldings: fail,
+      readAccounts: fail, readAccountHoldings: fail, readHoldingHistory: fail, readAccountActivity: fail,
+      proposeCreateAccount: fail, prepareAccountImport: fail },
+    memories: [{ id: "preference", content: "Always address me as Owner.", source: "settings", createdAt: "2026-10-10", updatedAt: "2026-10-10" }],
+    imageAnalysis: { read: async () => { reads++; return { answer: "Visible balance: 100 EUR", uncertainties: [] }; } },
+  });
+  expect(reads).toBe(1);
+  expect(result).toMatchObject({ kind: "conversation", reply: "Owner, the screenshot shows 100 EUR.", audit: { toolCalls: [{ name: "read_image", status: "completed" }] } });
+});
+
+
+it("exposes only draft operations and returns a conversational outcome after portfolio reads and a draft operation", async () => {
+  let calls = 0;
+  const operations: string[] = [];
+  const streamFn: StreamFn = (_model, ctx) => {
+    expect(ctx.systemPrompt).toContain("Always address me as Owner.");
+    expect(ctx.tools?.some((tool) => /confirm|save|undo/.test(tool.name))).toBe(false);
+    if (++calls === 1) return completedStream(assistant([{ type: "toolCall", id: "accounts", name: "read_accounts", arguments: {} }], "toolUse"));
+    if (calls === 2) return completedStream(assistant([{ type: "toolCall", id: "prepare", name: "prepare_sale_draft", arguments: { sale: { status: "completed", accountName: null, name: "Synthetic Fund", symbol: null, date: null, quantity: null, gross: null, net: "100", fees: null, currency: "EUR", destination: null, destinationName: null, warnings: [] } } }], "toolUse"));
+    expect(JSON.stringify(ctx.messages.at(-1))).toContain("portfolioChanged");
+    return completedStream(assistant([{ type: "text", text: "Owner, please review the draft before saving." }], "stop"));
+  };
+  const fail = () => { throw new Error("Unexpected read"); };
+  const result = await createPiModelControlledPortfolioAnalyst({ model, streamFn }).runTurn({
+    question: "Record my completed sale", history: [], language: "en", includeHoldingNames: true, defaultPeriod: "week",
+    tools: { readPeriodDrivers: fail, readDataQuality: fail, readPortfolioOverview: fail, readAllHoldings: fail,
+      readAccounts: () => context, readAccountHoldings: fail, readHoldingHistory: fail, readAccountActivity: fail,
+      proposeCreateAccount: fail, prepareAccountImport: fail },
+    memories: [{ id: "preference", content: "Always address me as Owner.", source: "settings", createdAt: "2026-10-10", updatedAt: "2026-10-10" }],
+    draftTools: { execute: async (name) => { operations.push(name); return { workflow: "sale", operation: "prepare", status: "succeeded", recordedAt: "2026-10-10", portfolioChanged: false }; } },
+  });
+  expect(operations).toEqual(["prepare_sale_draft"]);
+  expect(result).toMatchObject({ kind: "conversation", reply: "Owner, please review the draft before saving.", audit: { toolCalls: [{ name: "read_accounts" }, { name: "prepare_sale_draft" }] } });
+});
+
+it("passes original current and historical images to the main model with confirmed memory, without read_image", async () => {
+  const fail = () => { throw new Error("No tool is needed to explain a supplied image"); };
+  const streamFn: StreamFn = (_model, ctx) => {
+    expect(ctx.systemPrompt).toContain("Always address me as Owner.");
+    expect(ctx.tools?.some((tool) => tool.name === "read_image")).toBe(false);
+    expect(ctx.messages[0]).toMatchObject({ role: "user", content: [
+      { type: "text", text: "Earlier image" }, { type: "image", data: "AQ==", mimeType: "image/png" },
+    ] });
+    expect(ctx.messages[1]).toMatchObject({ role: "assistant", content: [{ type: "text", text: "Earlier answer" }] });
+    expect(ctx.messages.at(-1)).toMatchObject({ role: "user", content: [
+      { type: "text", text: "Explain this second image" }, { type: "image", data: "Ag==", mimeType: "image/png" },
+    ] });
+    return completedStream(assistant([{ type: "text", text: "Owner, the second screenshot shows 100 EUR. This is a screenshot observation." }], "stop"));
+  };
+  const result = await createPiModelControlledPortfolioAnalyst({ model, streamFn }).runTurn({
+    question: "Explain this second image", images: [{ data: "Ag==", mimeType: "image/png" }],
+    history: [{ role: "user", text: "Earlier image", images: [{ id: "first", data: "AQ==", mimeType: "image/png" }] },
+      { role: "assistant", text: "Earlier answer", factsAsOf: "2026-01-01" }],
+    language: "en", includeHoldingNames: true, defaultPeriod: "week",
+    memories: [{ id: "preference", content: "Always address me as Owner.", source: "settings", createdAt: "2026-01-01", updatedAt: "2026-01-01" }],
+    tools: { readPeriodDrivers: fail, readDataQuality: fail, readPortfolioOverview: fail, readAllHoldings: fail,
+      readAccounts: fail, readAccountHoldings: fail, readHoldingHistory: fail, readAccountActivity: fail,
+      proposeCreateAccount: fail, prepareAccountImport: fail },
+  });
+  expect(result).toMatchObject({ kind: "conversation", reply: expect.stringContaining("100 EUR"), audit: { toolCalls: [] } });
+});
+
+it("keeps image observations and web evidence together, then explains the historical image on follow-up", async () => {
+  const fail = () => { throw new Error("Unexpected portfolio operation"); };
+  const tools: PortfolioAnalystTools = {
+    readPeriodDrivers: fail, readDataQuality: fail, readPortfolioOverview: fail,
+    readAllHoldings: fail, readAccounts: fail, readAccountHoldings: fail,
+    readHoldingHistory: fail, readAccountActivity: fail, proposeCreateAccount: fail, prepareAccountImport: fail,
+  };
+  let modelCalls = 0;
+  let searches = 0;
+  const mixedAnswer = "Nasdaq-100 closed at 20,000. Your screenshot shows a fund value of 1,244.33 CNY; this is the image's recorded value, not a live account balance.";
+  const runtime = createPiModelControlledPortfolioAnalyst({ model,
+    webResearch: { search: async () => {
+      searches += 1;
+      return { status: "completed", retrievedAt: context.factsAsOf,
+        findings: [{ title: "Synthetic index close", url: "https://www.nasdaq.com/test", summary: "Index closed at 20,000." }] };
+    } },
+    streamFn: (_model, ctx) => {
+      modelCalls += 1;
+      expect(ctx.systemPrompt).toContain('"key":"image.1"');
+      expect(ctx.systemPrompt).toContain("Answer every part of the latest user request");
+      expect(ctx.systemPrompt).toContain("Earlier topics are context, not tasks to repeat");
+      if (modelCalls === 1) return completedStream(assistant([{
+        type: "toolCall", id: "search", name: "search_web", arguments: { query: "Nasdaq-100 latest close" },
+      }], "toolUse"));
+      if (modelCalls === 2) {
+        // The original image must still be visible after the search tool returns.
+        expect(ctx.messages.some((message) => message.role === "user" && Array.isArray(message.content) &&
+          message.content.some((block) => block.type === "image" && block.data === "AQ=="))).toBe(true);
+        return completedStream(assistant([{ type: "text", text: JSON.stringify({
+          factsAsOf: context.factsAsOf, answer: { text: mixedAnswer, classification: "fact", evidence: ["call1.web.1", "image.1"] },
+          claims: [{ text: "The screenshot shows 1,244.33 CNY.", classification: "fact", evidence: ["image.1"] }],
+          limitations: [], proposedUpdate: null,
+        }) }], "stop"));
+      }
+      expect(ctx.messages.at(-1)).toMatchObject({ role: "user", content: [{ type: "text", text: "Explain the most recently uploaded image" }] });
+      expect(ctx.messages[0]).toMatchObject({ role: "user", content: [
+        { type: "text" }, { type: "image", data: "AQ==", mimeType: "image/png" },
+      ] });
+      return completedStream(assistant([{ type: "text", text: "The screenshot shows your fund's recorded value of 1,244.33 CNY." }], "stop"));
+    },
+  });
+  const base = { tools, language: "en" as const, includeHoldingNames: true, defaultPeriod: "week" as const, factsAsOf: context.factsAsOf };
+  const result = await runtime.runTurn({ ...base, question: "Check Nasdaq-100 and also explain this image", history: [],
+    images: [{ data: "AQ==", mimeType: "image/png" }] });
+  expect(result).toMatchObject({ kind: "report", answer: { answer: { text: mixedAnswer, evidence: ["call1.web.1", "image.1"] } },
+    context: { facts: [{ kind: "web-research-source" }, { key: "image.1", kind: "conversation-image", provenance: "user-supplied-image" }] } });
+  const followup = await runtime.runTurn({ ...base, question: "Explain the most recently uploaded image", history: [
+    { role: "user", text: "Check Nasdaq-100 and also explain this image", sourceTurnId: "original", images: [{ id: "image-id", data: "AQ==", mimeType: "image/png" }] },
+    { role: "assistant", text: mixedAnswer, factsAsOf: context.factsAsOf },
+  ] });
+  expect(followup).toMatchObject({ kind: "conversation", reply: expect.stringContaining("1,244.33 CNY"), audit: { toolCalls: [] } });
+  expect(searches).toBe(1);
 });

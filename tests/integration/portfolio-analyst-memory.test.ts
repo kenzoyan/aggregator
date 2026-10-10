@@ -67,9 +67,9 @@ describe("confirmed analyst memories", () => {
     expect(conversation.turns.map((turn) => turn.chat?.assistantText)).toEqual(["Review on the right.", "Review on the right."]);
     expect(createPortfolioAnalystHistory(conversation)).toMatchObject([
       { role: "user", text: "Remember: Keep answers brief." },
-      { role: "assistant", text: "Review on the right.\nMemory review: saved." },
+      { role: "assistant", text: "Review on the right." },
       { role: "user", text: "Remember: Use headings." },
-      { role: "assistant", text: "Review on the right.\nMemory review: cancelled." },
+      { role: "assistant", text: "Review on the right." },
     ]);
     expect(database.listPortfolioAnalystMemories()).toHaveLength(1);
     database.close();

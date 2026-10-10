@@ -13,7 +13,7 @@ export type PortfolioAnalystStreamEvent =
   | { type: "status"; phase: PortfolioAnalystStreamPhase }
   | { type: "tool-activity"; activity: PortfolioAnalystToolActivity }
   | { type: "answer-delta"; delta: string }
-  | { type: "completed"; conversation: PortfolioAnalystConversation }
+  | { type: "completed"; conversation: PortfolioAnalystConversation; importDrafts?: import("@/application/imports/import-draft-read-model").ImportDraftReadModel[] }
   | { type: "failed"; error: string; code?: string };
 
 export interface PendingPortfolioAnalystTurn {

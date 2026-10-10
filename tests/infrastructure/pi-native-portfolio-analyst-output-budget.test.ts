@@ -11,3 +11,9 @@ describe("portfolio summary output budget", () => {
     expect(portfolioAnalystOutputTokenLimit([])).toBe(1100);
   });
 });
+
+it("keeps enough output space for image interpretation and structured import draft arguments", () => {
+  expect(portfolioAnalystOutputTokenLimit([{ role: "user", content: [
+    { type: "text", text: "Explain this" }, { type: "image", data: "AQ==", mimeType: "image/png" },
+  ], timestamp: 0 }])).toBe(8000);
+});

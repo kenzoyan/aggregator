@@ -81,7 +81,7 @@ describe("portfolio analyst conversation", () => {
     expect(createPortfolioAnalystHistory(conversation).at(-1)?.text)
       .toContain("Synthetic WeChat");
     expect(createPortfolioAnalystHistory({ ...conversation, includeHoldingNames: false }))
-      .toEqual([]);
+      .toEqual(createPortfolioAnalystHistory(conversation));
   });
 
   it("keeps date replies when import activity is retried", () => {
@@ -149,14 +149,14 @@ describe("portfolio analyst conversation", () => {
     expect(attached.turns[1]).toMatchObject({
       id: "import-image-1", importImage: { sourceTurnId: "turn-1" }, attachments: [{ mimeType: "image/png" }],
     });
-    expect(createPortfolioAnalystHistory(attached).some((message) => message.text === "")).toBe(false);
+    expect(createPortfolioAnalystHistory(attached).some((message) => message.role === "user" && message.attachments?.length === 1)).toBe(true);
     expect(() => appendPortfolioAnalystImportImageTurn(attached, {
       sourceTurnId: "turn-1", id: "import-image-2", createdAt: "2026-09-09T10:02:00.000Z",
       userText: "again", attachments: [],
     })).toThrow("The import message cannot accept images.");
   });
 
-  it("projects bounded conversational history without old evidence payloads", () => {
+  it("projects full conversational history without old evidence payloads", () => {
     let conversation = createPortfolioAnalystConversation({
       id: "conversation-1",
       provider: "openai",
@@ -190,12 +190,12 @@ describe("portfolio analyst conversation", () => {
     }
 
     const history = createPortfolioAnalystHistory(conversation);
-    expect(history).toHaveLength(10);
-    expect(history[0]).toEqual({ role: "user", text: "问题 3" });
+    expect(history).toHaveLength(14);
+    expect(history[0]).toEqual({ role: "user", text: "问题 1" });
     expect(history[1]).toEqual({
       role: "assistant",
-      text: "回答 3",
-      factsAsOf: "2026-09-09T10:03:00.000Z",
+      text: "回答 1",
+      factsAsOf: "2026-09-09T10:01:00.000Z",
     });
     expect(history.at(-1)).toEqual({
       role: "assistant",
@@ -210,7 +210,7 @@ describe("portfolio analyst conversation", () => {
     expect(JSON.stringify(history)).not.toContain("changeEur");
   });
 
-  it("bounds long history text before sending it to the model", () => {
+  it("preserves long history text without truncation", () => {
     const conversation = appendPortfolioAnalystTurn(createPortfolioAnalystConversation({
       id: "long-conversation", provider: "openai", language: "en",
       includeHoldingNames: true, now: "2026-09-09T10:00:00.000Z",
@@ -220,8 +220,8 @@ describe("portfolio analyst conversation", () => {
       chat: { assistantText: "A".repeat(2_000) },
     });
     const history = createPortfolioAnalystHistory(conversation);
-    expect(history[0].text.length).toBe(601);
-    expect(history[1].text.length).toBe(1_401);
+    expect(history[0].text.length).toBe(1_000);
+    expect(history[1].text.length).toBe(2_000);
   });
 
   it("keeps the latest image, chat, and import replies in chronological history", () => {
@@ -262,6 +262,6 @@ describe("portfolio analyst conversation", () => {
     expect(history).toContainEqual({ role: "assistant", text: "The unconfirmed draft was cancelled.", factsAsOf: "2026-09-22T10:04:00.000Z" });
     expect(history[0]).toEqual({ role: "user", text: "What is in this image?" });
     expect(history).toHaveLength(6);
-    expect(createPortfolioAnalystHistory({ ...conversation, includeHoldingNames: false })).toEqual([]);
+    expect(createPortfolioAnalystHistory({ ...conversation, includeHoldingNames: false })).toEqual(history);
   });
 });

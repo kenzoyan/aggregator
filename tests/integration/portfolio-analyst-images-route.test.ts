@@ -66,7 +66,7 @@ describe("Portfolio Agent images", () => {
     expect(fixture.current().includeHoldingNames).toBe(true);
     const saved = fixture.current().turns.at(-1)!;
     expect(saved.userText).toBe("处理这张图");
-    expect(saved.chat?.imageAction).toMatchObject({ sourceTurnId: saved.id, stage: "intent" });
+    expect(saved.chat?.imageAction).toBeUndefined();
     expect(saved.attachments).toHaveLength(1);
     expect(fixture.bytes.size).toBe(1);
     expect(fixture.current().importActivities).toHaveLength(0);
@@ -77,6 +77,7 @@ describe("Portfolio Agent images", () => {
     const handlers = createPortfolioAnalystImageHandlers({
       ...fixture,
       imageModel: "synthetic-vision-model",
+      replyToImage: async ({ read }) => ({ text: (await read()).answer, audit: { runtime: "pi-agent-core", modelTurns: 1, stopReason: "completed", toolCalls: [] } }),
       imageQuestion: async ({ images, question }) => {
         expect(question).toBe("解释这张图");
         expect(images).toHaveLength(1);
@@ -114,6 +115,7 @@ describe("Portfolio Agent images", () => {
     const handlers = createPortfolioAnalystImageHandlers({
       ...fixture,
       imageModel: "synthetic-vision-model",
+      replyToImage: async ({ read }) => ({ text: (await read()).answer, audit: { runtime: "pi-agent-core", modelTurns: 1, stopReason: "completed", toolCalls: [] } }),
       imageQuestion: async (input) => {
         receivedQuestion = input.question;
         receivedBytes = input.images[0]?.bytes.byteLength ?? 0;
@@ -151,6 +153,7 @@ describe("Portfolio Agent images", () => {
     const handlers = createPortfolioAnalystImageHandlers({
       ...fixture,
       imageModel: "synthetic-vision-model",
+      replyToImage: async ({ read }) => ({ text: (await read()).answer, audit: { runtime: "pi-agent-core", modelTurns: 1, stopReason: "completed", toolCalls: [] } }),
       imageQuestion: async () => {
         attempts += 1;
         if (attempts === 1) throw new Error("Synthetic provider error");
@@ -227,4 +230,32 @@ describe("Portfolio Agent images", () => {
     expect(fixture.bytes.size).toBe(0);
     expect(fixture.current().turns).toHaveLength(1);
   });
+});
+
+
+it("keeps extracted observations private and reuses them when only the main agent reply fails", async () => {
+  const fixture = fixtures();
+  let reads = 0;
+  let replies = 0;
+  const handlers = createPortfolioAnalystImageHandlers({ ...fixture, imageModel: "synthetic-vision",
+    imageQuestion: async () => { reads++; return { answer: "Raw extracted balance: 100 EUR", uncertainties: ["Date not visible"] }; },
+    replyToImage: async ({ read, onAnswerTextDelta }) => {
+      expect((await read()).answer).toContain("100 EUR");
+      if (++replies === 1) throw new Error("Synthetic agent failure");
+      onAnswerTextDelta?.("Owner, the visible balance is 100 EUR.");
+      return { text: "Owner, the visible balance is 100 EUR. The date is missing.", audit: { runtime: "pi-agent-core", modelTurns: 2,
+        stopReason: "completed", toolCalls: [{ toolCallId: "read", name: "read_image", input: {}, status: "completed", evidenceKeys: [] }] } };
+    },
+  });
+  const upload = await imageRequest(); const form = await upload.formData(); form.set("language", "en");
+  await handlers.ASK(new Request(upload.url, { method: "POST", body: form }));
+  const id = fixture.current().turns.at(-1)!.id;
+  const deltas: string[] = [];
+  await handlers.COMPLETE(id, new Request("http://localhost/complete"), (delta) => deltas.push(delta));
+  expect(fixture.current().turns.at(-1)?.imageAnswer).toMatchObject({ status: "failed", text: "", observations: { answer: "Raw extracted balance: 100 EUR" } });
+  expect(deltas).toEqual([]);
+  await handlers.COMPLETE(id, new Request("http://localhost/complete"), (delta) => deltas.push(delta));
+  expect(reads).toBe(1); expect(replies).toBe(2);
+  expect(deltas).toEqual(["Owner, the visible balance is 100 EUR."]);
+  expect(fixture.current().turns.at(-1)?.imageAnswer).toMatchObject({ status: "complete", text: "Owner, the visible balance is 100 EUR. The date is missing." });
 });

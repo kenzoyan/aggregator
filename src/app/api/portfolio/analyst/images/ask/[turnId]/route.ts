@@ -1,3 +1,4 @@
+import { createPortfolioImageReply } from "@/server/portfolio-image-reply";
 import { createPortfolioAnalystImageHandlers } from "../../handler";
 
 import { createLocalPortfolioAnalystImageStore } from "@/infrastructure/local/portfolio-analyst-image-store";
@@ -24,6 +25,7 @@ export async function POST(
     images: createLocalPortfolioAnalystImageStore(),
     imageQuestion: createOpenAIImageQuestion({ apiKey, model }),
     imageModel: model,
+    replyToImage: createPortfolioImageReply(getPortfolioDatabase()),
   });
   if (request.headers.get("accept") !== "application/x-ndjson") {
     return handlers.COMPLETE(turnId, request);

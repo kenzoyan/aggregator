@@ -16,7 +16,7 @@ const extraction: SaleScreenshot = { status: "completed", accountName: "Test", n
 const request = (method: string, value: object) => new Request("http://localhost/api/portfolio/analyst/sale", {
   method, headers: { "content-type": "application/json" }, body: JSON.stringify({ conversationId: "chat", ...value }),
 });
-function setup() {
+function setup(withReply = true) {
   const directory = mkdtempSync(join(tmpdir(), "sale-image-test-"));
   cleanup.push(() => rmSync(directory, { recursive: true, force: true }));
   const filename = join(directory, "portfolio.sqlite");
@@ -37,14 +37,14 @@ function setup() {
       { id: "11111111-1111-4111-8111-111111111111", mimeType: "image/png", byteLength: 3 } ],
       chat: { assistantText: "Prepare sale", imageAction: { sourceTurnId: "source", stage: "intent", purpose: "sale" } } }] };
   database.savePortfolioAnalystConversation(conversation);
-  const extract = vi.fn(async () => extraction);
+  const extract = vi.fn(async (_request: import("@/infrastructure/openai/openai-sale-extractor").SaleExtractionRequest) => extraction);
   let id = 0;
   const respond = vi.fn<import("@/application/portfolio-workflow-reply").WorkflowReplyGenerator>(async (_conversation, result) => ({
     text: `Agent generated: ${result.operation} ${result.status}`,
     audit: { runtime: "pi-agent-core", modelTurns: 1, stopReason: "completed", toolCalls: [] },
   }));
   const handlers = createAgentSaleHandlers({
-    respond,
+    ...(withReply ? { respond } : {}),
     conversations: database, images: { read: async () => new Uint8Array([1,2,3]), save: async () => {}, delete: async () => {} },
     readFacts: () => database.readPortfolioFacts(),
     readHoldings: () => [{ sourceAccountId: "a", instrumentId: "f", accountName: "Test", name: "Fund", symbol: "123", currency: "EUR", isFund: true, prices: [] }],
@@ -197,4 +197,117 @@ it("rejects a client-supplied workflow result instead of letting it forge a succ
   expect(result.status).toBe(400);
   expect(state.database.readPortfolioFacts().events).toEqual([]);
   expect(state.respond.mock.calls.at(-1)![1].status).toBe("failed");
+});
+
+
+it("lets agent draft tools prepare text sales, preview and cancel without changing the ledger", async () => {
+  const state = setup(false);
+  const { createPortfolioDraftTools } = await import("@/server/portfolio-draft-tools");
+  const conversation = state.database.readPortfolioAnalystConversation("chat")!;
+  state.database.savePortfolioAnalystConversation({ ...conversation, turns: [...conversation.turns, {
+    id: "text-sale", question: "I sold 2 units of Fund for net 29 EUR, fee 1 EUR on 2020-01-02, withdrawn to Bank.",
+    createdAt: "2020-01-03", chat: { assistantText: "", requestStatus: "pending" },
+  }] });
+  const tools = createPortfolioDraftTools(state.database, "chat", "text-sale", undefined, state.handlers);
+  const prepared = await tools.execute("prepare_sale_draft");
+  expect(prepared).toMatchObject({ status: "succeeded", portfolioChanged: false, draft: { amount: "29", destinationName: "Bank" } });
+  expect(state.extract.mock.calls[0][0]).toMatchObject({ text: expect.stringContaining("net 29 EUR") });
+  expect(state.extract.mock.calls[0][0]).not.toHaveProperty("image");
+  expect((await tools.execute("prepare_sale_draft")).status).toBe("failed");
+  expect(state.extract).toHaveBeenCalledTimes(1);
+  expect(await tools.execute("review_sale_draft")).toMatchObject({ status: "succeeded", preview: { netProceeds: "29", realizedResult: "9" } });
+  expect(state.database.readPortfolioFacts().events).toEqual([]);
+  const cancel = createPortfolioDraftTools(state.database, "chat", "text-sale", undefined, state.handlers);
+  expect(await cancel.execute("cancel_sale_draft")).toMatchObject({ status: "succeeded", operation: "cancel" });
+  expect(state.database.readPortfolioFacts().events).toEqual([]);
+  expect(state.database.readPortfolioFacts().state.positions[0].quantity).toBe("10");
+});
+
+it("passes the latest user message with its explicitly selected saved screenshot", async () => {
+  const state = setup(false);
+  const { createPortfolioDraftTools } = await import("@/server/portfolio-draft-tools");
+  const conversation = state.database.readPortfolioAnalystConversation("chat")!;
+  state.database.savePortfolioAnalystConversation({ ...conversation, turns: [...conversation.turns, {
+    id: "latest", question: "The money was withdrawn to Bank", createdAt: "2020-01-03", chat: { assistantText: "" },
+  }] });
+  const tools = createPortfolioDraftTools(state.database, "chat", "latest", "source", state.handlers);
+  expect((await tools.execute("prepare_sale_draft")).status).toBe("succeeded");
+  expect(state.extract.mock.calls[0][0]).toMatchObject({ image: { mimeType: "image/png" }, text: expect.stringContaining("withdrawn to Bank") });
+  const invalid = createPortfolioDraftTools(state.database, "chat", "latest", "unowned-source", state.handlers);
+  // Existing draft can be inspected, but an unknown image cannot be used to prepare another sale.
+  expect((await invalid.execute("prepare_sale_draft")).status).toBe("failed");
+  expect(state.extract).toHaveBeenCalledTimes(1);
+});
+
+it("uses the main Agent's structured sale facts for a selected historical image without another model call", async () => {
+  const state = setup(false);
+  const { createPortfolioDraftTools } = await import("@/server/portfolio-draft-tools");
+  const conversation = state.database.readPortfolioAnalystConversation("chat")!;
+  const source = conversation.turns[0];
+  const secondImage = { id: "22222222-2222-4222-8222-222222222222", mimeType: "image/png" as const, byteLength: 3 };
+  state.database.savePortfolioAnalystConversation({ ...conversation, turns: [
+    { ...source, attachments: [...source.attachments!, secondImage] },
+    { id: "later", question: "Use the second image to record a sale", createdAt: "2020-01-04", chat: { assistantText: "" } },
+  ] });
+  const tools = createPortfolioDraftTools(state.database, "chat", "later", undefined, state.handlers);
+  expect(await tools.execute("prepare_sale_draft", undefined, { sourceTurnId: "source", imageIds: [secondImage.id], sale: extraction }))
+    .toMatchObject({ status: "succeeded", portfolioChanged: false, draft: { amount: "29", destination: "external-account", destinationName: "Bank" } });
+  expect(state.extract).not.toHaveBeenCalled();
+  expect(state.database.readPortfolioFacts().events).toEqual([]);
+});
+
+it("keeps a failed text sale out of the image workflow", async () => {
+  const state = setup(false);
+  const conversation = state.database.readPortfolioAnalystConversation("chat")!;
+  state.database.savePortfolioAnalystConversation({ ...conversation, turns: [
+    { id: "text", question: "Record a sale", createdAt: "2020-01-04", chat: { assistantText: "" } },
+  ] });
+  const response = await state.handlers.POST(request("POST", { sourceTurnId: "text", textOnly: true, extraction: { ...extraction, status: "unknown" } }));
+  expect(response.status).toBe(409);
+  const result = await response.json();
+  expect(result.conversation.turns.at(-1).chat.workflowResult.status).toBe("failed");
+  expect(result.conversation.turns.at(-1).chat.imageAction).toBeUndefined();
+  expect(state.extract).not.toHaveBeenCalled();
+});
+
+it("creates a draft from selected conversation images, rejects foreign references and never confirms assets", async () => {
+  const state = setup(false);
+  const { createPortfolioDraftTools } = await import("@/server/portfolio-draft-tools");
+  const account = state.database.createSourceAccount({ id: "synthetic-import", accountType: "Synthetic screenshot account" });
+  const { screenshotExtractionSchema } = await import("@/application/imports/vision-extraction-contract");
+  const holdings = screenshotExtractionSchema.parse({ accountName: "Synthetic screenshot account", asOf: "2020-01-03T00:00:00Z",
+    asOfYearVisible: true, currency: "EUR", totalValue: "100", reportedPriorReturn: null, portfolioCash: null,
+    confidence: "high", warnings: [], positions: [{ displayName: "Synthetic Fund", instrumentCode: "TEST", assetType: "fund",
+      quantity: "10", currency: "EUR", marketValue: "100", costBasis: "90", reportedPriorReturn: null,
+      reportedPriorReturnPercent: null, averageCost: null, observedPrice: "10", priceAsOf: "2020-01-03T00:00:00Z",
+      priceAsOfYearVisible: true, confidence: "high" }] });
+  const tools = createPortfolioDraftTools(state.database, "chat", "source", undefined, state.handlers);
+  expect(await tools.execute("prepare_import_draft", undefined, { sourceTurnId: "foreign", imageIds: ["foreign"], accountId: account.id, holdings }))
+    .toMatchObject({ status: "failed", code: "image-not-found" });
+  const args = { sourceTurnId: "source", imageIds: ["11111111-1111-4111-8111-111111111111"], accountId: account.id, holdings };
+  const result = await tools.execute("prepare_import_draft", undefined, args);
+  expect(result).toMatchObject({ status: "succeeded", portfolioChanged: false, importDraft: { holdingCount: 1 } });
+  const draftId = result.importDraft!.id;
+  expect(state.database.getImportDraft(draftId)?.status).toBe("draft");
+  expect(state.database.readPortfolioAnalystConversation("chat")?.importActivities).toMatchObject([{ draftId, sourceTurnId: "source" }]);
+  expect(state.database.readPortfolioFacts().events).toEqual([]);
+  expect(state.extract).not.toHaveBeenCalled();
+  const retry = createPortfolioDraftTools(state.database, "chat", "source", undefined, state.handlers);
+  expect((await retry.execute("prepare_import_draft", undefined, args)).importDraft?.id).toBe(draftId);
+  const correction = createPortfolioDraftTools(state.database, "chat", "source", undefined, state.handlers);
+  expect(await correction.execute("update_import_draft", undefined, { importEdit: { field: "valuation-date", value: "2020-01-04" } }))
+    .toMatchObject({ status: "succeeded", portfolioChanged: false });
+  expect(state.database.getImportDraft(draftId)?.portfolio.asOf).toMatchObject({ value: "2020-01-04T00:00:00.000Z" });
+  const editedDraft = state.database.getImportDraft(draftId)!;
+  const lineId = editedDraft.portfolio.holdings[0]!.lineId;
+  const quantityEdit = createPortfolioDraftTools(state.database, "chat", "source", undefined, state.handlers);
+  expect(await quantityEdit.execute("update_import_draft", undefined, { importEdit: { field: "quantity", value: "12", holdingLineId: lineId } }))
+    .toMatchObject({ status: "succeeded", portfolioChanged: false, importDraft: { holdings: [{ quantity: "12" }] } });
+  const foreignEdit = createPortfolioDraftTools(state.database, "chat", "source", undefined, state.handlers);
+  expect(await foreignEdit.execute("update_import_draft", undefined, { importEdit: { field: "costBasis", value: "999", holdingLineId: "foreign" } }))
+    .toMatchObject({ status: "failed", code: "holding-not-found" });
+  expect(state.database.readPortfolioFacts().events).toEqual([]);
+  expect(state.extract).not.toHaveBeenCalled();
+  expect(state.database.readPortfolioFacts().events).toEqual([]);
+
 });

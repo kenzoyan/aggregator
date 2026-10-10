@@ -42,7 +42,12 @@ function fixture(text = "处理这张图") {
     createSourceAccountDefinition({ id: "wechat", accountType: "WeChat", label: "微信" }),
     createSourceAccountDefinition({ id: "wechat-cn", accountType: "微信", label: "微信账户" }),
   ];
-  return { conversations, accounts, read: () => current! };
+  return { conversations, accounts, read: () => current!,
+    respond: async (_conversation: PortfolioAnalystConversation, result: import("@/application/portfolio-workflow-result").PortfolioWorkflowResult) => ({
+      text: result.imageIntent?.nextStep === "choose-account" ? `Agent asks: ${result.imageIntent.accounts.map((account) => account.name).join(", ")}` : "Agent asks: 解释图片还是录入？",
+      audit: { runtime: "pi-agent-core" as const, modelTurns: 2, stopReason: "completed" as const, toolCalls: [] },
+    }),
+  };
 }
 
 describe("assistant image conversation", () => {
@@ -141,7 +146,7 @@ describe("assistant image conversation", () => {
       conversationId: "conversation", sourceTurnId: imageId, id: replyId, text: "导入微信",
     }));
     expect((await response.json()).accountId).toBe("wechat");
-    expect(state.read().turns.at(-1)?.chat?.assistantText).toContain("导入草稿");
+    expect(state.read().turns.at(-1)?.chat?.assistantText).toBe("");
     expect(state.read().turns[0].attachments).toHaveLength(1);
   });
 
@@ -172,7 +177,7 @@ describe("assistant image conversation", () => {
     }));
     const payload = await response.json();
     expect(payload).toMatchObject({ intent: "prepare-import", accountId: "wechat-cn", sourceTurnId: imageId });
-    expect(state.read().turns.at(-1)?.chat?.assistantText).toContain("导入草稿");
+    expect(state.read().turns.at(-1)?.chat?.assistantText).toBe("");
     expect(state.read().importActivities).toHaveLength(0);
   });
 

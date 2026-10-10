@@ -12,7 +12,7 @@ import type { PortfolioAnalystImageStore } from "@/infrastructure/local/portfoli
 import type { SaleExtractionRequest } from "@/infrastructure/openai/openai-sale-extractor";
 
 const base = { conversationId: z.string().min(1).max(80) };
-const createSchema = z.object({ ...base, sourceTurnId: z.string().min(1).max(80), accountId: z.string().max(200).optional() }).strict();
+const createSchema = z.object({ ...base, sourceTurnId: z.string().min(1).max(80), accountId: z.string().max(200).optional(), textOnly: z.literal(true).optional(), extraction: saleScreenshotSchema.optional(), imageIds: z.array(z.string().max(80)).length(1).optional() }).strict();
 const editSchema = z.object({ ...base, turnId: z.string().min(1).max(80), fields: saleDraftFieldsSchema.optional(), text: z.string().trim().min(1).max(600).optional(), cancel: z.literal(true).optional() }).strict()
   .refine((value) => [value.fields, value.text, value.cancel].filter(Boolean).length === 1);
 const reviewSchema = z.object({ ...base, turnId: z.string().min(1).max(80),
@@ -45,7 +45,7 @@ export function createAgentSaleHandlers(input: {
   readHoldings: () => SaleDraftHolding[];
   confirmSale: PortfolioDatabase["confirmSale"];
   extract: (request: SaleExtractionRequest) => Promise<unknown>;
-  respond: WorkflowReplyGenerator;
+  respond?: WorkflowReplyGenerator;
   now?: () => string; createId?: () => string;
 }) {
   const now = input.now ?? (() => new Date().toISOString());
@@ -53,6 +53,7 @@ export function createAgentSaleHandlers(input: {
   const finish = async (conversation: PortfolioAnalystConversation, turnId: string, request: Request, extras: object = {}, status = 200) => {
     try { input.conversations.savePortfolioAnalystConversation(conversation); }
     catch { return response({ ...extras, conversation, replyUnavailable: true, replyTurnId: turnId }, status); }
+    if (!input.respond) return response({ ...extras, conversation }, status);
     const reply = await completePortfolioWorkflowReply({ conversations: input.conversations, conversation, turnId, generate: input.respond, signal: request.signal });
     return response({ ...extras, ...reply }, status);
   };
@@ -79,13 +80,6 @@ export function createAgentSaleHandlers(input: {
           const turn = resultTurn(current, { workflow: "sale", operation: reportInput.cancel ? "cancel" : operationName === "save" && !reportInput.confirm ? "review" : operationName, status: "failed", recordedAt: now(),
             portfolioChanged: false, code: error instanceof RequestError ? error.code : "operation-failed", details },
             typeof reportInput.text === "string" ? reportInput.text.slice(0, 600) : undefined);
-          if (operationName === "prepare" && typeof reportInput.sourceTurnId === "string" &&
-            !(error instanceof RequestError && error.code === "duplicate-image")) {
-            const sourceTurnId = reportInput.sourceTurnId;
-            turn.conversation = { ...turn.conversation, turns: turn.conversation.turns.map((item) =>
-              item.id === turn.id && item.chat ? { ...item, chat: { ...item.chat,
-                imageAction: { sourceTurnId, stage: "intent", purpose: "sale" } } } : item) };
-          }
           return await finish(turn.conversation, turn.id, request, {}, status);
         } catch { /* No valid conversation is available for an Agent reply. */ }
       }
@@ -102,16 +96,24 @@ export function createAgentSaleHandlers(input: {
       const parsed = createSchema.parse(await body(request));
       const conversation = currentConversation(input.conversations, parsed.conversationId);
       const source = conversation.turns.find((turn) => turn.id === parsed.sourceTurnId);
-      if (source?.attachments?.length !== 1) throw new RequestError("Use one screenshot showing one completed sale.");
-      const existing = conversation.turns.findLast((turn) => turn.chat?.saleDraft?.sourceTurnId === source.id && turn.chat.saleDraft.status !== "cancelled");
+      const selectedAttachments = parsed.imageIds ? source?.attachments?.filter((attachment) => parsed.imageIds!.includes(attachment.id)) : source?.attachments;
+      if (!source || (!parsed.textOnly && selectedAttachments?.length !== 1) || (parsed.textOnly && source.attachments?.length)) throw new RequestError("Use one screenshot showing one completed sale, or describe the completed sale in text.");
+      const attachment = selectedAttachments?.[0];
+      const bytes = attachment ? await input.images.read(attachment) : undefined;
+      if (attachment && !bytes) throw new RequestError("The saved screenshot is unavailable.", 404);
+      const digest = createHash("sha256").update(bytes ?? `manual-sale:${source.id}`).digest("hex");
+      const events = input.readFacts().events;
+      const existing = conversation.turns.findLast((turn) => {
+        const draft = turn.chat?.saleDraft;
+        return draft?.imageDigest === digest && draft.status !== "cancelled" &&
+          (draft.status !== "saved" || !draft.eventId || events.some((event) => event.id === draft.eventId && !event.voidedAt));
+      });
       if (existing?.chat?.saleDraft?.status === "saved") throw new RequestError("This screenshot already has a saved sale. Check holding History.", 409, "duplicate-image");
       if (existing) return response({ conversation, holdings: input.readHoldings() });
       if (conversation.turns.some((turn) => turn.chat?.saleDraft?.status === "pending")) throw new RequestError("Finish or cancel the current sale draft first.");
-      const bytes = await input.images.read(source.attachments[0]);
-      if (!bytes) throw new RequestError("The saved screenshot is unavailable.", 404);
-      const digest = createHash("sha256").update(bytes).digest("hex");
-      if (input.readFacts().events.some((event) => !event.voidedAt && event.id.startsWith(`sale-image:${digest}:`))) throw new RequestError("This screenshot already has a saved sale. Check holding History.", 409, "duplicate-image");
-      const extraction = saleScreenshotSchema.parse(await input.extract({ image: { bytes, mimeType: source.attachments[0].mimeType }, text: [source.userText ?? source.question, conversation.turns.at(-1)?.id !== source.id ? conversation.turns.at(-1)?.userText : undefined].filter(Boolean).join("\n"), signal: request.signal }));
+      if (events.some((event) => !event.voidedAt && event.id.startsWith(`sale-image:${digest}:`))) throw new RequestError("This screenshot already has a saved sale. Check holding History.", 409, "duplicate-image");
+      const latestTurn = conversation.turns.at(-1);
+      const extraction = saleScreenshotSchema.parse(parsed.extraction ?? await input.extract({ ...(bytes && attachment ? { image: { bytes, mimeType: attachment.mimeType } } : {}), text: [source.userText ?? source.question, latestTurn?.id !== source.id ? latestTurn?.userText ?? latestTurn?.question : undefined].filter(Boolean).join("\n"), signal: request.signal }));
       request.signal.throwIfAborted();
       if (extraction.status !== "completed") throw new RequestError("Use a completed sale confirmation showing one transaction. Pending orders and estimates cannot be recorded.");
       if (extraction.gross !== null && extraction.net !== null && extraction.fees !== null &&
