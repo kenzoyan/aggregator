@@ -13,6 +13,14 @@ Product discussions, research notes, architecture journals, raw screenshots, per
 3. Commit and push only after the owner asks to publish the milestone or confirms the result.
 4. Stage explicit paths; never upload unrelated local files.
 
+## Real model API tests
+
+- Run relevant backend API evaluations for Agent, prompt, tool or multimodal changes; do not use browser automation for this.
+- Owner authorizes up to 12 API requests and US$0.10 estimated cost per verification run without another confirmation. Include main-model requests, research requests and retries.
+- Report scenario count, user turns, actual API requests and estimated cost. Pause and ask before exceeding the gate or using a model whose price is unknown. Do not reset the gate to bypass a limit.
+- Use synthetic images and disposable databases. Never confirm imports or mutate the owner's portfolio for tests.
+- Keep generated evaluation reports local and ignored. Costs are estimates from API usage, not invoices.
+
 ## Security
 
 - Never commit API keys, passwords, MFA data, cookies, session tokens, or real financial records.
