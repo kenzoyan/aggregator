@@ -273,6 +273,7 @@ export function Dashboard() {
           onPortfolioChanged={() => { void loadLocalPortfolio().catch(() => undefined); }}
         />
         <div className="home-workspace-main">
+        <div id="agent-import-review-host" />
         <header className="topbar">
           <div>
             <p className="eyebrow">YOUR PORTFOLIO</p>

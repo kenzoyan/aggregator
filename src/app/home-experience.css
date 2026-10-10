@@ -303,3 +303,17 @@
 .home-summary-strip > details > summary { position: relative; padding-right: 32px; }
 .home-summary-strip > details > summary::after { content: "⌄"; position: absolute; top: 14px; right: 12px; color: var(--muted); font-size: 16px; }
 .home-summary-strip > details[open] > summary::after { content: "⌃"; }
+
+/* Import review shares the workspace with chat; it never opens a modal. */
+#agent-import-review-host:empty { display: none; }
+.home-workspace-main:has(#agent-import-review-host:not(:empty)) > :not(#agent-import-review-host) { display: none; }
+.agent-import-review { background: var(--surface); border: 1px solid var(--quiet-border); border-radius: 16px; overflow: hidden; }
+.agent-import-review .home-review-panel { margin: 0; border: 0; }
+.agent-import-review .home-review-scroll { max-height: none; overflow: visible; padding: 0; }
+.agent-import-review-fields { min-width: 0; margin: 0; padding: 0; border: 0; }
+@media (min-width: 991px) {
+  .home-workspace:has(.agent-import-review) { grid-template-columns: minmax(360px, 40%) minmax(0, 1fr); }
+  #agent-import-review-host:not(:empty) { position: sticky; top: 16px; }
+  .agent-import-review { max-height: calc(100dvh - 32px); overflow-y: auto; }
+  .agent-import-review .review-dialog-toolbar { position: sticky; top: 0; z-index: 1; }
+}

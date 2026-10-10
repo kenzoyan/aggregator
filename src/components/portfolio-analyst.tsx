@@ -1,7 +1,8 @@
 "use client";
 
+import { createPortal } from "react-dom";
 import { motion } from "motion/react";
-import { Expand, Shrink, MoreHorizontal, Send, Square } from "lucide-react";
+import { Expand, Shrink, MoreHorizontal, Send, Square, X } from "lucide-react";
 import { AnalystConversationView } from "@/components/analyst-conversation-view";
 import { AssistantMessageContent } from "@/components/assistant-message-content";
 import Image from "next/image";
@@ -126,6 +127,8 @@ export function PortfolioAnalyst({
     () => createAgentImageAttachmentState<File>(),
   );
   const [pendingImageMessage, setPendingImageMessage] = useState<{ text: string; files: readonly File[] }>();
+  const [importReviewHost, setImportReviewHost] = useState<HTMLElement | null>(null);
+  useEffect(() => { setImportReviewHost(document.getElementById("agent-import-review-host")); }, []);
   const [importDrafts, setImportDrafts] = useState<Record<string, ImportDraftReadModel>>({});
   const importDraftsRef = useRef<Record<string, ImportDraftReadModel>>({});
   const saveQueue = useRef<Promise<void>>(Promise.resolve());
@@ -844,8 +847,11 @@ export function PortfolioAnalyst({
         </section>
         </ReviewDialog>
       )}
-      {activeReview && activeDraft && (
-        <ReviewDialog open={reviewPanel === "import"} title={language === "zh-CN" ? "核对导入" : "Review import"} busy={importBusy || memoryReviewBusy || Object.values(saveStatus).includes("saving")} onClose={() => setReviewPanel(undefined)}>
+      {activeReview && activeDraft && reviewPanel === "import" && importReviewHost && createPortal(
+        <aside className="agent-import-review" aria-label={language === "zh-CN" ? "核对导入" : "Review import"}>
+          <div className="review-dialog-toolbar"><span>{language === "zh-CN" ? "核对导入 · 可继续在左侧对话中修改" : "Review import · Continue editing in chat"}</span>
+            <button type="button" aria-label={language === "zh-CN" ? "关闭审核面板" : "Close review panel"} onClick={() => setReviewPanel(undefined)}><X size={18} /></button>
+          </div>
 
         <section className="home-review-panel" aria-label={`Review ${activeReview.targetLabel} import`}>
           <div className="home-review-panel-heading">
@@ -854,6 +860,7 @@ export function PortfolioAnalyst({
           </div>
           <div className="home-review-scroll">
             {error && <p role="alert" className="error-message">{error}</p>}
+            <fieldset className="agent-import-review-fields" disabled={loading || importBusy}>
             <AgentImportDraftReview
               draft={activeDraft}
               targetLabel={activeReview.targetLabel}
@@ -864,9 +871,10 @@ export function PortfolioAnalyst({
               onAddHolding={() => addImportHolding(activeReview.draftId)}
               onConfirm={() => void confirmAccountImport(activeReview.draftId)}
             />
+            </fieldset>
           </div>
         </section>
-        </ReviewDialog>
+        </aside>, importReviewHost
       )}
     </div>
   );
