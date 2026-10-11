@@ -3,7 +3,7 @@ import { isIP } from "node:net";
 import type { PortfolioAnalystContextV1, PortfolioAnalystLanguage } from "@/application/portfolio-analyst-contract";
 
 export interface WebResearchResult {
-  findings: Array<{ title: string; url: string; summary: string }>;
+  findings: Array<{ title: string; url: string; summary: string; publishedAt?: string | null; eventAsOf?: string | null }>;
   retrievedAt: string;
   status: "completed" | "unavailable";
 }
@@ -13,6 +13,7 @@ export interface WebResearch {
     query: string;
     language: PortfolioAnalystLanguage;
     signal?: AbortSignal;
+    dateRange?: { from: string; to: string };
   }): Promise<WebResearchResult>;
 }
 

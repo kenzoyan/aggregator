@@ -72,6 +72,17 @@ export function combinePortfolioPeriodHistory(input: {
         : [],
       priceChange: available ? holdingTotals.priceChange : 0,
       fxChange: available ? holdingTotals.fxChange : 0,
+      // Today compares each holding's latest observations, rather than a common calendar baseline.
+      contributions: Object.entries(input.holdingHistory).flatMap(([holdingId, periods]) => {
+        const performance = periods.today;
+        if (!performance.available || !performance.baselineAsOf || !performance.currentAsOf) return [];
+        return [{ holdingId, change: performance.change, percent: performance.percent,
+          baselineValueEur: performance.points[0], currentValueEur: performance.points.at(-1)!,
+          baselineAsOf: performance.valuationBaselineAsOf ?? performance.baselineAsOf,
+          currentAsOf: performance.valuationCurrentAsOf ?? performance.currentAsOf,
+          baselinePriceAsOf: performance.baselineAsOf, currentPriceAsOf: performance.currentAsOf,
+          priceChange: performance.priceChange, fxChange: performance.fxChange }];
+      }),
     }];
   })) as Record<Period, PeriodPerformanceReadModel>;
 }

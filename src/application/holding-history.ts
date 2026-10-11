@@ -258,6 +258,8 @@ function periodPerformance(
     fxChange: fxChange.toNumber(),
     baselineAsOf: baseline.priceAsOf,
     currentAsOf: current.priceAsOf,
+    valuationBaselineAsOf: baseline.asOf,
+    valuationCurrentAsOf: current.asOf,
   };
 }
 

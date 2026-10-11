@@ -49,11 +49,17 @@ export interface PeriodPerformanceFact {
   coverage: "full" | "partial";
   changeEur: number;
   percent: number;
-  priceEffectEur: number;
-  fxEffectEur: number;
+  priceEffectEur?: number;
+  fxEffectEur?: number;
   baselineAsOf?: string;
   currentAsOf?: string;
   estimatedPortfolioActivityEur?: number;
+  method?: "current-quantity";
+  includedHoldingCount?: number;
+  totalHoldingCount?: number;
+  excludedClosedHoldingCount?: number;
+  contributionResidualEur?: number;
+  decompositionResidualEur?: number;
   provenance: "portfolio-performance";
 }
 
@@ -65,7 +71,8 @@ export interface HoldingDriverFact {
   currentValueEur: number;
   portfolioSharePercent: number;
   contributionEur: number;
-  percent: number;
+  percent?: number;
+  period?: Period;
   freshness: HoldingReadModel["freshness"];
   baselineAsOf?: string;
   currentAsOf?: string;
@@ -263,6 +270,8 @@ export interface WebResearchSourceFact {
   url: string;
   summary: string;
   retrievedAt: string;
+  publishedAt?: string | null;
+  eventAsOf?: string | null;
   provenance: "openai-web-search";
 }
 

@@ -201,6 +201,8 @@ function systemPrompt(input: PortfolioAnalystAgentTurn): string {
     "Use read_holding_history for one holding's recorded history and read_account_activity for an account's sales or withdrawals. Resolve ambiguous or missing accounts/holdings with the user; never assume empty history when unavailable. Cite record dates. History covers saved records only, and shownRecordCount smaller than recordCount means truncated; never claim a complete transaction history. Units added from snapshots are observed changes, not confirmed purchases. Undone records do not represent active sales or outflows. External net sale proceeds and withdrawals leave tracked assets; this outflow is not investment loss. realizedResult is net sale proceeds minus allocated cost and is distinct from price/FX performance. Do not sum different currencies or infer a destination when destinationKnown is false. Historical cost estimates use the recorded holdings; explain missing cost evidence.",
     "When the user asks what a specific account currently holds or refers to a recently imported account, use read_account_holdings. Use read_accounts first if the account reference needs resolving. A portfolio overview does not contain individual account holdings. If the target account cannot be identified, ask for its name rather than inventing holdings.",
     "For questions requiring current external research, use search_web when available. Cite the returned web evidence and show the source dates. Public web quotes are separate from saved portfolio valuations; never claim a web quote changed a holding. If the tool reports unavailable or no verified source, say so without guessing.",
+    "For why a portfolio or holding rose/fell over a period, first read_period_drivers for the requested period. Separate calculated numerical attribution (price and FX) from market explanations. When method=current-quantity, explain that quantities are held at current levels; this is not realized transaction performance. The returned leading drivers are only a subset; do not claim their sum covers every holding. Report missing coverage, excluded exited holdings and material residuals. Estimated portfolio activity is unexplained value movement, not verified deposits or a proven cause.",
+    "When the user asks for deeper market reasons, use search_web with fromDate/toDate for the actual valuation dates supplied in the latest question or evidence. Include the holding/market and date range in query. Match each holding's observation dates; Today may combine different windows. Source publishedAt and eventAsOf differ from retrievedAt. Unknown dates cannot prove that an event falls inside the period. Later retrospective reports can discuss earlier events. Distinguish externally reported facts from hypotheses about this holding's change; treat plausible causes as interpretation and cite both local and external evidence. Do not claim correlation proves causation. If research is unavailable, unrelated or insufficient, explicitly say the market reason cannot be determined; local arithmetic remains valid.",
     "When asked for a holding's latest saved unit NAV or price, use read_account_holdings and report its unitPrice, priceAsOf, currency, source and freshness. Do not derive a unit price from market value and quantity when a recorded unitPrice is present. Distinguish the latest saved price from today's live quote.",
     portfolioAnalystConversationalAnswerInstruction,
     "If no draft tool was used, after a portfolio or web evidence tool result return only JSON matching this schema. After a draft tool or memory tools alone, give a short conversational reply instead:",
@@ -222,6 +224,10 @@ function completedAudit(
     status: "completed",
     factsAsOf: context.factsAsOf,
     evidenceKeys: context.facts.map((fact) => fact.key),
+    ...(name === "search_web" ? {
+      sourceUrls: context.facts.flatMap((fact) => fact.kind === "web-research-source" ? [fact.url] : []),
+      researchStatus: context.facts.find((fact) => fact.kind === "web-research-status")?.state ?? "completed",
+    } : {}),
   };
 }
 
@@ -242,12 +248,14 @@ async function executeSelectedTool(
   input.onToolActivity?.({ stage: "started", ...activity });
   input.onPhase?.("reading-current-facts");
   const rawContext = await readContext();
-  const context = collect(rawContext, completedAudit(toolCallId, name, toolInput, rawContext));
+  const audit = completedAudit(toolCallId, name, toolInput, rawContext);
+  const context = collect(rawContext, audit);
   input.onToolActivity?.({
     stage: "completed",
     ...activity,
     factsAsOf: context.factsAsOf,
     evidenceCount: context.facts.length,
+    ...(audit.sourceUrls ? { sourceUrls: audit.sourceUrls, researchStatus: audit.researchStatus } : {}),
   });
   input.onPhase?.("generating-answer");
   return {
@@ -281,6 +289,8 @@ function createTools(
   }, { additionalProperties: false });
   const webSearchParameters = Type.Object({
     query: Type.String({ minLength: 3, maxLength: 160 }),
+    fromDate: Type.Optional(Type.String({ pattern: "^\\d{4}-\\d{2}-\\d{2}$" })),
+    toDate: Type.Optional(Type.String({ pattern: "^\\d{4}-\\d{2}-\\d{2}$" })),
   }, { additionalProperties: false });
   const memoryProposalParameters = Type.Object({
     content: Type.String({ minLength: 1, maxLength: 200 }),
@@ -440,17 +450,21 @@ function createTools(
   const webSearchTool: AgentTool<typeof webSearchParameters> | undefined = webResearch ? {
     name: "search_web",
     label: "Search the web",
-    description: "Research current external information and return source-linked findings. This never writes portfolio prices.",
+    description: "Research external information with source publication and event dates. For period drivers provide both fromDate and toDate. This never writes portfolio prices.",
     parameters: webSearchParameters,
     executionMode: "sequential",
     async execute(toolCallId, params) {
       return executeSelectedTool(input, collect, toolCallId, "search_web", {
         query: params.query,
+        ...(params.fromDate ? { fromDate: params.fromDate } : {}),
+        ...(params.toDate ? { toDate: params.toDate } : {}),
       }, async () => {
+        if (Boolean(params.fromDate) !== Boolean(params.toDate)) throw new Error("Research needs both date bounds.");
         const result = await webResearch.search({
           query: params.query,
           language: input.language,
           signal: input.signal,
+          ...(params.fromDate && params.toDate ? { dateRange: { from: params.fromDate, to: params.toDate } } : {}),
         });
         return webResearchContext({
           result,

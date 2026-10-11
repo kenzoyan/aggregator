@@ -607,6 +607,17 @@ describe("/api/portfolio/analyst", () => {
     expect(calls).toBe(0);
   });
 
+  it("identifies overlong questions before reading portfolio facts or calling a model", async () => {
+    const handlers = createPortfolioAnalystHandlers({
+      agentRuntimes: {}, models: { openai: "gpt-synthetic" }, defaultProvider: "openai",
+    }, { readCurrentPortfolio: () => { throw new Error("Must not read facts"); } });
+    const response = await handlers.POST(request({
+      provider: "openai", mode: "agent", language: "en", defaultPeriod: "week", question: "x".repeat(601),
+    }));
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ code: "question-too-long" });
+  });
+
   it("returns a safe code when provider output fails semantic validation", async () => {
     const handlers = createPortfolioAnalystHandlers({
       agentRuntimes: { openai: runtime(async () => {

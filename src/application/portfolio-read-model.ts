@@ -67,8 +67,27 @@ export interface PeriodPerformanceReadModel {
   fxChange?: number;
   baselineAsOf?: string;
   currentAsOf?: string;
+  valuationBaselineAsOf?: string;
+  valuationCurrentAsOf?: string;
   dailyChanges?: PortfolioDailyChangeReadModel[];
   valueHistory?: PortfolioValueHistoryReadModel;
+  contributions?: PortfolioPeriodContributionReadModel[];
+  excludedHoldings?: Array<{ holdingId: string; name: string; sourceAccountId: string; currency: string }>;
+}
+
+/** Contribution uses the same current-quantity baseline as the portfolio metric. */
+export interface PortfolioPeriodContributionReadModel {
+  holdingId: string;
+  change: number;
+  percent?: number;
+  baselineValueEur: number;
+  currentValueEur: number;
+  baselineAsOf: string;
+  currentAsOf: string;
+  baselinePriceAsOf?: string;
+  currentPriceAsOf?: string;
+  priceChange?: number;
+  fxChange?: number;
 }
 
 export interface PortfolioDailyChangeReadModel {
@@ -95,6 +114,7 @@ export interface PortfolioChartEventReadModel {
   id: string;
   asOf: string;
   sourceAccountId: string;
+  holdingId?: string;
   account: string;
   kind: "sale" | "withdrawal" | "holding-update";
   label: string;

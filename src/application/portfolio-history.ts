@@ -11,6 +11,7 @@ import {
 import type {
   PortfolioDailyChangeReadModel,
   PortfolioValueHistoryReadModel,
+  PortfolioPeriodContributionReadModel,
 } from "@/application/portfolio-read-model";
 import type {
   FxRateObservation,
@@ -32,6 +33,8 @@ export interface PortfolioPeriodHistory {
   currentAsOf?: string;
   dailyChanges: PortfolioDailyChangeReadModel[];
   valueHistory: PortfolioValueHistoryReadModel;
+  contributions?: PortfolioPeriodContributionReadModel[];
+  excludedHoldings?: Array<{ holdingId: string; name: string; sourceAccountId: string; currency: string }>;
 }
 
 interface PortfolioHistoryInput {
@@ -52,6 +55,7 @@ interface PortfolioHistoryPoint {
   investmentQuantities: Record<string, string>;
   investmentNames: Record<string, string>;
   complete: boolean;
+  holdingValuations: Record<string, { name: string; sourceAccountId: string; currency: string; quantity: string; unitPrice?: string; fxRate?: string; priceAsOf?: string }>;
 }
 
 function normalizeHistoricalHoldingValue(input: {
@@ -141,6 +145,16 @@ function createPortfolioHistoryPoint(
         : [[holding.id, holding.name]]
     ),
   ) as Record<string, string>;
+  const rates = source.input.fxObservations?.length
+    ? eurPerUnitAt(source.input.fxObservations, asOf) : source.input.eurPerUnit;
+  const holdingValuations = Object.fromEntries(readModel.holdings.map((holding) => [holding.id, {
+    name: holding.name, sourceAccountId: holding.sourceAccountId, currency: holding.currency,
+    quantity: (holding.category === "Portfolio cash"
+      ? source.currentCashAmounts.get(holding.id) : source.currentQuantities.get(holding.id))?.toString() ?? "0",
+    unitPrice: holding.category === "Portfolio cash" ? "1" : holding.detail?.currentPrice,
+    fxRate: rates[holding.currency],
+    priceAsOf: holding.category === "Portfolio cash" ? asOf : holding.detail?.currentPriceAsOf,
+  }]));
   return {
     asOf,
     normalizedTotal: Object.values(holdingTotals)
@@ -150,6 +164,7 @@ function createPortfolioHistoryPoint(
     investmentQuantities,
     investmentNames,
     complete: readModel.missingInputs.length === 0,
+    holdingValuations,
   };
 }
 
@@ -327,7 +342,24 @@ function createInvestmentPerformance(input: {
         change: point.value - timeline[index]!.value,
       }))
     : [];
-  return { finalAvailable, change, percent, timeline, dailyChanges };
+  const contributions = finalAvailable ? currentHoldingIds.flatMap((holdingId): PortfolioPeriodContributionReadModel[] => {
+    const baseline = input.periodPoints.find((point) => point.holdingTotals[holdingId] !== undefined);
+    if (!baseline) return [];
+    const baselineValueEur = baseline.holdingTotals[holdingId];
+    const currentValueEur = input.current!.holdingTotals[holdingId];
+    const before = baseline.holdingValuations[holdingId];
+    const after = input.current!.holdingValuations[holdingId];
+    const components = before?.unitPrice && before.fxRate && after?.unitPrice && after.fxRate && before.currency === after.currency
+      ? {
+          priceChange: new Decimal(after.quantity).mul(new Decimal(after.unitPrice).minus(before.unitPrice)).mul(before.fxRate).toNumber(),
+          fxChange: new Decimal(after.quantity).mul(after.unitPrice).mul(new Decimal(after.fxRate).minus(before.fxRate)).toNumber(),
+        } : {};
+    return [{ holdingId, change: currentValueEur - baselineValueEur,
+      ...(baselineValueEur !== 0 ? { percent: (currentValueEur - baselineValueEur) / baselineValueEur * 100 } : {}),
+      baselineValueEur, currentValueEur, baselineAsOf: baseline.asOf, currentAsOf: input.current!.asOf,
+      baselinePriceAsOf: before?.priceAsOf, currentPriceAsOf: after?.priceAsOf, ...components }];
+  }) : [];
+  return { finalAvailable, change, percent, timeline, dailyChanges, contributions };
 }
 
 function createPortfolioValueHistory(input: {
@@ -489,6 +521,7 @@ function createPeriodHistory(
     percent,
     timeline: performanceTimeline,
     dailyChanges,
+    contributions,
   } = investmentPerformance;
   const chartPoints = performanceTimeline.map((point) => point.value);
   const valueHistory = createPortfolioValueHistory({
@@ -506,6 +539,13 @@ function createPeriodHistory(
     points: chartPoints,
     dailyChanges,
     valueHistory,
+    contributions,
+    excludedHoldings: [...new Set(periodPoints.flatMap((point) => Object.keys(point.investmentQuantities)))]
+      .filter((holdingId) => !currentInvestmentIdSet.has(holdingId))
+      .map((holdingId) => {
+        const metadata = periodPoints.find((point) => point.holdingValuations[holdingId])?.holdingValuations[holdingId];
+        return { holdingId, name: metadata?.name ?? holdingId, sourceAccountId: metadata?.sourceAccountId ?? "", currency: metadata?.currency ?? "" };
+      }),
     ...(finalAvailable && baseline && current
       ? {
           baselineAsOf: baseline.asOf,

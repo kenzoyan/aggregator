@@ -51,6 +51,8 @@ describe("holding history read model", () => {
       fxChange: 0,
       baselineAsOf: "2026-07-20T23:59:59.999Z",
       currentAsOf: "2026-07-21T23:59:59.999Z",
+      valuationBaselineAsOf: "2026-07-20T23:59:59.999Z",
+      valuationCurrentAsOf: "2026-07-21T23:59:59.999Z",
     });
     expect(history["trading212-main:T212-ETF-FIXTURE"].week).toMatchObject({
       available: true,

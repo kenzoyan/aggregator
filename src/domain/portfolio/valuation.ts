@@ -142,7 +142,7 @@ export function valuePortfolio({
     const fx = resolveFx(cash.currency, asOf, fxRates);
 
     if (!fx) {
-      missingInputs.push({ kind: "fx", currency: cash.currency });
+      missingInputs.push({ kind: "fx", sourceAccountId: cash.sourceAccountId, currency: cash.currency });
       continue;
     }
 

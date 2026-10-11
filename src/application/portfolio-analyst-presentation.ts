@@ -82,9 +82,14 @@ export function portfolioAnalystEvidenceValue(
         period,
         signedEur(fact.changeEur),
         `${fact.percent.toFixed(2)}%`,
-        `price ${signedEur(fact.priceEffectEur)}`,
-        `FX ${signedEur(fact.fxEffectEur)}`,
+        fact.priceEffectEur === undefined ? "price effect unavailable" : `price ${signedEur(fact.priceEffectEur)}`,
+        fact.fxEffectEur === undefined ? "FX effect unavailable" : `FX ${signedEur(fact.fxEffectEur)}`,
         fact.coverage,
+        fact.method ? "current quantities; not realized sale returns" : undefined,
+        fact.includedHoldingCount === undefined ? undefined : `${fact.includedHoldingCount}/${fact.totalHoldingCount} covered holdings; shown drivers are a subset`,
+        fact.excludedClosedHoldingCount ? `${fact.excludedClosedHoldingCount} exited holdings excluded` : undefined,
+        fact.contributionResidualEur === undefined ? undefined : `contribution residual ${signedEur(fact.contributionResidualEur)}`,
+        fact.decompositionResidualEur === undefined ? undefined : `price/FX residual ${signedEur(fact.decompositionResidualEur)}`,
         fact.baselineAsOf ? `baseline ${fact.baselineAsOf}` : undefined,
         fact.currentAsOf ? `current ${fact.currentAsOf}` : undefined,
         fact.estimatedPortfolioActivityEur === undefined
@@ -97,7 +102,7 @@ export function portfolioAnalystEvidenceValue(
         fact.name ?? (language === "zh-CN" ? "未发送持仓名称" : "Holding name withheld"),
         `current ${eur.format(fact.currentValueEur)}`,
         `contribution ${signedEur(fact.contributionEur)}`,
-        `return ${fact.percent.toFixed(2)}%`,
+        fact.percent === undefined ? "return unavailable" : `return ${fact.percent.toFixed(2)}%`,
         `${fact.portfolioSharePercent.toFixed(1)}% of portfolio`,
         fact.freshness,
         fact.baselineAsOf ? `baseline ${fact.baselineAsOf}` : undefined,
@@ -184,10 +189,10 @@ export function portfolioAnalystEvidenceValue(
     case "conversation-image":
       return language === "zh-CN" ? `用户上传的第 ${fact.imageNumber} 张图片（截图内容，非实时账户数据）` : `Uploaded image ${fact.imageNumber} (screenshot content, not live account data)`;
     case "web-research-source":
-      return `${fact.title} · ${fact.summary} · ${fact.retrievedAt}`;
+      return `${fact.title} · ${fact.summary} · retrieved ${fact.retrievedAt} · published ${fact.publishedAt ?? "unknown"} · event ${fact.eventAsOf ?? "unknown"}`;
     case "web-research-status":
       return fact.state === "unavailable"
         ? (language === "zh-CN" ? "搜索服务暂不可用。" : "Web search is temporarily unavailable.")
-        : (language === "zh-CN" ? "没有找到可核对的官方来源。" : "No verifiable official source was found.");
+        : (language === "zh-CN" ? "没有找到可核对的相关来源。" : "No verifiable relevant source was found.");
   }
 }

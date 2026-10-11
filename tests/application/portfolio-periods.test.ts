@@ -66,6 +66,7 @@ describe("portfolio period aggregation", () => {
     expect(history.today).toEqual({
       available: true,
       change: 3,
+      contributions: [],
       percent: 3 / 297 * 100,
       points: [297, 300],
       dailyChanges: [{ asOf: "2026-07-24", change: 3 }],

@@ -1,4 +1,5 @@
 import { portfolioAnalystHistory } from "@/server/portfolio-analyst-history";
+import { MAX_PORTFOLIO_ANALYST_QUESTION_CHARS } from "@/application/portfolio-analyst-request-limits";
 import type { PortfolioFacts } from "@/infrastructure/sqlite/portfolio-repository-contract";
 import { NextResponse } from "next/server";
 import { randomUUID } from "node:crypto";
@@ -55,7 +56,7 @@ const commonRequest = {
   language: z.enum(["en", "zh-CN"]),
   includeHoldingNames: z.boolean().optional().transform(() => true),
   conversationId: z.string().trim().min(1).max(80).optional(),
-  question: z.string().trim().min(1).max(600).optional(),
+  question: z.string().trim().min(1).max(MAX_PORTFOLIO_ANALYST_QUESTION_CHARS).optional(),
 };
 const legacyRequestSchema = z.discriminatedUnion("job", [
   z.object({
@@ -72,7 +73,7 @@ const agentRequestSchema = z.object({
   ...commonRequest,
   mode: z.literal("agent"),
   defaultPeriod: z.enum(["today", "week", "month"]),
-  question: z.string().trim().min(1).max(600),
+  question: z.string().trim().min(1).max(MAX_PORTFOLIO_ANALYST_QUESTION_CHARS),
   screenshotCount: z.number().int().min(1).max(6).optional(),
   imageSourceTurnId: z.string().min(1).max(80).optional(),
   importDraftId: z.string().min(1).max(100).optional(),
@@ -247,7 +248,14 @@ export function createPortfolioAnalystHandlers(
             { status: 413 },
           );
         }
-        body = requestSchema.parse(JSON.parse(text));
+        const parsed = JSON.parse(text);
+        if (typeof parsed?.question === "string" && parsed.question.trim().length > MAX_PORTFOLIO_ANALYST_QUESTION_CHARS) {
+          return json(
+            { error: "The question is too long. Shorten it and try again.", code: "question-too-long" },
+            { status: 400 },
+          );
+        }
+        body = requestSchema.parse(parsed);
       } catch {
         return json(
           { error: "Analyst request is invalid.", code: "invalid-request" },
@@ -569,10 +577,13 @@ export async function POST(request: Request) {
             });
           }
         })
-        .catch(() => emit({
-          type: "failed",
-          error: "The analyst could not complete this job.",
-        }))
+        .catch((error) => {
+          const code = error instanceof PortfolioAnalystProviderError ? error.code : "request-failed";
+          // Keep diagnostics useful without recording questions, portfolio data or provider payloads.
+          console.error("Analyst stream failed", { code,
+            ...(error instanceof PortfolioAnalystProviderError ? { detail: error.diagnosticCode } : {}) });
+          emit({ type: "failed", error: "The analyst could not complete this job.", code });
+        })
         .finally(() => {
           if (!open) return;
           open = false;

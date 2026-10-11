@@ -78,6 +78,37 @@ const answer = {
   proposedUpdate: null,
 } as const;
 
+it("passes exact historical date bounds to research and retains dated evidence beside local facts", async () => {
+  const fail = () => { throw new Error("Unexpected operation"); };
+  const tools: PortfolioAnalystTools = { readPeriodDrivers: () => ({ ...context, language: "en" }), readDataQuality: fail, readPortfolioOverview: fail,
+    readAllHoldings: fail, readAccounts: fail, readAccountHoldings: fail, readHoldingHistory: fail,
+    readAccountActivity: fail, proposeCreateAccount: fail, prepareAccountImport: fail };
+  let turn = 0;
+  let searchInput: unknown;
+  const runtime = createPiModelControlledPortfolioAnalyst({ model,
+    webResearch: { search: async (input) => { searchInput = input; return { status: "completed", retrievedAt: context.factsAsOf,
+      findings: [{ title: "Synthetic dated report", url: "https://www.ecb.europa.eu/press/synthetic", summary: "A reported event; causation is not established.", publishedAt: "2024-09-24", eventAsOf: "2024-09-18" }] }; } },
+    streamFn: () => {
+      turn += 1;
+      if (turn === 1) return completedStream(assistant([{ type: "toolCall", id: "period", name: "read_period_drivers", arguments: { period: "week" } }], "toolUse"));
+      if (turn === 2) return completedStream(assistant([{ type: "toolCall", id: "search", name: "search_web", arguments: {
+        query: "Historical market event", fromDate: "2024-09-16", toDate: "2024-09-23",
+      } }], "toolUse"));
+      return completedStream(assistant([{ type: "text", text: JSON.stringify({ ...answer,
+        answer: { text: "The saved period rose EUR 10. The reported event is a possible explanation, not a proven cause.", classification: "interpretation", evidence: ["call1.period.total", "call2.web.1"] },
+      }) }], "stop"));
+    },
+  });
+  const result = await runtime.runTurn({ question: "Explain historical market drivers", history: [], tools, language: "en", includeHoldingNames: true, defaultPeriod: "week", factsAsOf: context.factsAsOf })
+    .catch((error) => { throw new Error(error.diagnosticCode ?? error.message); });
+  expect(searchInput).toMatchObject({ dateRange: { from: "2024-09-16", to: "2024-09-23" } });
+  expect(result).toMatchObject({ kind: "report", context: { facts: [
+    expect.objectContaining({ kind: "period-performance" }),
+    expect.objectContaining({ kind: "web-research-source", publishedAt: "2024-09-24", eventAsOf: "2024-09-18" }),
+  ] } });
+  expect(result.audit.toolCalls[1]).toMatchObject({ input: { fromDate: "2024-09-16", toDate: "2024-09-23" } });
+});
+
 function assistant(content: AssistantMessage["content"], stopReason: AssistantMessage["stopReason"]): AssistantMessage {
   return {
     role: "assistant",
@@ -223,6 +254,7 @@ describe("Pi model-controlled Portfolio Analyst", () => {
       prepareAccountImport: unexpected,
     };
     const searched: string[] = [];
+    const searchActivities: import("@/application/portfolio-analyst-agent").PortfolioAnalystToolActivity[] = [];
     const runtime = createPiModelControlledPortfolioAnalyst({
       model, streamFn,
       webResearch: { search: async ({ query }) => {
@@ -238,8 +270,12 @@ describe("Pi model-controlled Portfolio Analyst", () => {
       question: "What is Fund C's share class?", history: [], tools,
       language: "en", includeHoldingNames: false, defaultPeriod: "week",
       factsAsOf: context.factsAsOf,
+      onToolActivity: (activity) => searchActivities.push(activity),
     });
     expect(searched).toEqual(["Fund C share class"]);
+    expect(searchActivities).toContainEqual(expect.objectContaining({
+      stage: "completed", name: "search_web", sourceUrls: ["https://www.cmfchina.com/fund"], researchStatus: "completed",
+    }));
     expect(result).toMatchObject({
       kind: "report",
       answer: {
@@ -247,7 +283,7 @@ describe("Pi model-controlled Portfolio Analyst", () => {
         answer: { evidence: ["call1.web.1"] }, proposedUpdate: null,
       },
       context: { job: "research-web", facts: [{ kind: "web-research-source", url: "https://www.cmfchina.com/fund" }] },
-      audit: { toolCalls: [{ name: "search_web", status: "completed" }] },
+      audit: { toolCalls: [{ name: "search_web", status: "completed", sourceUrls: ["https://www.cmfchina.com/fund"] }] },
     });
   });
 

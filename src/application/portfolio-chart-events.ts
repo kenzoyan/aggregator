@@ -16,6 +16,7 @@ export function createPortfolioChartEvents(input: PortfolioOverviewInput): Portf
       : undefined;
     return {
       id: event.id, asOf: event.asOf, sourceAccountId: event.sourceAccountId, account: account(event.sourceAccountId),
+      ...(event.type === "sale" ? { holdingId: `${event.sourceAccountId}:${event.instrumentId}` } : {}),
       kind: event.type === "sale" ? "sale" : "withdrawal",
       label: event.type === "sale" ? `Sold · ${name}` : "Cash transferred out",
       amount: event.type === "sale" ? event.proceeds : event.amount,
@@ -31,6 +32,7 @@ export function createPortfolioChartEvents(input: PortfolioOverviewInput): Portf
       .filter((update) => update.asOf > first.asOf)
       .map((update): PortfolioChartEventReadModel => ({
         id: update.id, asOf: update.asOf, sourceAccountId: id, account: account(id),
+        holdingId: `${id}:${update.instrumentId}`,
         kind: "holding-update", label: `${update.type} · ${update.holdingName}`,
         amount: update.amount, note: "Confirmed import · cost change, not a recorded trade amount",
       }));

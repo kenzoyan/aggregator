@@ -280,6 +280,8 @@ function periodContext(
     };
   }
 
+  const componentsAvailable = !period.contributions || (period.contributions.length > 0 &&
+    period.contributions.every((row) => row.priceChange !== undefined && row.fxChange !== undefined));
   const periodFact: PeriodPerformanceFact = {
     key: "period.total",
     kind: "period-performance",
@@ -288,8 +290,16 @@ function periodContext(
     coverage: period.coverage ?? "full",
     changeEur: period.change,
     percent: period.percent,
-    priceEffectEur: period.priceChange ?? 0,
-    fxEffectEur: period.fxChange ?? 0,
+    priceEffectEur: componentsAvailable ? period.contributions?.reduce((sum, row) => sum + row.priceChange!, 0) ?? period.priceChange ?? 0 : undefined,
+    fxEffectEur: componentsAvailable ? period.contributions?.reduce((sum, row) => sum + row.fxChange!, 0) ?? period.fxChange ?? 0 : undefined,
+    ...(period.contributions ? {
+      method: "current-quantity" as const,
+      includedHoldingCount: period.contributions.length,
+      totalHoldingCount: portfolio.holdings.length + portfolio.missingInputs.length,
+      excludedClosedHoldingCount: period.excludedHoldings?.length ?? 0,
+      contributionResidualEur: period.change - period.contributions.reduce((sum, row) => sum + row.change, 0),
+      decompositionResidualEur: componentsAvailable ? period.change - period.contributions.reduce((sum, row) => sum + row.priceChange! + row.fxChange!, 0) : undefined,
+    } : {}),
     ...(period.baselineAsOf ? { baselineAsOf: period.baselineAsOf } : {}),
     ...(period.currentAsOf ? { currentAsOf: period.currentAsOf } : {}),
     ...(period.valueHistory?.activityAvailable
@@ -299,20 +309,23 @@ function periodContext(
   };
   facts.push(periodFact);
 
+  const contributionById = new Map(period.contributions?.map((row) => [row.holdingId, row]));
+  const performanceFor = (holding: HoldingReadModel) => period.contributions
+    ? contributionById.get(holding.id) : holding.history?.[request.period];
   const drivers = portfolio.holdings
-    .filter((holding) => holding.history?.[request.period].available)
+    .filter((holding) => period.contributions ? contributionById.has(holding.id) : holding.history?.[request.period].available)
     .sort((left, right) => {
-      const difference = Math.abs(right.history![request.period].change) -
-        Math.abs(left.history![request.period].change);
+      const difference = Math.abs(performanceFor(right)!.change) - Math.abs(performanceFor(left)!.change);
       return difference || left.name.localeCompare(right.name);
     })
     .slice(0, MAX_PERIOD_DRIVER_HOLDINGS);
   facts.push(...drivers.map((holding, index): HoldingDriverFact => {
-    const contribution = holding.history![request.period];
+    const contribution = performanceFor(holding)!;
     return {
       key: `driver.${index + 1}`,
       kind: "holding-driver",
       label: "Holding contribution",
+      period: request.period,
       ...(request.includeHoldingNames && holding.analystDisplayName
         ? { name: holding.analystDisplayName }
         : {}),

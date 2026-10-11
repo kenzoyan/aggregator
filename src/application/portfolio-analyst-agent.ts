@@ -73,6 +73,8 @@ export interface PortfolioAnalystToolAudit {
   evidenceKeys: string[];
   memoryCount?: number;
   errorCode?: "tool-budget-exceeded" | PortfolioAnalystToolFailureCode;
+  sourceUrls?: string[];
+  researchStatus?: "completed" | "unavailable" | "no-verified-source";
 }
 
 export interface PortfolioAnalystAgentAudit {
@@ -97,6 +99,8 @@ export type PortfolioAnalystToolActivity =
       factsAsOf?: string;
       evidenceCount: number;
       memoryCount?: number;
+      sourceUrls?: string[];
+      researchStatus?: PortfolioAnalystToolAudit["researchStatus"];
     }
   | {
       stage: "failed";

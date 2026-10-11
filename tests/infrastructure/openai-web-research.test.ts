@@ -10,7 +10,8 @@ function response(findings: unknown, sources: string[], searched = true) {
         type: "web_search_call",
         action: { sources: sources.map((url) => ({ url, title: "Official product page" })) },
       }] : []),
-      { type: "message", content: [{ type: "output_text", text: JSON.stringify({ findings }) }] },
+      { type: "message", content: [{ type: "output_text", text: JSON.stringify({ findings: Array.isArray(findings)
+        ? findings.map((finding) => ({ publishedAt: null, eventAsOf: null, ...finding })) : findings }) }] },
     ],
   }), { status: 200 });
 }
@@ -62,5 +63,43 @@ describe("web research", () => {
       fetch: vi.fn(async () => response([], [], false)) as typeof globalThis.fetch,
     });
     expect((await search.search({ query: "Fund C", language: "en" })).status).toBe("unavailable");
+  });
+
+  it("keeps historical event dates separate from later publication dates and filters unrelated events", async () => {
+    const url = "https://www.ecb.europa.eu/press/test";
+    const fetch = vi.fn(async () => response([
+      { title: "Retrospective", url, summary: "A later report discusses the historical event.", publishedAt: "2026-10-11", eventAsOf: "2026-09-18" },
+      { title: "Wrong period", url, summary: "An unrelated current event.", publishedAt: "2026-10-11", eventAsOf: "2026-10-11" },
+      { title: "Undated", url, summary: "Timing is not established.", publishedAt: null, eventAsOf: null },
+    ], [url]));
+    const result = await new OpenAIWebResearch({ apiKey: "synthetic", model: "test", fetch: fetch as typeof globalThis.fetch,
+      now: () => "2026-10-12T00:00:00Z" }).search({ query: "September event", language: "en", dateRange: { from: "2026-09-01", to: "2026-09-30" } });
+    expect(result.status).toBe("completed");
+    expect(result.findings).toHaveLength(2);
+    expect(result.findings[0]).toMatchObject({ publishedAt: "2026-10-11", eventAsOf: "2026-09-18" });
+    expect(result.findings[1]).toMatchObject({ publishedAt: null, eventAsOf: null });
+    expect(result.retrievedAt).toBe("2026-10-12T00:00:00Z");
+  });
+
+  it("rejects impossible source dates and invalid date windows without inventing a replacement", async () => {
+    const url = "https://www.ecb.europa.eu/press/test";
+    const fetch = vi.fn(async () => response([{ title: "Bad date", url, summary: "Invalid date", publishedAt: "2026-02-30", eventAsOf: null }], [url]));
+    const search = new OpenAIWebResearch({ apiKey: "synthetic", model: "test", fetch: fetch as typeof globalThis.fetch });
+    expect((await search.search({ query: "Historical event", language: "en" })).status).toBe("unavailable");
+    fetch.mockClear();
+    expect((await search.search({ query: "Historical event", language: "en", dateRange: { from: "2026-10-11", to: "2026-09-01" } })).status).toBe("unavailable");
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("keeps independently verified findings when another URL was reconstructed", async () => {
+    const verified = "https://www.ecb.europa.eu/press/verified?version=1";
+    const search = new OpenAIWebResearch({ apiKey: "synthetic", model: "test", fetch: vi.fn(async () => response([
+      { title: "Verified", url: verified, summary: "Verified source", publishedAt: "2024-09-18", eventAsOf: "2024-09-18" },
+      { title: "Reconstructed", url: "https://www.ecb.europa.eu/press/other", summary: "Not the returned URL" },
+    ], [verified, "https://www.ecb.europa.eu/press/other?version=2"])) as typeof globalThis.fetch });
+    const result = await search.search({ query: "Historical event", language: "en" });
+    expect(result.status).toBe("completed");
+    expect(result.findings).toHaveLength(1);
+    expect(result.findings[0].url).toBe(verified);
   });
 });
