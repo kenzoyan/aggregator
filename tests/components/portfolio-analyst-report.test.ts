@@ -103,7 +103,7 @@ describe("Portfolio Analyst report hierarchy", () => {
     } as PortfolioAnalystReport;
     const markup = renderToStaticMarkup(createElement(AnalystReport, { report: external }));
     expect(markup).toContain('href="https://www.cmfchina.com/fund"');
-    expect(markup).toContain("Official product page");
+    expect(markup).toContain("cmfchina.com");
     expect(markup).toContain('rel="noopener noreferrer"');
   });
 
@@ -144,15 +144,15 @@ describe("Portfolio Analyst report hierarchy", () => {
     expect(markup).not.toContain("AI-generated factual explanation");
   });
 
-  it("keeps activity and evidence together in the sources panel", () => {
-    const markup = renderToStaticMarkup(createElement(AnalystReport, { report, sourcesOnly: true }));
-    const activity = markup.indexOf('class="analyst-agent-activity"');
-    const evidence = markup.indexOf("回答依据");
-
-    expect(activity).toBeGreaterThan(-1);
-    expect(evidence).toBeGreaterThan(activity);
-    expect(markup).not.toContain("主答案应该先被看到。");
-    expect(markup).toContain("已读取 7 天期间表现 · 1 条当前事实");
+  it("keeps the execution record above the saved answer and evidence in the sources panel", () => {
+    const markup = renderToStaticMarkup(createElement(AnalystReport, { report }));
+    const sources = renderToStaticMarkup(createElement(AnalystReport, { report, sourcesOnly: true }));
+    expect(markup.indexOf("analyst-execution-record")).toBeGreaterThan(-1);
+    expect(markup.indexOf("主答案应该先被看到。")).toBeGreaterThan(markup.indexOf("analyst-execution-record"));
+    expect(sources).toContain("回答依据");
+    expect(sources).not.toContain("analyst-execution-record");
+    expect(sources).not.toContain("主答案应该先被看到。");
+    expect(markup).toContain("已读取 7 天期间表现");
     expect(markup).not.toContain("选择合适的只读工具");
     expect(markup).not.toContain("生成并验证回答");
   });
@@ -180,8 +180,9 @@ describe("Portfolio Analyst report hierarchy", () => {
       statusHistory: ["selecting-tool", "reading-current-facts"],
     }));
 
-    expect(markup).not.toContain('class="active"');
-    expect(markup).toContain('class="failed"');
+    expect(markup).not.toContain(" running");
+    expect(markup).not.toContain("进行中");
+    expect(markup).toContain("已停止");
   });
 
   it("keeps streamed and persisted tool activity labels consistent", () => {
@@ -209,8 +210,8 @@ describe("Portfolio Analyst report hierarchy", () => {
       phase: "completed",
     }));
 
-    expect(streamed).toContain("已读取 7 天期间表现 · 1 条当前事实");
-    expect(persisted).toContain("已读取 7 天期间表现 · 1 条当前事实");
+    expect(streamed).toContain("已读取 7 天期间表现");
+    expect(persisted).toContain("已读取 7 天期间表现");
     expect(streamed.match(/<li/g)).toHaveLength(1);
     expect(persisted.match(/<li/g)).toHaveLength(1);
   });

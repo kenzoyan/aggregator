@@ -1,5 +1,6 @@
 import type { AnalystEvidenceFact } from "@/application/portfolio-analyst-contract";
 import type { PortfolioAnalystReport } from "@/application/portfolio-analyst-provider";
+import type { Period } from "@/application/portfolio-read-model";
 
 export type AnalystWorkspaceAction = "contribution" | "holdings";
 export interface AnalystWorkspaceSelection {
@@ -22,6 +23,12 @@ export function analystWorkspaceFacts(report: PortfolioAnalystReport, action: An
 
 export function analystWorkspaceActions(report: PortfolioAnalystReport): AnalystWorkspaceAction[] {
   return (["contribution", "holdings"] as const).filter((action) => analystWorkspaceFacts(report, action).length > 0);
+}
+
+export function analystContributionPeriod(report: PortfolioAnalystReport): Period {
+  const periods = new Set(analystWorkspaceFacts(report, "contribution").flatMap((fact) =>
+    (fact.kind === "period-performance" || fact.kind === "holding-driver") && fact.period ? [fact.period] : []));
+  return periods.size === 1 ? [...periods][0] : report.scope.period ?? "week";
 }
 
 export function analystWorkspaceActionLabel(action: AnalystWorkspaceAction, language: PortfolioAnalystReport["language"]): string {

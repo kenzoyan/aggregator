@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { PortfolioAnalystReport } from "@/application/portfolio-analyst-provider";
 import type { AnalystEvidenceFact } from "@/application/portfolio-analyst-contract";
-import { analystWorkspaceActions, analystWorkspaceFacts } from "@/components/analyst-workspace-selection";
+import { analystContributionPeriod, analystWorkspaceActions, analystWorkspaceFacts } from "@/components/analyst-workspace-selection";
 
 const period: AnalystEvidenceFact = {
   key: "period", kind: "period-performance", label: "Period performance", period: "week",
@@ -41,5 +41,6 @@ describe("answer-driven workspace selection", () => {
     expect(analystWorkspaceFacts(answer, "contribution")).toEqual([monthly]);
     expect(answer.scope.period).toBe("week");
     expect(answer.factsAsOf).toBe("2026-10-10T10:00:00Z");
+    expect(analystContributionPeriod(answer)).toBe("month");
   });
 });

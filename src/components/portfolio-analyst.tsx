@@ -1,6 +1,7 @@
 "use client";
 
 import { createPortal } from "react-dom";
+import { MAX_PORTFOLIO_ANALYST_QUESTION_CHARS } from "@/application/portfolio-analyst-request-limits";
 import { motion } from "motion/react";
 import { Expand, Shrink, MoreHorizontal, Send, Square, X } from "lucide-react";
 import { AnalystConversationView } from "@/components/analyst-conversation-view";
@@ -99,10 +100,14 @@ export function PortfolioAnalyst({
   blocked = false,
   onPortfolioChanged,
   onViewDetail,
+  questionRequest,
+  onQuestionAvailabilityChange,
 }: {
   blocked?: boolean;
   onPortfolioChanged?: () => void;
   onViewDetail?: (selection: AnalystWorkspaceSelection) => void;
+  questionRequest?: { id: number; text: string };
+  onQuestionAvailabilityChange?: (available: boolean) => void;
 }) {
   const activeRequest = useRef<AbortController | undefined>(undefined);
   const [focusedChat, setFocusedChat] = useState(false);
@@ -692,6 +697,16 @@ export function PortfolioAnalyst({
       : (language === "zh-CN" ? "记忆草稿" : "Memory draft");
   }
   const actionSwitchBusy = loading || importBusy || memoryReviewBusy || actionCancelBusy || Object.values(saveStatus).includes("saving");
+  const canFillQuestion = !blocked && !actionSwitchBusy && Boolean(selectedProvider?.configured) && !question.trim();
+  const consumedQuestionRequest = useRef<number | undefined>(undefined);
+  useEffect(() => { onQuestionAvailabilityChange?.(canFillQuestion); }, [canFillQuestion, onQuestionAvailabilityChange]);
+  useEffect(() => {
+    if (!questionRequest || consumedQuestionRequest.current === questionRequest.id) return;
+    consumedQuestionRequest.current = questionRequest.id;
+    if (!canFillQuestion) return;
+    setQuestion(questionRequest.text);
+    composer.current?.focus();
+  }, [questionRequest, canFillQuestion]);
   const closeReviewLabel = language === "zh-CN" ? "收起审核，保留草稿" : "Close review and keep draft";
 
   async function cancelAction(action: PendingAgentAction) {
@@ -868,7 +883,7 @@ export function PortfolioAnalyst({
             <textarea
               ref={composer}
               rows={2}
-              maxLength={600}
+              maxLength={MAX_PORTFOLIO_ANALYST_QUESTION_CHARS}
               disabled={loading || importBusy || memoryReviewBusy || actionCancelBusy || !selectedProvider?.configured}
               value={question}
               aria-label={language === "zh-CN" ? "给助手发送消息" : "Message your assistant"}

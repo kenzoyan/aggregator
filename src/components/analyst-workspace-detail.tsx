@@ -5,14 +5,15 @@ import { ArrowLeft } from "lucide-react";
 import { periodLabels } from "@/application/portfolio-period-labels";
 import { portfolioAnalystEvidenceValue } from "@/application/portfolio-analyst-presentation";
 import { AnalystReport } from "@/components/portfolio-analyst-transcript";
+import { PortfolioContributionDetail } from "@/components/portfolio-contribution-detail";
 import { analystWorkspaceActionLabel, analystWorkspaceFacts, type AnalystWorkspaceSelection } from "@/components/analyst-workspace-selection";
 
 const eur = new Intl.NumberFormat("en-FI", { style: "currency", currency: "EUR", maximumFractionDigits: 2 });
 const signedEur = (value: number) => `${value >= 0 ? "+" : "−"}${eur.format(Math.abs(value))}`;
 
-/** Read the exact answer snapshot; returning leaves the live overview's state intact. */
-export function AnalystWorkspaceDetail({ selection, onBack }: {
-  selection: AnalystWorkspaceSelection; onBack: () => void;
+/** Keep answer evidence immutable; contribution detail separately reads current saved facts. */
+export function AnalystWorkspaceDetail({ selection, onBack, onResearch }: {
+  selection: AnalystWorkspaceSelection; onBack: () => void; onResearch?: (question: string) => void;
 }) {
   const { report, action } = selection;
   const zh = report.language === "zh-CN";
@@ -26,14 +27,14 @@ export function AnalystWorkspaceDetail({ selection, onBack }: {
       <h1 id="workspace-detail-title" tabIndex={-1} ref={heading}>{analystWorkspaceActionLabel(action, report.language)}</h1>
       <p>{zh ? "分析快照" : "Analysis snapshot"} · <time dateTime={report.factsAsOf}>{new Date(report.factsAsOf).toLocaleString(zh ? "zh-CN" : "en-FI")}</time></p>
     </header>
-    <div className="workspace-facts">
+    {action === "contribution" ? <PortfolioContributionDetail key={report.generatedAt} report={report} onResearch={onResearch} /> : <div className="workspace-facts">
       {facts.map((fact) => <article key={fact.key}>
         {fact.kind === "period-performance" ? <>
           <h2>{periodLabels[fact.period]} · {zh ? "投资变化" : "Investment change"}</h2>
           <strong className={`workspace-fact-value ${fact.changeEur >= 0 ? "positive" : "negative"}`}>{signedEur(fact.changeEur)}</strong>
           <div className="workspace-decomposition">
-            <span>{zh ? "价格影响" : "Price effect"}<strong>{signedEur(fact.priceEffectEur)}</strong></span>
-            <span>{zh ? "汇率影响" : "FX effect"}<strong>{signedEur(fact.fxEffectEur)}</strong></span>
+            <span>{zh ? "价格影响" : "Price effect"}<strong>{fact.priceEffectEur === undefined ? "—" : signedEur(fact.priceEffectEur)}</strong></span>
+            <span>{zh ? "汇率影响" : "FX effect"}<strong>{fact.fxEffectEur === undefined ? "—" : signedEur(fact.fxEffectEur)}</strong></span>
           </div>
           <small>{fact.baselineAsOf ?? (zh ? "起始日期未提供" : "Baseline date unavailable")} → {fact.currentAsOf ?? (zh ? "结束日期未提供" : "End date unavailable")}{fact.coverage === "partial" ? (zh ? " · 部分期间" : " · Partial range") : ""}</small>
         </> : <>
@@ -47,7 +48,7 @@ export function AnalystWorkspaceDetail({ selection, onBack }: {
           <details><summary>{zh ? "查看持仓细节" : "Holding details"}</summary><p>{portfolioAnalystEvidenceValue(fact, report.language)}</p></details>
         </>}
       </article>)}
-    </div>
+    </div>}
     <details className="workspace-answer-evidence"><summary>{zh ? "回答依据与数据来源" : "Answer evidence & data sources"}</summary><AnalystReport report={report} sourcesOnly /></details>
   </section>;
 }

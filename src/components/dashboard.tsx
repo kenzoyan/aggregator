@@ -154,6 +154,9 @@ function returnPercent(percent?: number) {
 export function Dashboard() {
   const [workspaceSelection, setWorkspaceSelection] = useState<AnalystWorkspaceSelection>();
   const detailOpener = useRef<HTMLElement | null>(null);
+  const [questionRequest, setQuestionRequest] = useState<{ id: number; text: string }>();
+  const [canFillQuestion, setCanFillQuestion] = useState(false);
+  const questionRequestId = useRef(0);
   const [period, setPeriod] = useState<Period>("week");
   const [chartMode, setChartMode] = useState<ChartMode>("daily-change");
   const [selectedDailyDate, setSelectedDailyDate] = useState<string>();
@@ -276,6 +279,8 @@ export function Dashboard() {
       <main className="main-content home-workspace" id="overview">
         <PortfolioAnalyst
           blocked={false}
+          questionRequest={questionRequest}
+          onQuestionAvailabilityChange={setCanFillQuestion}
           onViewDetail={(selection) => {
             detailOpener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
             setWorkspaceSelection(selection);
@@ -284,7 +289,9 @@ export function Dashboard() {
         />
         <div className="home-workspace-main">
         <div id="agent-import-review-host" />
-        {workspaceSelection && <AnalystWorkspaceDetail selection={workspaceSelection} onBack={() => {
+        {workspaceSelection && <AnalystWorkspaceDetail selection={workspaceSelection}
+          onResearch={canFillQuestion ? (text) => setQuestionRequest({ id: ++questionRequestId.current, text }) : undefined}
+          onBack={() => {
           setWorkspaceSelection(undefined);
           if (detailOpener.current?.isConnected) detailOpener.current.focus();
         }} />}

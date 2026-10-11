@@ -1,6 +1,8 @@
 "use client";
 
 import Link from "next/link";
+import { ResearchWebsiteLinks } from "@/components/analyst-search-progress";
+import { currentActivityState, latestToolActivities, researchProgress } from "@/components/analyst-search-progress-model";
 import { Fragment, useEffect, useRef, useState } from "react";
 
 import type { PortfolioAnalystAnswer } from "@/application/portfolio-analyst-answer";
@@ -84,6 +86,8 @@ export function SavedConversationEntries({
               <div className="analyst-user-message"><p>{entry.turn.userText ?? entry.turn.question}</p></div>
             ) : null}
           </div>
+          {entry.turn.chat?.workflowReplyAudit && <AgentActivityTimeline audit={entry.turn.chat.workflowReplyAudit} language={language} phase={entry.turn.chat.failureCode ? "failed" : "completed"} />}
+          {entry.turn.imageAnswer?.agentAudit && <AgentActivityTimeline audit={entry.turn.imageAnswer.agentAudit} language={language} phase={entry.turn.imageAnswer.status === "failed" ? "failed" : "completed"} />}
           {entry.turn.report ? <AnalystReport
             report={entry.turn.report}
             actionStatus={accountActionStatus[entry.turn.id]}
@@ -236,11 +240,19 @@ export function pendingPhaseLabel(
       "provider-unavailable": "模型服务暂时无法回应。你的消息还在，可以稍后重试。",
       "context-too-large": "这次请求的内容过长。请缩短问题后重试。",
       "connection-failed": "连接中断，回答没有完成。你的消息还在，可以重试。",
+      "question-too-long": "问题超过 600 个字符，尚未开始分析。请缩短后重新发送。",
+      "invalid-request": "请求格式有误，尚未开始分析。请修改问题后重新发送。",
+      "request-too-large": "请求内容过大，尚未开始分析。请减少内容后重新发送。",
+      "request-failed": "处理请求时出错，回答没有完成。你的消息还在，可以重试。",
     } : {
       "invalid-provider-output": "I couldn't verify the model's answer. Your message is still here; please try again.",
       "provider-unavailable": "The model service couldn't respond. Your message is still here; please try again later.",
       "context-too-large": "This request has too much context. Please shorten your question and try again.",
       "connection-failed": "The connection ended before the reply was complete. Your message is still here; please try again.",
+      "question-too-long": "The question exceeds 600 characters. Analysis has not started. Shorten it and send it again.",
+      "invalid-request": "The request format was invalid. Analysis has not started. Edit your question and send it again.",
+      "request-too-large": "The request was too large. Analysis has not started. Reduce its content and send it again.",
+      "request-failed": "The request could not be processed. Your message is still here; please try again.",
     };
     if (failureCode && Object.hasOwn(failures, failureCode)) {
       return failures[failureCode as keyof typeof failures];
@@ -355,49 +367,48 @@ export function AgentActivityTimeline({
   statusHistory?: PendingPortfolioAnalystTurn["statusHistory"];
 }) {
   const streamedActivities = activities ?? [];
-  const latestStreamedCalls = Array.from(streamedActivities.reduce((calls, activity) => {
-    calls.set(activity.toolCallId, activity);
-    return calls;
-  }, new Map<string, PortfolioAnalystToolActivity>()).values());
+  const latestStreamedCalls = latestToolActivities(streamedActivities);
   const interrupted = phase === "failed" || phase === "stopped";
   const calls = audit?.toolCalls ?? latestStreamedCalls;
+  const search = researchProgress(calls, interrupted);
+  const currentState = currentActivityState(phase, search);
+  const running = phase !== "completed" && !interrupted;
+  const activeCall = latestStreamedCalls.findLast((call) => call.stage === "started");
   if (calls.length === 0 && phase === "completed") return null;
+  const completedLabel = language === "zh-CN" ? "处理过程" : "Activity";
   const currentLabel = phase === "completed"
-    ? (language === "zh-CN" ? `已完成 ${calls.length} 项检查` : `${calls.length} checks completed`)
-    : pendingPhaseLabel(phase, language);
-  return (
-    <details className={`analyst-activity-disclosure ${phase}`}>
-      <summary><span className="analyst-status-light" aria-hidden="true" /><span role="status">{currentLabel}</span></summary>
-    <ol className="analyst-agent-activity" aria-label={language === "zh-CN" ? "数据读取" : "Data checks"}>
-      {audit
-        ? audit.toolCalls.map((call) => (
-            <li className={call.status === "completed" ? "done" : call.status} key={call.toolCallId}>
-              <i aria-hidden="true" />{call.status === "completed"
-                ? completedToolLabel(call.name, call.input, language, call.evidenceKeys.length, call.memoryCount)
-                : call.status === "blocked"
-                  ? (language === "zh-CN" ? `已停止额外读取：${analystToolScope(call.name, call.input, language)}` : `Stopped extra read: ${analystToolScope(call.name, call.input, language)}`)
-                  : (language === "zh-CN" ? `读取失败：${analystToolScope(call.name, call.input, language)}` : `Failed to read ${analystToolScope(call.name, call.input, language)}`)}
-            </li>
-          ))
-        : latestStreamedCalls.map((activity) => (
-            <li
-              className={activity.stage === "completed" ? "done" : activity.stage === "failed" || interrupted ? "failed" : "active"}
-              key={activity.toolCallId}
-            >
-              <i aria-hidden="true" />{activity.stage === "started"
-                ? (language === "zh-CN"
-                    ? `正在读取 ${analystToolScope(activity.name, activity.input, language)}……`
-                    : `Reading ${analystToolScope(activity.name, activity.input, language)}…`)
-                : activity.stage === "failed"
-                  ? (language === "zh-CN"
-                      ? `读取失败：${analystToolScope(activity.name, activity.input, language)}`
-                      : `Failed to read ${analystToolScope(activity.name, activity.input, language)}`)
-                  : completedToolLabel(activity.name, activity.input, language, activity.evidenceCount, activity.memoryCount)}
-            </li>
-          ))}
+    ? completedLabel
+    : currentState === "searching" ? (language === "zh-CN" ? "正在搜索网页…" : "Searching the web…")
+    : currentState === "reading-current-facts" && activeCall ? (language === "zh-CN" ? `正在读取 ${analystToolScope(activeCall.name, activeCall.input, language)}…` : `Reading ${analystToolScope(activeCall.name, activeCall.input, language)}…`)
+    : currentState === "completed" ? completedLabel : pendingPhaseLabel(currentState, language);
+  return <details className={`analyst-activity-disclosure analyst-execution-record ${phase}${running ? " running" : ""}`}>
+    <summary>{running && <span className="analyst-search-orbit" aria-hidden="true" />}<span role="status">{currentLabel}</span><span className="analyst-process-chevron" aria-hidden="true">›</span></summary>
+    <ol className="analyst-process-steps" aria-label={language === "zh-CN" ? "执行过程记录" : "Execution history"}>
+      {calls.map((call, index) => {
+        if (call.name === "search_web") {
+          if (index !== calls.findIndex((item) => item.name === "search_web")) return null;
+          const note = search.state === "searching" ? (language === "zh-CN" ? "正在搜索网页…" : "Searching the web…")
+            : search.sites.length ? (language === "zh-CN" ? `找到 ${search.sites.length} 个来源网站` : `Found sources on ${search.sites.length} ${search.sites.length === 1 ? "website" : "websites"}`)
+            : search.state === "empty" ? (language === "zh-CN" ? "搜索网页 · 未返回可用来源" : "Web search · No usable sources returned")
+            : search.state === "unavailable" ? (language === "zh-CN" ? "搜索网页 · 暂不可用" : "Web search · Unavailable")
+            : search.state === "interrupted" ? (language === "zh-CN" ? "搜索网页 · 已停止" : "Web search · Stopped")
+            : (language === "zh-CN" ? "搜索网页" : "Web search");
+          return <li key={call.toolCallId}>{search.sites.length ? <details className="analyst-process-sites"><summary>{note}<span aria-hidden="true"> ›</span></summary>
+            <div>{search.sites.map((site) => <a key={site.label} href={site.url} target="_blank" rel="noopener noreferrer" title={site.url}>{site.label} ↗</a>)}</div>
+          </details> : note}</li>;
+        }
+        const status = "stage" in call ? call.stage === "started" ? interrupted ? "stopped" : "active" : call.stage : call.status;
+        const count = "evidenceCount" in call ? call.evidenceCount : "evidenceKeys" in call ? call.evidenceKeys.length : 0;
+        const scope = analystToolScope(call.name, call.input, language);
+        const prefix = language === "zh-CN" ? status === "active" ? "正在读取" : status === "completed" ? "已读取" : "读取" : status === "active" ? "Reading" : status === "completed" ? "Read" : "Read request:";
+        const label = status === "completed" && (call.name === "read_memories" || call.name === "propose_memory") ? completedToolLabel(call.name, call.input, language, count, "memoryCount" in call ? call.memoryCount : undefined)
+          : `${prefix} ${scope}`;
+        const note = status === "failed" ? (language === "zh-CN" ? "失败" : "Failed") : status === "blocked" ? (language === "zh-CN" ? "达到调用上限" : "Call limit reached") : status === "stopped" ? (language === "zh-CN" ? "已停止" : "Stopped") : "";
+        return <li key={call.toolCallId}>{label}{note ? ` · ${note}` : ""}</li>;
+      })}
     </ol>
-    </details>
-  );
+    {calls.length === 0 && <p className="analyst-process-empty">{language === "zh-CN" ? "执行步骤开始后会显示在这里。" : "Steps will appear here as they start."}</p>}
+  </details>;
 }
 
 export function AnalystReport({
@@ -441,13 +452,10 @@ export function AnalystReport({
   return (
     <article className={`portfolio-analyst-result${sourcesOnly ? " sources-only" : ""}`} aria-live={sourcesOnly ? undefined : "polite"}>
       {!sourcesOnly && <>
+      {report.agentAudit && <AgentActivityTimeline audit={report.agentAudit} language={language} phase="completed" />}
       <div className="analyst-primary-answer analyst-assistant-message">
         <AssistantMessageContent text={answer.answer.text} />
-        {webSources.length > 0 && <ul className="analyst-web-sources" aria-label={language === "zh-CN" ? "外部来源" : "External sources"}>
-          {webSources.map((source) => <li key={source.key}>
-            <a href={source.url} target="_blank" rel="noopener noreferrer">{source.title}</a>
-          </li>)}
-        </ul>}
+        <ResearchWebsiteLinks urls={webSources.map((source) => source.url)} language={language} />
       </div>
       {answer.limitations.length > 0 && (
         <div className="analyst-visible-caveats">
@@ -494,9 +502,6 @@ export function AnalystReport({
       </>}
       {sourcesOnly && <div className="analyst-facts-evidence">
         <div className="analyst-facts-evidence-body">
-          {report.agentAudit && (
-            <AgentActivityTimeline audit={report.agentAudit} language={language} phase="completed" />
-          )}
           {answer.claims.length > 0 && (
             <section className="analyst-supporting-facts">
               <h4>{language === "zh-CN" ? "补充事实" : "Supporting facts"}</h4>
