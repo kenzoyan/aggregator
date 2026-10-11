@@ -34,6 +34,14 @@ const cancelSchema = z.object({
   action: z.literal("cancel"),
 }).strict();
 
+const editProposalSchema = z.object({
+  conversationId: z.string().trim().min(1).max(80),
+  turnId: z.string().trim().min(1).max(80),
+  action: z.literal("update"),
+  content: z.string().trim().min(1).max(MAX_PORTFOLIO_ANALYST_MEMORY_CHARS),
+}).strict();
+const patchProposalSchema = z.discriminatedUnion("action", [cancelSchema, editProposalSchema]);
+
 function json(value: unknown, status = 200) {
   return Response.json(value, { status, headers: { "cache-control": "no-store" } });
 }
@@ -89,8 +97,11 @@ export function createPortfolioAnalystMemoryHandlers(
       return json({ memory });
     },
     async PATCH(request: Request) {
-      const parsed = cancelSchema.safeParse(await request.json().catch(() => undefined));
-      if (!parsed.success) return json({ error: "Memory cancellation request is invalid." }, 400);
+      const parsed = patchProposalSchema.safeParse(await request.json().catch(() => undefined));
+      if (!parsed.success) return json({ error: "Memory draft request is invalid." }, 400);
+      if (parsed.data.action === "update" && !validMemoryContent(parsed.data.content)) {
+        return json({ error: "Enter a short memory without secrets or account facts." }, 400);
+      }
       const conversation = store.readPortfolioAnalystConversation?.(parsed.data.conversationId);
       if (!conversation || store.readLatestPortfolioAnalystConversation?.()?.id !== conversation.id) {
         return json({ error: "Current conversation was not found." }, 404);
@@ -99,7 +110,13 @@ export function createPortfolioAnalystMemoryHandlers(
       if (!turn?.chat?.memoryProposal || turn.chat.memoryProposal.status !== "pending") {
         return json({ error: "Pending memory proposal was not found." }, 409);
       }
-      const updated = resolvePortfolioAnalystMemoryProposal(conversation, turn.id, "cancelled", now());
+      const timestamp = now();
+      const content = parsed.data.action === "update" ? parsed.data.content : undefined;
+      const updated = content === undefined
+        ? resolvePortfolioAnalystMemoryProposal(conversation, turn.id, "cancelled", timestamp)
+        : { ...conversation, updatedAt: timestamp, turns: conversation.turns.map((item) =>
+          item.id === turn.id && item.chat?.memoryProposal ? { ...item, chat: { ...item.chat,
+            memoryProposal: { ...item.chat.memoryProposal, content } } } : item) };
       store.savePortfolioAnalystConversation?.(updated);
       return json({ conversation: updated });
     },

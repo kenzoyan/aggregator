@@ -75,6 +75,48 @@ describe("confirmed analyst memories", () => {
     database.close();
   });
 
+  it("persists edited proposals without confirming and saves the exact edited text on confirmation", async () => {
+    const database = createPortfolioDatabase(":memory:");
+    try {
+      const base = createPortfolioAnalystConversation({ id: "editable-chat", provider: "openai", language: "en", includeHoldingNames: true,
+        now: "2026-10-11T12:00:00.000Z" });
+      database.savePortfolioAnalystConversation(appendPortfolioAnalystTurn(base, { id: firstId, question: "Remember my location", createdAt: base.createdAt,
+        chat: { assistantText: "Review this draft.", memoryProposal: { content: "I live in Helsinki.", status: "pending" } } }));
+      const handlers = createPortfolioAnalystMemoryHandlers(database);
+      const context = { conversationId: base.id, turnId: firstId };
+      const edit = await handlers.PATCH(request("PATCH", { ...context, action: "update", content: "  I currently live in Espoo.  " }));
+      expect(edit.status).toBe(200);
+      expect(database.readPortfolioAnalystConversation(base.id)?.turns[0]?.chat).toMatchObject({
+        assistantText: "Review this draft.", memoryProposal: { content: "I currently live in Espoo.", status: "pending" },
+      });
+      expect(database.listPortfolioAnalystMemories()).toEqual([]);
+      expect(database.readPortfolioFacts().events).toEqual([]);
+      expect((await handlers.PUT(request("PUT", { ...context, confirm: true }))).status).toBe(200);
+      expect(database.readPortfolioAnalystMemory(firstId)?.content).toBe("I currently live in Espoo.");
+      expect((await handlers.PATCH(request("PATCH", { ...context, action: "update", content: "Other" }))).status).toBe(409);
+    } finally { database.close(); }
+  });
+
+  it("rejects invalid or foreign proposal edits without changing draft or confirmed memory", async () => {
+    const database = createPortfolioDatabase(":memory:");
+    try {
+      const conversation = createPortfolioAnalystConversation({ id: "edit-safety", provider: "openai", language: "en", includeHoldingNames: true,
+        now: "2026-10-11T12:00:00.000Z" });
+      conversation.turns = [{ id: firstId, question: "Remember", createdAt: conversation.createdAt,
+        chat: { assistantText: "Review", memoryProposal: { content: "Use EUR.", status: "pending" } } }];
+      database.savePortfolioAnalystConversation(conversation);
+      const handlers = createPortfolioAnalystMemoryHandlers(database);
+      const context = { conversationId: conversation.id, turnId: firstId, action: "update" };
+      for (const content of ["", "x".repeat(201), "Line one\nLine two", "My password is synthetic"]) {
+        expect((await handlers.PATCH(request("PATCH", { ...context, content }))).status).toBe(400);
+      }
+      expect((await handlers.PATCH(request("PATCH", { ...context, turnId: secondId, content: "Other" }))).status).toBe(409);
+      expect((await handlers.PATCH(request("PATCH", { ...context, conversationId: "foreign", content: "Other" }))).status).toBe(404);
+      expect(database.readPortfolioAnalystConversation(conversation.id)).toEqual(conversation);
+      expect(database.listPortfolioAnalystMemories()).toEqual([]);
+    } finally { database.close(); }
+  });
+
   it("confirms, lists, edits, and deletes independent memories across database reopening", async () => {
     const directory = mkdtempSync(join(tmpdir(), "aggrigator-memories-"));
     directories.push(directory);

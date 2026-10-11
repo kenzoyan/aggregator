@@ -54,6 +54,7 @@ import {
   pendingPhaseLabel,
 } from "@/components/portfolio-analyst-transcript";
 import { pendingAgentActions, currentAgentAction, type PendingAgentAction } from "@/components/agent-pending-actions";
+import { MAX_PORTFOLIO_ANALYST_MEMORY_CHARS } from "@/application/portfolio-analyst-memory";
 import { AgentDraftReviewPanel } from "@/components/agent-draft-review-panel";
 import { AgentSaleDraftReview } from "@/components/agent-sale-draft-review";
 import { AgentImportDraftReview } from "@/components/agent-import-draft-review";
@@ -250,6 +251,8 @@ export function PortfolioAnalyst({
     setMemoryReviewBusy(true);
     setMemoryReviewError("");
     try {
+      await saveQueue.current;
+      if (action === "save" && saveErrors.current[`memory:${turnId}`]) throw new Error("Fix the memory draft save error before confirming.");
       const response = await fetch("/api/portfolio/analyst/memory", {
         method: action === "save" ? "PUT" : "PATCH",
         headers: { "content-type": "application/json" },
@@ -372,6 +375,33 @@ export function PortfolioAnalyst({
     return queueDraftSave(next);
   }
 
+  function editMemoryDraft(turnId: string, content: string) {
+    if (loading || importBusy || memoryReviewBusy || actionCancelBusy) return;
+    const key = `memory:${turnId}`;
+    const revision = (saveRevision.current[key] ?? 0) + 1;
+    saveRevision.current[key] = revision;
+    saveErrors.current[key] = false;
+    setSaveStatus((current) => ({ ...current, [key]: "saving" }));
+    setConversation((current) => current ? { ...current, turns: current.turns.map((turn) =>
+      turn.id === turnId && turn.chat?.memoryProposal ? { ...turn, chat: { ...turn.chat,
+        memoryProposal: { ...turn.chat.memoryProposal, content } } } : turn) } : current);
+    saveQueue.current = saveQueue.current.catch(() => undefined).then(async () => {
+      // Skip superseded keystrokes; keep the same queue as manual import saves.
+      if (saveRevision.current[key] !== revision) return;
+      const response = await fetch("/api/portfolio/analyst/memory", {
+        method: "PATCH", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ conversationId: conversation?.id, turnId, action: "update", content }),
+      });
+      if (!response.ok) throw new Error("Memory draft save failed.");
+      if (saveRevision.current[key] === revision) setSaveStatus((current) => ({ ...current, [key]: "saved" }));
+    }).catch(() => {
+      if (saveRevision.current[key] === revision) {
+        saveErrors.current[key] = true;
+        setSaveStatus((current) => ({ ...current, [key]: "error" }));
+      }
+    });
+  }
+
   function addImportHolding(draftId: string) {
     const draft = importDraftsRef.current[draftId];
     const currency = draft?.portfolio.holdings[0]?.currency ||
@@ -456,6 +486,9 @@ export function PortfolioAnalyst({
     try {
       await saveQueue.current;
       if (activeReview && saveErrors.current[activeReview.draftId]) throw new Error("Please fix the draft save error before continuing.");
+      if (Object.entries(saveErrors.current).some(([key, failed]) => key.startsWith("memory:") && failed)) {
+        throw new Error("Please fix the memory draft save error before continuing.");
+      }
       const body: {
         mode: "agent";
         provider: PortfolioAnalystProviderId;
@@ -674,6 +707,7 @@ export function PortfolioAnalyst({
       setConversation(payload.conversation);
       importDraftsRef.current = Object.fromEntries(payload.importDrafts.map((draft) => [draft.id, draft]));
       setImportDrafts(importDraftsRef.current);
+      delete saveErrors.current[action.kind === "memory" ? `memory:${action.id}` : action.id];
       if (action.key === currentAction?.key) setReviewPanel(undefined);
     } catch (cause) {
       setActionCancelError(cause instanceof Error ? cause.message : "Draft cancellation failed.");
@@ -899,10 +933,21 @@ export function PortfolioAnalyst({
               <div><p className="eyebrow">MEMORY REVIEW</p><h2>{language === "zh-CN" ? "确认这条记忆" : "Confirm this memory"}</h2></div>
             </div>
             <p>{language === "zh-CN" ? "草稿已保留，可稍后确认。确认后用于以后对话，不会更改持仓。" : "This draft is kept for later review. Confirming saves it for future conversations and does not change holdings."}</p>
-            <blockquote>{pendingMemoryTurn.chat.memoryProposal.content}</blockquote>
+            <label className="agent-memory-draft-field">
+              <span>{language === "zh-CN" ? "记忆内容 · 可修改" : "Memory content · editable"}</span>
+              <textarea rows={3} maxLength={MAX_PORTFOLIO_ANALYST_MEMORY_CHARS}
+                disabled={loading || importBusy || memoryReviewBusy || actionCancelBusy}
+                value={pendingMemoryTurn.chat.memoryProposal.content}
+                onChange={(event) => editMemoryDraft(pendingMemoryTurn.id, event.target.value)} />
+            </label>
+            <small role="status">{saveStatus[`memory:${pendingMemoryTurn.id}`] === "saving"
+              ? (language === "zh-CN" ? "正在保存草稿…" : "Saving draft…")
+              : saveStatus[`memory:${pendingMemoryTurn.id}`] === "error"
+                ? (language === "zh-CN" ? "草稿未保存。请输入 1–200 字的单行内容，不含密码或密钥。" : "Draft not saved. Use 1–200 characters on one line without secrets.")
+                : (language === "zh-CN" ? "草稿已保留，确认后才成为长期记忆。" : "Draft kept; it becomes a saved memory only after confirmation.")}</small>
             {memoryReviewError && <p role="alert" className="error-message">{memoryReviewError}</p>}
             <div className="home-memory-review-actions">
-              <button type="button" disabled={actionSwitchBusy} onClick={() => void resolveMemoryProposal("save", pendingMemoryTurn.id)}>{memoryReviewBusy ? (language === "zh-CN" ? "正在保存…" : "Saving…") : language === "zh-CN" ? "确认保存" : "Save memory"}</button>
+              <button type="button" disabled={actionSwitchBusy || saveStatus[`memory:${pendingMemoryTurn.id}`] === "error"} onClick={() => void resolveMemoryProposal("save", pendingMemoryTurn.id)}>{memoryReviewBusy ? (language === "zh-CN" ? "正在保存…" : "Saving…") : language === "zh-CN" ? "确认保存" : "Save memory"}</button>
               <button type="button" className="secondary" disabled={actionSwitchBusy} onClick={() => setReviewPanel(undefined)}>{language === "zh-CN" ? "稍后处理" : "Review later"}</button>
               <button type="button" disabled={actionSwitchBusy} onClick={() => void cancelAction(currentAction!)}>{language === "zh-CN" ? "取消草稿" : "Cancel draft"}</button>
             </div>

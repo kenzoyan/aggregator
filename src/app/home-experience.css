@@ -327,3 +327,6 @@
   .agent-draft-review { max-height: calc(100dvh - 32px); overflow-y: auto; }
   .agent-draft-review .review-dialog-toolbar { position: sticky; top: 0; z-index: 1; }
 }
+
+.agent-memory-draft-field { display: grid; gap: 8px; margin-bottom: 8px; }
+.agent-memory-draft-field textarea { width: 100%; min-height: 96px; resize: vertical; padding: 12px; border: 1px solid var(--quiet-border); border-radius: 8px; background: var(--surface); color: var(--ink); font: inherit; }
