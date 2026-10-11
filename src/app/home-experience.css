@@ -256,9 +256,18 @@
 .home-fx-history caption { margin-bottom: 12px; color: var(--muted); text-align: left; font-size: 12px; }
 .home-fx-history :is(th, td) { padding: 12px 0; border-bottom: 1px solid var(--line); text-align: left; }
 .home-fx-history :is(th, td):last-child { text-align: right; font-variant-numeric: tabular-nums; }
-.agent-review-launchers:empty { display: none; }
-.agent-review-launchers { display: flex; flex-wrap: wrap; gap: 8px; padding: 8px 0; }
-.agent-review-launchers button { padding: 8px 12px; border: 1px solid var(--quiet-border); border-radius: 8px; background: var(--surface); color: var(--accent); font-size: 13px; cursor: pointer; }
+.agent-review-launchers { display: grid; justify-items: start; gap: 12px; padding: 12px 14px; max-height: 180px; overflow-y: auto; }
+.agent-pending-item { position: relative; display: flex; width: fit-content; max-width: 100%; min-width: 0; border: 1px solid var(--quiet-border); border-radius: 10px; background: var(--surface); }
+.agent-pending-item.current { border-color: var(--accent); }
+.agent-pending-item button { padding: 8px 12px; border: 0; background: transparent; color: var(--accent); font-size: 13px; cursor: pointer; }
+.agent-pending-item .agent-pending-open { min-width: 0; padding: 10px 14px; border-radius: inherit; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agent-pending-item .agent-pending-cancel { position: absolute; top: 0; left: 0; z-index: 1; display: grid; place-items: center; width: 22px; height: 22px; padding: 0; border: 1px solid var(--quiet-border); border-radius: 50%; background: var(--surface); color: var(--muted); box-shadow: 0 2px 5px rgba(25,33,30,.1); opacity: 0; pointer-events: none; transform: translate(-50%, -50%) scale(.8); transition: opacity .15s ease, transform .15s ease; }
+.agent-pending-cancel svg { width: 12px; height: 12px; }
+.agent-pending-item:hover .agent-pending-cancel, .agent-pending-item:focus-within .agent-pending-cancel { opacity: 1; pointer-events: auto; transform: translate(-50%, -50%) scale(1); }
+.agent-pending-item .agent-pending-cancel:hover:not(:disabled), .agent-pending-item .agent-pending-cancel:focus-visible { background: var(--muted-surface); color: var(--accent); border-color: var(--accent); }
+.agent-pending-item .agent-pending-open:disabled { opacity: .5; cursor: default; }
+.agent-pending-item .agent-pending-cancel:disabled { cursor: default; }
+.agent-pending-item:hover .agent-pending-cancel:disabled, .agent-pending-item:focus-within .agent-pending-cancel:disabled { opacity: .5; }
 .review-dialog { position: fixed; inset: 0; margin: auto; height: fit-content; width: min(760px, 88vw); max-height: 84dvh; padding: 0; border: 1px solid var(--line); border-radius: 16px; overflow: hidden; background: var(--surface); color: var(--ink); box-shadow: 0 24px 80px rgba(25,33,30,.2); }
 .review-dialog::backdrop { background: rgba(25,33,30,.4); }
 .review-dialog-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 20px; border-bottom: 1px solid var(--line); background: var(--surface); }
@@ -304,16 +313,17 @@
 .home-summary-strip > details > summary::after { content: "⌄"; position: absolute; top: 14px; right: 12px; color: var(--muted); font-size: 16px; }
 .home-summary-strip > details[open] > summary::after { content: "⌃"; }
 
-/* Import review shares the workspace with chat; it never opens a modal. */
-#agent-import-review-host:empty { display: none; }
-.home-workspace-main:has(#agent-import-review-host:not(:empty)) > :not(#agent-import-review-host) { display: none; }
-.agent-import-review { background: var(--surface); border: 1px solid var(--quiet-border); border-radius: 16px; overflow: hidden; }
-.agent-import-review .home-review-panel { margin: 0; border: 0; }
-.agent-import-review .home-review-scroll { max-height: none; overflow: visible; padding: 0; }
+/* Draft review shares the workspace with chat; hidden sale review keeps local edits. */
+#agent-import-review-host:not(:has(.agent-draft-review:not([hidden]))) { display: none; }
+.home-workspace-main:has(> #agent-import-review-host > .agent-draft-review:not([hidden])) > :not(#agent-import-review-host) { display: none; }
+.agent-draft-review[hidden] { display: none; }
+.agent-draft-review { background: var(--surface); border: 1px solid var(--quiet-border); border-radius: 16px; overflow: hidden; }
+.agent-draft-review .home-review-panel { margin: 0; border: 0; }
+.agent-draft-review .home-review-scroll { max-height: none; overflow: visible; padding: 0; }
 .agent-import-review-fields { min-width: 0; margin: 0; padding: 0; border: 0; }
 @media (min-width: 991px) {
-  .home-workspace:has(.agent-import-review) { grid-template-columns: minmax(360px, 40%) minmax(0, 1fr); }
-  #agent-import-review-host:not(:empty) { position: sticky; top: 16px; }
-  .agent-import-review { max-height: calc(100dvh - 32px); overflow-y: auto; }
-  .agent-import-review .review-dialog-toolbar { position: sticky; top: 0; z-index: 1; }
+  .home-workspace:has(.agent-draft-review:not([hidden])) { grid-template-columns: minmax(360px, 40%) minmax(0, 1fr); }
+  #agent-import-review-host:has(.agent-draft-review:not([hidden])) { position: sticky; top: 16px; }
+  .agent-draft-review { max-height: calc(100dvh - 32px); overflow-y: auto; }
+  .agent-draft-review .review-dialog-toolbar { position: sticky; top: 0; z-index: 1; }
 }

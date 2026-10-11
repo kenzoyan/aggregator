@@ -53,6 +53,8 @@ import {
   SavedConversationEntries,
   pendingPhaseLabel,
 } from "@/components/portfolio-analyst-transcript";
+import { pendingAgentActions, currentAgentAction, type PendingAgentAction } from "@/components/agent-pending-actions";
+import { AgentDraftReviewPanel } from "@/components/agent-draft-review-panel";
 import { AgentSaleDraftReview } from "@/components/agent-sale-draft-review";
 import { AgentImportDraftReview } from "@/components/agent-import-draft-review";
 import {
@@ -111,6 +113,7 @@ export function PortfolioAnalyst({
   const [period, setPeriod] = useState<Period>("week");
   const [language, setLanguage] = useState<PortfolioAnalystLanguage>("en");
   const [reviewPanel, setReviewPanel] = useState<"sale" | "memory" | "sources" | "import">();
+  const [selectedActionKey, setSelectedActionKey] = useState<string>();
   const [selectedReviewId, setSelectedReviewId] = useState<string>();
   const [selectedEvidenceId, setSelectedEvidenceId] = useState<string>();
   const includeHoldingNames = true;
@@ -122,6 +125,8 @@ export function PortfolioAnalyst({
   const [importBusy, setImportBusy] = useState(false);
   const [error, setError] = useState<string>();
   const [memoryReviewBusy, setMemoryReviewBusy] = useState(false);
+  const [actionCancelBusy, setActionCancelBusy] = useState(false);
+  const [actionCancelError, setActionCancelError] = useState("");
   const [memoryReviewError, setMemoryReviewError] = useState("");
   const [importAttachments, setImportAttachments] = useState<AgentImageAttachmentState<File>>(
     () => createAgentImageAttachmentState<File>(),
@@ -140,7 +145,6 @@ export function PortfolioAnalyst({
     "confirming" | "created" | "failed"
   >>({});
   const selectedProvider = configuration?.providers.find((item) => item.id === provider);
-  const activeSaleTurn = conversation?.turns.findLast((turn) => turn.chat?.saleDraft?.status === "pending");
 
   useEffect(() => {
     let active = true;
@@ -165,6 +169,10 @@ export function PortfolioAnalyst({
         });
         const latestReport = restored?.turns.at(-1)?.report;
         setConversation(restored);
+        if (restored) {
+          try { setSelectedActionKey(window.localStorage.getItem(`agent-current-action:${restored.id}`) ?? undefined); }
+          catch { /* Unavailable storage does not prevent draft review. */ }
+        }
         const drafts = Object.fromEntries((value.importDrafts ?? []).map((draft) => [draft.id, draft]));
         importDraftsRef.current = drafts;
         setImportDrafts(drafts);
@@ -238,7 +246,7 @@ export function PortfolioAnalyst({
   }
 
   async function resolveMemoryProposal(action: "save" | "cancel", turnId: string) {
-    if (!conversation || memoryReviewBusy) return;
+    if (!conversation || loading || importBusy || memoryReviewBusy || actionCancelBusy) return;
     setMemoryReviewBusy(true);
     setMemoryReviewError("");
     try {
@@ -252,6 +260,7 @@ export function PortfolioAnalyst({
       const result = await response.json() as { conversation?: PortfolioAnalystConversation; error?: string };
       if (!response.ok || !result.conversation) throw new Error(result.error ?? "Memory review could not be completed.");
       setConversation(result.conversation);
+      setReviewPanel(undefined);
     } catch (cause) {
       setMemoryReviewError(cause instanceof Error ? cause.message : "Memory review could not be completed.");
     } finally {
@@ -262,7 +271,7 @@ export function PortfolioAnalyst({
   async function sendImageMessage(
     submission: NonNullable<ReturnType<typeof createAgentComposerSubmission<File>>>,
   ) {
-    if (loading || importBusy) return;
+    if (loading || importBusy || memoryReviewBusy || actionCancelBusy) return;
     setImportBusy(true);
     setError(undefined);
     setPendingImageMessage({ text: submission.text, files: submission.screenshots });
@@ -308,7 +317,7 @@ export function PortfolioAnalyst({
   }
 
   async function retryWorkflowReply(turnId: string) {
-    if (!conversation || loading || importBusy) return;
+    if (!conversation || loading || importBusy || memoryReviewBusy || actionCancelBusy) return;
     setImportBusy(true); setError(undefined);
     try {
       const response = await fetch("/api/portfolio/analyst/workflow/reply", {
@@ -436,7 +445,7 @@ export function PortfolioAnalyst({
       screenshots: [],
     });
     const normalizedQuestion = readTextOnlyAgentQuestion(submission);
-    if (!selectedProvider?.configured || loading || !normalizedQuestion) return;
+    if (!selectedProvider?.configured || loading || memoryReviewBusy || actionCancelBusy || !normalizedQuestion) return;
     setLoading(true);
     setError(undefined);
     setPendingTurnImageId(context?.imageSourceTurnId);
@@ -489,11 +498,17 @@ export function PortfolioAnalyst({
             importDraftsRef.current = Object.fromEntries(event.importDrafts.map((draft) => [draft.id, draft]));
             setImportDrafts(importDraftsRef.current);
             const newDraft = event.importDrafts.find((draft) => draft.status === "draft" && !conversation?.importActivities.some((a) => a.draftId === draft.id));
-            if (newDraft) { setSelectedReviewId(newDraft.id); setReviewPanel("import"); }
+            if (newDraft) { setSelectedReviewId(newDraft.id); setSelectedActionKey(`import:${newDraft.id}`); setReviewPanel("import"); }
           }
-          if (event.conversation.turns.at(-1)?.chat?.memoryProposal) {
+          const latestTurn = event.conversation.turns.at(-1);
+          if (latestTurn?.chat?.saleDraft?.status === "pending") {
+            setSelectedActionKey(`sale:${latestTurn.id}`);
+            setReviewPanel(undefined);
+          }
+          if (latestTurn?.chat?.memoryProposal?.status === "pending") {
             setSelectedEvidenceId(undefined);
             setMemoryReviewError("");
+            setSelectedActionKey(`memory:${latestTurn.id}`);
             setReviewPanel("memory");
           }
           setPendingTurn(undefined);
@@ -530,7 +545,7 @@ export function PortfolioAnalyst({
   }
 
   async function resetConversation() {
-    if (loading || importBusy) return;
+    if (loading || importBusy || memoryReviewBusy || actionCancelBusy) return;
     setError(undefined);
     try {
       if (conversation) {
@@ -547,6 +562,8 @@ export function PortfolioAnalyst({
       setConversation(undefined);
       setSelectedEvidenceId(undefined);
       setSelectedReviewId(undefined);
+      setSelectedActionKey(undefined);
+      setReviewPanel(undefined);
       setPendingTurn(undefined);
       setQuestion("");
       setImportAttachments((current) => resetAgentImageAttachments(current));
@@ -593,15 +610,75 @@ export function PortfolioAnalyst({
     }
   }
 
-  const reviewActivities = conversation?.importActivities.filter((activity) =>
-    importDrafts[activity.draftId]?.status === "draft"
-  ) ?? [];
-  const activeReview = reviewActivities.find((activity) => activity.draftId === selectedReviewId)
-    ?? reviewActivities.at(-1);
-  const activeDraft = activeReview && importDrafts[activeReview.draftId];
+  const actions = pendingAgentActions(conversation, importDrafts);
+  const currentAction = currentAgentAction(actions, selectedActionKey);
+  const importAction = currentAction?.kind === "import" ? currentAction
+    : actions.find((action) => action.kind === "import" && action.id === selectedReviewId)
+      ?? actions.find((action) => action.kind === "import");
+  const activeReview = conversation?.importActivities.find((activity) => activity.draftId === importAction?.id);
+  const activeDraft = activeReview && importDrafts[activeReview.draftId]?.status === "draft"
+    ? importDrafts[activeReview.draftId] : undefined;
   const activeDateRequest = activeDraft && nextImportDateFollowUp(activeDraft);
   const selectedEvidenceTurn = conversation?.turns.find((turn) => turn.id === selectedEvidenceId && turn.report);
-  const pendingMemoryTurn = conversation?.turns.findLast((turn) => turn.chat?.memoryProposal?.status === "pending");
+  const activeSaleTurn = conversation?.turns.findLast((turn) => turn.chat?.saleDraft?.status === "pending");
+  const pendingMemoryTurn = currentAction?.kind === "memory"
+    ? conversation?.turns.find((turn) => turn.id === currentAction.id) : undefined;
+
+  // Keep the highlighted item after closing a panel and across refreshes.
+  useEffect(() => {
+    if (!conversation) return;
+    try {
+      const key = `agent-current-action:${conversation.id}`;
+      if (currentAction) window.localStorage.setItem(key, currentAction.key);
+      else window.localStorage.removeItem(key);
+    } catch { /* Fall back to the most recent saved item when storage is unavailable. */ }
+  }, [conversation?.id, currentAction?.key]);
+
+  useEffect(() => {
+    if (selectedActionKey && !actions.some((action) => action.key === selectedActionKey)
+      && reviewPanel !== "sources") setReviewPanel(undefined);
+  }, [selectedActionKey, currentAction?.key, reviewPanel]);
+
+  function openAction(action: PendingAgentAction) {
+    if (actionSwitchBusy) return;
+    setSelectedActionKey(action.key);
+    if (action.kind === "import") setSelectedReviewId(action.id);
+    setSelectedEvidenceId(undefined);
+    setMemoryReviewError("");
+    setReviewPanel(action.kind);
+    setActionCancelError("");
+  }
+
+  function actionLabel(action: PendingAgentAction) {
+    const label = action.kind === "import"
+      ? (language === "zh-CN" ? "核对导入草稿" : "Review import draft")
+      : action.kind === "sale" ? (language === "zh-CN" ? "核对卖出草稿" : "Review sale draft")
+      : (language === "zh-CN" ? "确认记忆" : "Confirm memory");
+    return action.label ? `${label} · ${action.label}` : label;
+  }
+  const actionSwitchBusy = loading || importBusy || memoryReviewBusy || actionCancelBusy || Object.values(saveStatus).includes("saving");
+  const closeReviewLabel = language === "zh-CN" ? "收起审核，保留草稿" : "Close review and keep draft";
+
+  async function cancelAction(action: PendingAgentAction) {
+    if (!conversation || actionSwitchBusy) return;
+    setActionCancelBusy(true);
+    setActionCancelError("");
+    try {
+      await saveQueue.current;
+      const response = await fetch("/api/portfolio/analyst/pending-actions", {
+        method: "PATCH", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ conversationId: conversation.id, kind: action.kind, id: action.id }),
+      });
+      const payload = await response.json() as { conversation?: PortfolioAnalystConversation; importDrafts?: ImportDraftReadModel[]; error?: string };
+      if (!response.ok || !payload.conversation || !payload.importDrafts) throw new Error(payload.error ?? "Draft cancellation failed.");
+      setConversation(payload.conversation);
+      importDraftsRef.current = Object.fromEntries(payload.importDrafts.map((draft) => [draft.id, draft]));
+      setImportDrafts(importDraftsRef.current);
+      if (action.key === currentAction?.key) setReviewPanel(undefined);
+    } catch (cause) {
+      setActionCancelError(cause instanceof Error ? cause.message : "Draft cancellation failed.");
+    } finally { setActionCancelBusy(false); }
+  }
 
   return (
     <div
@@ -684,9 +761,8 @@ export function PortfolioAnalyst({
               setReviewPanel("sources");
             }}
             onReviewDraft={(draftId) => {
-              setSelectedEvidenceId(undefined);
-              setSelectedReviewId(draftId);
-              setReviewPanel("import");
+              const action = actions.find((item) => item.kind === "import" && item.id === draftId);
+              if (action) openAction(action);
             }}
           />}
           {pendingImageMessage && (
@@ -732,18 +808,23 @@ export function PortfolioAnalyst({
             <div className="analyst-primary-answer analyst-assistant-message"><p>{error}</p></div>
           </div>}
         </AnalystConversationView>
-        <div className="agent-review-launchers">
-          {activeSaleTurn && <button type="button" onClick={() => setReviewPanel("sale")}>{language === "zh-CN" ? "核对卖出草稿" : "Review sale draft"}</button>}
-          {activeReview && <button type="button" onClick={() => setReviewPanel("import")}>{language === "zh-CN" ? "核对导入草稿" : "Review import draft"}</button>}
-          {pendingMemoryTurn && <button type="button" onClick={() => setReviewPanel("memory")}>{language === "zh-CN" ? "确认记忆" : "Review memory"}</button>}
-        </div>
+        {actions.length > 0 && <div className="agent-review-launchers" aria-label={language === "zh-CN" ? "待办事项" : "Pending items"}>
+          {actions.map((action) => <div className={`agent-pending-item${action.key === currentAction?.key ? " current" : ""}`} key={action.key}>
+            <button type="button" className="agent-pending-open" disabled={actionSwitchBusy} aria-pressed={action.key === currentAction?.key}
+              title={actionLabel(action)} onClick={() => openAction(action)}>{actionLabel(action)}</button>
+            <button type="button" className="agent-pending-cancel" disabled={actionSwitchBusy} onClick={() => void cancelAction(action)}
+              aria-label={`${language === "zh-CN" ? "取消待办" : "Cancel pending item"}: ${actionLabel(action)}`}
+              title={language === "zh-CN" ? "取消草稿" : "Cancel draft"}><X size={15} aria-hidden="true" /></button>
+          </div>)}
+          {actionCancelError && <p role="alert" className="error-message">{actionCancelError}</p>}
+        </div>}
         <div className="analyst-composer">
           <div className="analyst-composer-box">
             <textarea
               ref={composer}
               rows={2}
               maxLength={600}
-              disabled={loading || importBusy || !selectedProvider?.configured}
+              disabled={loading || importBusy || memoryReviewBusy || actionCancelBusy || !selectedProvider?.configured}
               value={question}
               aria-label={language === "zh-CN" ? "给助手发送消息" : "Message your assistant"}
               placeholder={language === "zh-CN" ? "提出问题，或分享一张图片……" : "Ask a question or share an image…"}
@@ -776,7 +857,7 @@ export function PortfolioAnalyst({
                   <motion.button whileTap={{ scale: .96 }} type="button" onClick={submitComposer}
                     aria-label={language === "zh-CN" ? "发送" : "Send"}
                     title={language === "zh-CN" ? "发送" : "Send"}
-                    disabled={!selectedProvider?.configured || (!question.trim() && importAttachments.files.length === 0)}>
+                    disabled={memoryReviewBusy || actionCancelBusy || !selectedProvider?.configured || (!question.trim() && importAttachments.files.length === 0)}>
                     <Send size={18} aria-hidden="true" />
                   </motion.button>
                 )}
@@ -800,30 +881,33 @@ export function PortfolioAnalyst({
           }}>{language === "zh-CN" ? "删除记录" : "Delete history"}</button>
         </div>
       </dialog>
-      {conversation && activeSaleTurn?.chat?.saleDraft && (
-        <ReviewDialog open={reviewPanel === "sale"} title={language === "zh-CN" ? "核对卖出" : "Review sale"} busy={importBusy || memoryReviewBusy || Object.values(saveStatus).includes("saving")} onClose={() => setReviewPanel(undefined)}>
-
-        <AgentSaleDraftReview key={activeSaleTurn.id} conversationId={conversation.id} turnId={activeSaleTurn.id}
-          draft={activeSaleTurn.chat.saleDraft} language={language} onConversation={setConversation}
-          disabled={loading || importBusy} onBusy={setImportBusy} onSaved={() => { setReviewPanel(undefined); onPortfolioChanged?.(); }} />
-        </ReviewDialog>
+      {conversation && activeSaleTurn?.chat?.saleDraft && importReviewHost && createPortal(
+        <AgentDraftReviewPanel title={language === "zh-CN" ? "核对卖出草稿" : "Review sale draft"} closeLabel={closeReviewLabel}
+          hidden={reviewPanel !== "sale" || currentAction?.key !== selectedActionKey || currentAction?.kind !== "sale"}
+          busy={actionSwitchBusy} onClose={() => setReviewPanel(undefined)}>
+          <AgentSaleDraftReview key={activeSaleTurn.id} conversationId={conversation.id} turnId={activeSaleTurn.id}
+            draft={activeSaleTurn.chat.saleDraft} language={language} onConversation={setConversation}
+            disabled={loading || importBusy || memoryReviewBusy || actionCancelBusy} onBusy={setImportBusy}
+            onSaved={() => { setReviewPanel(undefined); onPortfolioChanged?.(); }} />
+        </AgentDraftReviewPanel>, importReviewHost
       )}
-      {pendingMemoryTurn?.chat?.memoryProposal && (
-        <ReviewDialog open={reviewPanel === "memory"} title={language === "zh-CN" ? "确认记忆" : "Review memory"} busy={importBusy || memoryReviewBusy || Object.values(saveStatus).includes("saving")} onClose={() => setReviewPanel(undefined)}>
-
-        <section className="home-review-panel home-memory-review" aria-label="Review memory">
-          <div className="home-review-panel-heading">
-            <div><p className="eyebrow">MEMORY REVIEW</p><h2>{language === "zh-CN" ? "确认这条记忆" : "Confirm this memory"}</h2></div>
-          </div>
-          <p>{language === "zh-CN" ? "确认后，这条偏好会用于以后的一般提问。它不会更改持仓数据。" : "After confirmation, this preference can guide future answers. It will not change portfolio facts."}</p>
-          <blockquote>{pendingMemoryTurn.chat.memoryProposal.content}</blockquote>
-          {memoryReviewError && <p role="alert" className="error-message">{memoryReviewError}</p>}
-          <div className="home-memory-review-actions">
-            <button type="button" disabled={memoryReviewBusy} onClick={() => void resolveMemoryProposal("save", pendingMemoryTurn.id)}>{memoryReviewBusy ? (language === "zh-CN" ? "正在保存…" : "Saving…") : language === "zh-CN" ? "确认保存" : "Save memory"}</button>
-            <button type="button" disabled={memoryReviewBusy} onClick={() => void resolveMemoryProposal("cancel", pendingMemoryTurn.id)}>{language === "zh-CN" ? "不保存" : "Do not save"}</button>
-          </div>
-        </section>
-        </ReviewDialog>
+      {pendingMemoryTurn?.chat?.memoryProposal && reviewPanel === "memory" && currentAction?.key === selectedActionKey && importReviewHost && createPortal(
+        <AgentDraftReviewPanel title={language === "zh-CN" ? "核对记忆草稿" : "Review memory draft"} closeLabel={closeReviewLabel}
+          busy={actionSwitchBusy} onClose={() => setReviewPanel(undefined)}>
+          <section className="home-review-panel home-memory-review" aria-label="Review memory">
+            <div className="home-review-panel-heading">
+              <div><p className="eyebrow">MEMORY REVIEW</p><h2>{language === "zh-CN" ? "确认这条记忆" : "Confirm this memory"}</h2></div>
+            </div>
+            <p>{language === "zh-CN" ? "草稿已保留，可稍后确认。确认后用于以后对话，不会更改持仓。" : "This draft is kept for later review. Confirming saves it for future conversations and does not change holdings."}</p>
+            <blockquote>{pendingMemoryTurn.chat.memoryProposal.content}</blockquote>
+            {memoryReviewError && <p role="alert" className="error-message">{memoryReviewError}</p>}
+            <div className="home-memory-review-actions">
+              <button type="button" disabled={actionSwitchBusy} onClick={() => void resolveMemoryProposal("save", pendingMemoryTurn.id)}>{memoryReviewBusy ? (language === "zh-CN" ? "正在保存…" : "Saving…") : language === "zh-CN" ? "确认保存" : "Save memory"}</button>
+              <button type="button" className="secondary" disabled={actionSwitchBusy} onClick={() => setReviewPanel(undefined)}>{language === "zh-CN" ? "稍后处理" : "Review later"}</button>
+              <button type="button" disabled={actionSwitchBusy} onClick={() => void cancelAction(currentAction!)}>{language === "zh-CN" ? "取消草稿" : "Cancel draft"}</button>
+            </div>
+          </section>
+        </AgentDraftReviewPanel>, importReviewHost
       )}
       {selectedEvidenceTurn?.report && (
         <ReviewDialog open={reviewPanel === "sources"} title={language === "zh-CN" ? "事实与来源" : "Facts and sources"} onClose={() => setReviewPanel(undefined)}>
@@ -847,11 +931,9 @@ export function PortfolioAnalyst({
         </section>
         </ReviewDialog>
       )}
-      {activeReview && activeDraft && reviewPanel === "import" && importReviewHost && createPortal(
-        <aside className="agent-import-review" aria-label={language === "zh-CN" ? "核对导入" : "Review import"}>
-          <div className="review-dialog-toolbar"><span>{language === "zh-CN" ? "核对导入 · 可继续在左侧对话中修改" : "Review import · Continue editing in chat"}</span>
-            <button type="button" aria-label={language === "zh-CN" ? "关闭审核面板" : "Close review panel"} onClick={() => setReviewPanel(undefined)}><X size={18} /></button>
-          </div>
+      {currentAction?.kind === "import" && currentAction.key === selectedActionKey && activeReview && activeDraft && reviewPanel === "import" && importReviewHost && createPortal(
+        <AgentDraftReviewPanel title={language === "zh-CN" ? "核对导入 · 可继续在左侧对话中修改" : "Review import · Continue editing in chat"}
+          closeLabel={closeReviewLabel} busy={actionSwitchBusy} onClose={() => setReviewPanel(undefined)}>
 
         <section className="home-review-panel" aria-label={`Review ${activeReview.targetLabel} import`}>
           <div className="home-review-panel-heading">
@@ -860,7 +942,7 @@ export function PortfolioAnalyst({
           </div>
           <div className="home-review-scroll">
             {error && <p role="alert" className="error-message">{error}</p>}
-            <fieldset className="agent-import-review-fields" disabled={loading || importBusy}>
+            <fieldset className="agent-import-review-fields" disabled={loading || importBusy || memoryReviewBusy || actionCancelBusy}>
             <AgentImportDraftReview
               draft={activeDraft}
               targetLabel={activeReview.targetLabel}
@@ -874,7 +956,7 @@ export function PortfolioAnalyst({
             </fieldset>
           </div>
         </section>
-        </aside>, importReviewHost
+        </AgentDraftReviewPanel>, importReviewHost
       )}
     </div>
   );
