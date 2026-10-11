@@ -683,11 +683,10 @@ export function PortfolioAnalyst({
   }
 
   function actionLabel(action: PendingAgentAction) {
-    const label = action.kind === "import"
-      ? (language === "zh-CN" ? "核对导入草稿" : "Review import draft")
-      : action.kind === "sale" ? (language === "zh-CN" ? "核对卖出草稿" : "Review sale draft")
-      : (language === "zh-CN" ? "确认记忆" : "Confirm memory");
-    return action.label ? `${label} · ${action.label}` : label;
+    return action.kind === "import"
+      ? (language === "zh-CN" ? "导入草稿" : "Import draft")
+      : action.kind === "sale" ? (language === "zh-CN" ? "卖出草稿" : "Sale draft")
+      : (language === "zh-CN" ? "记忆草稿" : "Memory draft");
   }
   const actionSwitchBusy = loading || importBusy || memoryReviewBusy || actionCancelBusy || Object.values(saveStatus).includes("saving");
   const closeReviewLabel = language === "zh-CN" ? "收起审核，保留草稿" : "Close review and keep draft";
