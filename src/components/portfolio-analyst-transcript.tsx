@@ -28,6 +28,8 @@ import type { PendingPortfolioAnalystTurn } from "@/application/portfolio-analys
 import { analystHistoryEntries, analystHistoryDay, analystHistoryDateLabel, initialVisibleHistoryCount } from "@/components/analyst-history-presentation";
 import { AssistantMessageContent } from "@/components/assistant-message-content";
 
+import { analystWorkspaceActions, analystWorkspaceActionLabel, type AnalystWorkspaceSelection } from "@/components/analyst-workspace-selection";
+
 const classificationLabels: Record<
   PortfolioAnalystAnswer["answer"]["classification"],
   string
@@ -45,11 +47,11 @@ interface SavedConversationEntriesProps {
   activeDateRequest?: ImportDateFollowUp;
   language: PortfolioAnalystLanguage;
   accountActionStatus: Record<string, "confirming" | "created" | "failed">;
-  selectedEvidenceId?: string;
   loading: boolean;
   importBusy: boolean;
   onConfirmCreateAccount: (turnId: string, action: Extract<FactualUpdate, { kind: "create-account" }>) => void;
-  onShowSources: (turnId: string) => void;
+  onViewDetail?: (selection: AnalystWorkspaceSelection) => void;
+  onFollowUp?: (question: string) => void;
   onRetryTurn: (turnId: string) => void;
   onRetryWorkflowReply?: (turnId: string) => void;
   onReviewDraft: (draftId: string) => void;
@@ -57,8 +59,8 @@ interface SavedConversationEntriesProps {
 
 export function SavedConversationEntries({
   conversation, importDrafts, activeReviewDraftId, activeDateRequest, language,
-  accountActionStatus, selectedEvidenceId,
-  loading, importBusy, onConfirmCreateAccount, onShowSources, onRetryTurn, onRetryWorkflowReply, onReviewDraft,
+  accountActionStatus,
+  loading, importBusy, onConfirmCreateAccount, onViewDetail, onFollowUp, onRetryTurn, onRetryWorkflowReply, onReviewDraft,
 }: SavedConversationEntriesProps) {
   const entries = analystHistoryEntries(conversation);
   // Keep the beginning fixed as new replies arrive, so reading history never removes a visible turn.
@@ -86,9 +88,8 @@ export function SavedConversationEntries({
             report={entry.turn.report}
             actionStatus={accountActionStatus[entry.turn.id]}
             onConfirmCreateAccount={(action) => onConfirmCreateAccount(entry.turn.id, action)}
-            sourceId={entry.turn.id}
-            sourcesOpen={selectedEvidenceId === entry.turn.id}
-            onShowSources={() => onShowSources(entry.turn.id)}
+            onViewDetail={onViewDetail}
+            onFollowUp={entry.turn.id === conversation.turns.at(-1)?.id ? onFollowUp : undefined}
           /> : entry.turn.imageAnswer ? <>
             {entry.turn.imageAnswer.status === "pending" || entry.turn.imageAnswer.status === "failed" ? (
               <div className="analyst-import-chat-status" role="status">
@@ -403,9 +404,8 @@ export function AnalystReport({
   report,
   actionStatus,
   onConfirmCreateAccount,
-  sourceId,
-  sourcesOpen,
-  onShowSources,
+  onViewDetail,
+  onFollowUp,
   sourcesOnly = false,
 }: {
   report: PortfolioAnalystReport;
@@ -413,9 +413,8 @@ export function AnalystReport({
   onConfirmCreateAccount?: (
     action: Extract<FactualUpdate, { kind: "create-account" }>,
   ) => void;
-  sourceId?: string;
-  sourcesOpen?: boolean;
-  onShowSources?: () => void;
+  onViewDetail?: (selection: AnalystWorkspaceSelection) => void;
+  onFollowUp?: (question: string) => void;
   sourcesOnly?: boolean;
 }) {
   const language = report.language;
@@ -461,7 +460,7 @@ export function AnalystReport({
             ))}
           </ul>
           {answer.limitations.length > 2 && <small>
-            {language === "zh-CN" ? "更多限制见下方依据" : "More limitations in sources and details"}
+            {language === "zh-CN" ? "更多限制可在回答详情查看" : "More limitations in answer details"}
           </small>}
         </div>
       )}
@@ -558,15 +557,14 @@ export function AnalystReport({
           </section>
         </div>
       </div>}
-      {!sourcesOnly && onShowSources && <button
-        type="button"
-        className="analyst-sources-button"
-        onClick={onShowSources}
-        id={sourceId ? `sources-${sourceId}` : undefined}
-        aria-controls="agent-review"
-        aria-expanded={sourcesOpen}
-        aria-label={language === "zh-CN" ? "在右侧查看这条回答的来源" : "Show sources for this answer on the right"}
-      >{language === "zh-CN" ? "来源" : "Sources"}{report.evidence.length > 0 && <span>{report.evidence.length}</span>}</button>}
+      {!sourcesOnly && onViewDetail && analystWorkspaceActions(report).length > 0 && <div className="analyst-context-actions">
+        {analystWorkspaceActions(report).map((action) => <button type="button" key={action}
+          onClick={() => onViewDetail({ action, report })}>{analystWorkspaceActionLabel(action, language)}<span aria-hidden="true">↗</span></button>)}
+      </div>}
+      {!sourcesOnly && onFollowUp && report.job === "explain-period-drivers" && <details className="analyst-explore">
+        <summary>{language === "zh-CN" ? "继续探索" : "Continue exploring"}</summary>
+        <button type="button" onClick={() => onFollowUp(language === "zh-CN" ? "价格变化和汇率分别对这个期间产生了什么影响？" : "How did price changes and FX each affect this period?")}>{language === "zh-CN" ? "进一步了解价格与汇率影响" : "Explore price and FX effects"}</button>
+      </details>}
       {!sourcesOnly && <small className="analyst-disclaimer">
         <time dateTime={report.generatedAt}>{new Intl.DateTimeFormat(
           language === "zh-CN" ? "zh-CN" : "en-FI",

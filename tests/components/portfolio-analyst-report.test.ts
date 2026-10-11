@@ -69,6 +69,23 @@ const report = {
 } as PortfolioAnalystReport;
 
 describe("Portfolio Analyst report hierarchy", () => {
+  it("hides internal citations in saved answers without changing their evidence or stored text", () => {
+    const key = "call1.overview.period.total";
+    const text = `Synthetic period change EUR 10. [${key}]`;
+    const citedReport = {
+      ...report,
+      answer: { ...report.answer, answer: { ...report.answer.answer, text, evidence: [key] } },
+      evidence: report.evidence.map((fact) => ({ ...fact, key })),
+    };
+    const answer = renderToStaticMarkup(createElement(AnalystReport, { report: citedReport }));
+    const details = renderToStaticMarkup(createElement(AnalystReport, { report: citedReport, sourcesOnly: true }));
+    expect(answer).toContain("Synthetic period change EUR 10.");
+    expect(answer).not.toContain(key);
+    expect(details).toContain(key);
+    expect(citedReport.answer.answer.text).toBe(text);
+    expect(citedReport.answer.answer.evidence).toEqual([key]);
+  });
+
   it("shows verified external citations as clickable links in the answer", () => {
     const external = {
       ...report,
@@ -102,7 +119,7 @@ describe("Portfolio Analyst report hierarchy", () => {
   });
 
   it("keeps the chat answer conversational and puts evidence in the right panel", () => {
-    const markup = renderToStaticMarkup(createElement(AnalystReport, { report, onShowSources: () => undefined }));
+    const markup = renderToStaticMarkup(createElement(AnalystReport, { report, onViewDetail: () => undefined }));
     const sources = renderToStaticMarkup(createElement(AnalystReport, { report, sourcesOnly: true }));
     const messageStart = markup.indexOf("analyst-primary-answer");
     const messageEnd = markup.indexOf("</div>", messageStart);
@@ -114,7 +131,7 @@ describe("Portfolio Analyst report hierarchy", () => {
     expect(markup.slice(messageStart, messageEnd)).toContain("analyst-assistant-message");
     expect(markup).not.toContain("第一条补充事实。");
     expect(markup).not.toContain("查看来源与详情");
-    expect(markup).toContain("在右侧查看这条回答的来源");
+    expect(markup).not.toContain("在右侧查看这条回答的来源");
     expect(markup.indexOf("请注意")).toBeGreaterThan(primaryAnswer);
     expect(sources).toContain("第一条补充事实。");
     expect(sources).toContain("限制的依据");

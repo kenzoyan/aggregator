@@ -45,6 +45,7 @@ import {
   unlockAgentImageAttachments,
   type AgentImageAttachmentState,
 } from "@/components/agent-image-attachment-state";
+import type { AnalystWorkspaceSelection } from "@/components/analyst-workspace-selection";
 import { AgentImageAttachments } from "@/components/agent-image-attachments";
 import {
   AgentActivityTimeline,
@@ -97,9 +98,11 @@ const starterQuestions = {
 export function PortfolioAnalyst({
   blocked = false,
   onPortfolioChanged,
+  onViewDetail,
 }: {
   blocked?: boolean;
   onPortfolioChanged?: () => void;
+  onViewDetail?: (selection: AnalystWorkspaceSelection) => void;
 }) {
   const activeRequest = useRef<AbortController | undefined>(undefined);
   const [focusedChat, setFocusedChat] = useState(false);
@@ -739,7 +742,15 @@ export function PortfolioAnalyst({
             </button>
             <details ref={conversationMenu} className="agent-manage-menu">
               <summary ref={conversationOptions} aria-label={language === "zh-CN" ? "对话管理" : "Conversation options"}><MoreHorizontal size={18} aria-hidden="true" /></summary>
-              <div><button type="button" disabled={!conversation || loading || importBusy} onClick={(event) => {
+              <div>
+                <details className="agent-answer-history"><summary>{language === "zh-CN" ? "回答详情" : "Answer details"}</summary>
+                  {conversation?.turns.filter((turn) => turn.report).map((turn) => <button type="button" key={turn.id} onClick={(event) => {
+                    event.currentTarget.closest(".agent-manage-menu")?.removeAttribute("open");
+                    conversationOptions.current?.focus();
+                    setSelectedEvidenceId(turn.id); setReviewPanel("sources");
+                  }}>{turn.question || new Date(turn.report!.generatedAt).toLocaleString()}</button>)}
+                </details>
+                <button type="button" disabled={!conversation || loading || importBusy} onClick={(event) => {
                 event.currentTarget.closest("details")?.removeAttribute("open");
                 setDeleteDialogOpen(true);
               }}>{language === "zh-CN" ? "删除聊天记录…" : "Delete chat history…"}</button></div>
@@ -785,14 +796,15 @@ export function PortfolioAnalyst({
             activeDateRequest={activeDateRequest}
             language={language}
             accountActionStatus={accountActionStatus}
-            selectedEvidenceId={reviewPanel === "sources" ? selectedEvidenceId : undefined}
             loading={loading}
             importBusy={importBusy}
             onConfirmCreateAccount={(turnId, action) => void confirmCreateAccount(turnId, action)}
-            onShowSources={(turnId) => {
-              setSelectedEvidenceId(turnId);
-              setReviewPanel("sources");
-            }}
+            onViewDetail={onViewDetail && !actionSwitchBusy ? (selection) => {
+              setReviewPanel(undefined);
+              setFocusedChat(false);
+              onViewDetail(selection);
+            } : undefined}
+            onFollowUp={!loading && !importBusy && !memoryReviewBusy && !actionCancelBusy && selectedProvider?.configured && !question.trim() ? (prompt) => { setQuestion(prompt); composer.current?.focus(); } : undefined}
             onReviewDraft={(draftId) => {
               const action = actions.find((item) => item.kind === "import" && item.id === draftId);
               if (action) openAction(action);
@@ -964,9 +976,8 @@ export function PortfolioAnalyst({
               <p className="home-sources-question">{selectedEvidenceTurn.userText ?? selectedEvidenceTurn.question}</p>
             </div>
             <button type="button" className="home-review-close" onClick={() => {
-              const sourceButton = document.getElementById(`sources-${selectedEvidenceTurn.id}`);
               setReviewPanel(undefined);
-              window.requestAnimationFrame(() => sourceButton?.focus());
+              window.requestAnimationFrame(() => conversationOptions.current?.focus());
             }} aria-label="Close sources">×</button>
           </div>
           <div className="home-review-scroll">

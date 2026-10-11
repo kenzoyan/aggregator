@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import {
   useEffect,
+  useRef,
   useState,
   type CSSProperties,
 } from "react";
@@ -28,6 +29,9 @@ import { PortfolioAnalyst } from "@/components/portfolio-analyst";
 import { PortfolioInsights } from "@/components/portfolio-insights";
 import { MarketIntelligence } from "@/components/market-intelligence";
 import { PortfolioValueChart } from "@/components/ui/portfolio-value-chart";
+
+import { AnalystWorkspaceDetail } from "@/components/analyst-workspace-detail";
+import type { AnalystWorkspaceSelection } from "@/components/analyst-workspace-selection";
 
 const eur = new Intl.NumberFormat("en-FI", {
   style: "currency",
@@ -148,6 +152,8 @@ function returnPercent(percent?: number) {
 }
 
 export function Dashboard() {
+  const [workspaceSelection, setWorkspaceSelection] = useState<AnalystWorkspaceSelection>();
+  const detailOpener = useRef<HTMLElement | null>(null);
   const [period, setPeriod] = useState<Period>("week");
   const [chartMode, setChartMode] = useState<ChartMode>("daily-change");
   const [selectedDailyDate, setSelectedDailyDate] = useState<string>();
@@ -270,10 +276,19 @@ export function Dashboard() {
       <main className="main-content home-workspace" id="overview">
         <PortfolioAnalyst
           blocked={false}
+          onViewDetail={(selection) => {
+            detailOpener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+            setWorkspaceSelection(selection);
+          }}
           onPortfolioChanged={() => { void loadLocalPortfolio().catch(() => undefined); }}
         />
         <div className="home-workspace-main">
         <div id="agent-import-review-host" />
+        {workspaceSelection && <AnalystWorkspaceDetail selection={workspaceSelection} onBack={() => {
+          setWorkspaceSelection(undefined);
+          if (detailOpener.current?.isConnected) detailOpener.current.focus();
+        }} />}
+        <div className="workspace-overview" hidden={Boolean(workspaceSelection)}>
         <header className="topbar">
           <div>
             <p className="eyebrow">YOUR PORTFOLIO</p>
@@ -549,6 +564,7 @@ export function Dashboard() {
             )}
           </div>
         </section>
+        </div>
         </div>
       </main>
 

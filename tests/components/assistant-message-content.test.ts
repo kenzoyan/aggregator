@@ -59,3 +59,51 @@ it("recovers a heading attached to the salutation without making the entire answ
   expect(markup).toContain("<p>是的——这是合成数据。</p>");
   expect(markup).not.toContain("## 今天的数据");
 });
+
+it("keeps holding names readable without following internal model links", () => {
+  const markup = renderToStaticMarkup(createElement(AssistantMessageContent, {
+    text: "查看 [Synthetic holding](/accounts/synthetic?holding=test) 和 [section](#holdings)。",
+  }));
+  expect(markup).toContain("Synthetic holding");
+  expect(markup).toContain("section");
+  expect(markup).not.toContain("href=");
+});
+
+describe("internal evidence citation display", () => {
+  const render = (text: string) => renderToStaticMarkup(createElement(AssistantMessageContent, { text }));
+
+  it("hides inline and standalone tool evidence identifiers while keeping the answer", () => {
+    const markup = render("## Current assets\n\nSynthetic total **EUR 100**. [call1.overview.overview.summary]\n[call1.account1.account.holdings.summary]\n\n## Allocation\n\nFunds 80%. [call1.overview.overview.category.1] [call1.overview.overview.currency.1]\n\n- Synthetic holding: EUR 80 [call1.account1.account.holding.1]");
+    expect(markup).not.toContain("call1.");
+    expect(markup).toContain("Synthetic total");
+    expect(markup).toContain("<strong>EUR 100</strong>");
+    expect(markup).toContain("Funds 80%.");
+    expect(markup).toContain("Synthetic holding: EUR 80");
+  });
+
+  it("hides a grouped evidence citation without removing surrounding data", () => {
+    const markup = render("EUR 100 [call1.overview.summary, call2.account.holding.1] remains saved.");
+    expect(markup).not.toContain("call1.");
+    expect(markup).not.toContain("call2.");
+    expect(markup).toContain("EUR 100");
+    expect(markup).toContain("remains saved.");
+  });
+
+  it("does not flash incomplete evidence identifiers during streaming", () => {
+    for (const suffix of ["[call1.", "[call1.overview", "[call1.overview.summary", "[call1.overview.summary, call2."]) {
+      const markup = render(`Synthetic total EUR 100. ${suffix}`);
+      expect(markup).not.toContain("call1.");
+      expect(markup).toContain("Synthetic total EUR 100.");
+    }
+  });
+
+  it("preserves ordinary brackets, source links, and literal code examples", () => {
+    const markup = render("[Important] Keep [2026] and [calligraphy].\n\n[call1.overview.summary](https://example.com/source)\n\n`[call1.overview.summary]`\n\n```text\n[call1.overview.summary]\n```");
+    expect(markup).toContain("[Important]");
+    expect(markup).toContain("[2026]");
+    expect(markup).toContain("[calligraphy]");
+    expect(markup).toContain('href="https://example.com/source"');
+    expect(markup).toContain("<code>[call1.overview.summary]</code>");
+    expect(markup).toContain('<code class="language-text">[call1.overview.summary]');
+  });
+});
