@@ -12,11 +12,12 @@ import { appendPortfolioAnalystTurn, type PortfolioAnalystConversation } from "@
 import type { PortfolioAnalystAgentResult } from "@/application/portfolio-analyst-agent";
 import { portfolioAnalystHistory } from "@/server/portfolio-analyst-history";
 import { createPortfolioDraftTools } from "@/server/portfolio-draft-tools";
-import { measureApiUsage } from "./api-usage";
+import { defaultApiTestBudget, measureApiUsage } from "./api-usage";
 import { createPiNativePortfolioAnalystRuntime } from "@/infrastructure/pi/pi-native-portfolio-analyst-runtime";
 import { OpenAIWebResearch } from "@/infrastructure/openai/openai-web-research";
 import { getPortfolioAnalystProviderRegistry } from "@/server/portfolio-analyst-config";
 
+const draftOnly = process.env.PORTFOLIO_EVAL_DRAFT_ONLY === "1";
 const enabled = process.env.RUN_PORTFOLIO_MULTIMODAL_EVAL === "1";
 
 // Real configured model and web API, production transcript builder and draft tools.
@@ -27,7 +28,13 @@ describe.skipIf(!enabled)("Portfolio Agent real multimodal conversation", () => 
     if (existsSync(localEnv)) loadEnvFile(localEnv);
     const registry = getPortfolioAnalystProviderRegistry();
     expect(registry.agentRuntimes.openai, "Configure OPENAI_API_KEY in .env.local").toBeDefined();
-    const measurement = measureApiUsage();
+    const priorApiRequests = Number(process.env.PORTFOLIO_EVAL_PRIOR_API_REQUESTS ?? "0");
+    if (!Number.isInteger(priorApiRequests) || priorApiRequests < 0 || priorApiRequests >= defaultApiTestBudget.maxRequests) {
+      throw new Error("Invalid prior API request count; owner approval required.");
+    }
+    const measurement = measureApiUsage(globalThis.fetch, {
+      ...defaultApiTestBudget, maxRequests: defaultApiTestBudget.maxRequests - priorApiRequests,
+    });
     const model = registry.models.openai;
     const apiKey = process.env.OPENAI_API_KEY!;
     const runtime = createPiNativePortfolioAnalystRuntime({ model, apiKey, fetch: measurement.fetch,
@@ -77,13 +84,15 @@ describe.skipIf(!enabled)("Portfolio Agent real multimodal conversation", () => 
         expect(database.readPortfolioFacts().events).toEqual([]);
         return result;
       };
-      const mixed = await run("查一下 Nasdaq-100 最近收盘表现，顺便解释最近上传的图片，告诉我图中的总资产金额。");
-      expect(mixed.audit.toolCalls.some((call) => call.name === "search_web" && call.status === "completed")).toBe(true);
-      expect(text(mixed)).toMatch(/Nasdaq|纳斯达克/i);
-      expect(text(mixed).replaceAll(",", "")).toContain("12345.67");
-      const explanation = await run("只解释最近上传的图片，告诉我图中的两项基金和总金额。");
-      expect(text(explanation).replaceAll(",", "")).toContain("12345.67");
-      expect(explanation.audit.toolCalls.some((call) => call.name === "search_web")).toBe(false);
+      if (!draftOnly) {
+        const mixed = await run("查一下 Nasdaq-100 最近收盘表现，顺便解释最近上传的图片，告诉我图中的总资产金额。");
+        expect(mixed.audit.toolCalls.some((call) => call.name === "search_web" && call.status === "completed")).toBe(true);
+        expect(text(mixed)).toMatch(/Nasdaq|纳斯达克/i);
+        expect(text(mixed).replaceAll(",", "")).toContain("12345.67");
+        const explanation = await run("只解释最近上传的图片，告诉我图中的两项基金和总金额。");
+        expect(text(explanation).replaceAll(",", "")).toContain("12345.67");
+        expect(explanation.audit.toolCalls.some((call) => call.name === "search_web")).toBe(false);
+      }
       await run("以最近的这张图片为依据，帮我导入到微信账户吧。");
       // Ambiguous account names must not create an import until the choice is explicit.
       expect(database.readPortfolioAnalystConversation(conversation.id)?.importActivities).toHaveLength(0);
@@ -96,13 +105,20 @@ describe.skipIf(!enabled)("Portfolio Agent real multimodal conversation", () => 
       expect(draft.sourceAccountId).toBe(firstAccount.id);
       expect(draft.portfolio.holdings).toHaveLength(2);
       expect(database.readPortfolioFacts().state.positions).toEqual([]);
-      await run("将导入草稿中“示例全球科技指数基金”的持有份额改成 6000，保留其他字段。");
       const { createImportDraftReadModel } = await import("@/application/imports/import-draft-read-model");
-      expect(createImportDraftReadModel(database.getImportDraft(draft.id)!).portfolio.holdings.find((holding) => holding.displayName === "示例全球科技指数基金")?.quantity).toBe("6000");
+      const before = createImportDraftReadModel(draft);
+      await run("将导入草稿中“示例全球科技指数基金”的持有份额改成 6000，保留其他字段。");
+      const after = createImportDraftReadModel(database.getImportDraft(draft.id)!);
+      const target = before.portfolio.holdings.find((holding) => holding.displayName === "示例全球科技指数基金");
+      expect(target).toBeDefined();
+      expect(after.portfolio).toEqual({ ...before.portfolio, holdings: before.portfolio.holdings.map((holding) =>
+        holding.lineId === target!.lineId ? { ...holding, quantity: "6000" } : holding) });
+      expect(after.sourceAccountId).toBe(firstAccount.id);
+      expect(database.readPortfolioFacts().state.positions).toEqual([]);
       expect(database.getImportDraft(draft.id)!.status).toBe("draft");
       passed = true;
     } finally {
-      const report = { status: passed ? "passed" : "failed", recordedAt: new Date().toISOString(), scenarioCount: 1, userTurns: turns.length,
+      const report = { status: passed ? "passed" : "failed", recordedAt: new Date().toISOString(), scenarioCount: 1, priorApiRequests, scenario: draftOnly ? "account-clarification-and-named-holding-edit" : "full-multimodal", userTurns: turns.length,
         pricingSource: "https://developers.openai.com/api/docs/models/gpt-6-luna", pricingChecked: "2026-10-10",
         ...(await measurement.report()), turns };
       const reportDirectory = join(process.cwd(), "data", "evaluations");
