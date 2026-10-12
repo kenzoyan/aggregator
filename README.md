@@ -2,8 +2,10 @@
   <h1>Aggrigator</h1>
   <p>All your investments, together.</p>
   <img src="./public/brand/aggrigator-mascot.png" alt="Aggrigator mascot: a smiling alligator holding a bundle of money" width="240" />
-  <p><strong>A private, local-first workspace for seeing investments from different accounts in one EUR view.</strong></p>
+  <p><strong>A local-first investment workspace that brings multiple accounts and currencies into one EUR view.</strong></p>
 </div>
+
+Run it on your own computer, keep portfolio records locally, and optionally connect AI tools to explore changes with cited evidence.
 
 Track holdings, prices, FX effects and portfolio history without giving the app trading permissions. Import changes enter a review draft; only your explicit confirmation updates the portfolio.
 
@@ -17,7 +19,9 @@ Track holdings, prices, FX effects and portfolio history without giving the app 
 | --- | --- |
 | **One portfolio view** | Combine funds, stocks, bonds and account cash from multiple Source Accounts; show values in EUR. |
 | **Flexible imports** | Review Trading 212 read-only syncs, saved CSV holdings, manual entries and screenshot-assisted drafts before changing holdings. |
-| **Performance with context** | Switch between investment change and total value; inspect Today, 7-day and 30-day views, holding details, price effects and FX effects. |
+| **Current holdings P&L** | See profit or loss for currently held investments, with a cost-weighted percentage and data coverage. Excludes cash and realized gains from sold holdings. |
+| **Performance with context** | Switch between investment change and total value; inspect Today, 7-day and 30-day contributions, drill into individual holdings, and separate price effects from FX effects. |
+| **Recorded activity** | Record completed sales and cash withdrawals with review and confirmation; inspect saved activity in holding and account history. |
 | **Price and data health** | Refresh supported fund NAVs, Trading 212 prices and ECB FX rates; inspect freshness, missing baselines and recent refresh results. |
 | **Portfolio Agent** | Ask questions about bounded local portfolio facts with cited evidence. Optional cloud features run only with configured provider credentials. |
 | **External market watch** | Request an official-source calendar of upcoming macro releases on demand, separate from portfolio facts. |
@@ -138,4 +142,8 @@ Portfolio records live in the ignored `data/invest-assets-monitor.sqlite` databa
 
 ---
 
-**Project status:** Actively developed as a private, single-user monitor. Current work expands bounded Portfolio Agent tools and conversation-native import review; explicit portfolio events and background automation remain deferred. The app is not a brokerage or investment-advice service.
+**Project status:** Actively developed for single-user use on desktop. Current features include reviewed imports, recorded sales and withdrawals, current holdings P&L, period contribution analysis, and a Portfolio Agent with cited evidence. Historical analysis depends on locally recorded data and is not a complete brokerage transaction history. The app is not a brokerage or investment-advice service.
+
+## License
+
+Licensed under the [MIT License](./LICENSE).

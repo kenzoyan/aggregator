@@ -19,21 +19,22 @@ test-results/
 *.db
 *.db-shm
 *.db-wal
+*.db-journal
 *.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.sqlite-journal
 *.sqlite3
+*.sqlite3-shm
+*.sqlite3-wal
+*.sqlite3-journal
 
 # Financial source material and generated exports stay local
 /uploads/
 /screenshots/
 /imports/
 /exports/
-/data/imports/
-/data/agent-images/
-/data/*.jpg
-/data/*.jpeg
-/data/*.png
-/data/*.webp
-/data/danske-invest-funds.json
+/data/
 
 # Local product thinking and working notes
 CONTEXT.md
@@ -47,5 +48,3 @@ docs/specs/
 npm-debug.log*
 yarn-debug.log*
 pnpm-debug.log*
-
-/data/evaluations/
