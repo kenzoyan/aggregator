@@ -1,3 +1,5 @@
+import { createProductionPriceSourceDiscovery } from "@/server/price-source-service";
+import type { AgentPriceSourceReview } from "@/application/agent-price-source-discovery";
 import { portfolioAnalystHistory } from "@/server/portfolio-analyst-history";
 import { MAX_PORTFOLIO_ANALYST_QUESTION_CHARS } from "@/application/portfolio-analyst-request-limits";
 import type { PortfolioFacts } from "@/infrastructure/sqlite/portfolio-repository-contract";
@@ -146,6 +148,7 @@ export function createPortfolioAnalystHandlers(
     getImportDraft?: (id: string) => StoredImportDraft | undefined;
     createDraftTools?: (conversationId: string, userTurnId: string, imageSourceTurnId?: string, importDraftId?: string) => PortfolioAnalystDraftTools;
     workflowReply?: WorkflowReplyGenerator;
+    discoverPriceSource?: (args: { sourceAccountId: string; instrumentId: string; language: import("@/application/portfolio-analyst-contract").PortfolioAnalystLanguage; signal?: AbortSignal }) => Promise<AgentPriceSourceReview>;
   },
 ) {
   const importDraftsFor = (conversation: ReturnType<PortfolioAnalystConversationStore["readPortfolioAnalystConversation"]>) =>
@@ -332,10 +335,16 @@ export function createPortfolioAnalystHandlers(
         options.conversations!.savePortfolioAnalystConversation(conversation);
       }
 
-      const finishTurn = (turn: Parameters<typeof appendPortfolioAnalystTurn>[1]) =>
-        pendingTurnId
-          ? replacePortfolioAnalystTurn(conversation, { ...turn, ...(reuseImageTurn ? { attachments: imageSource!.attachments, userText: imageSource!.userText, question: imageSource!.question } : {}) }, options.now?.() ?? new Date().toISOString())
-          : appendPortfolioAnalystTurn({ ...conversation, language: body.language }, turn);
+      let priceSourceReview: AgentPriceSourceReview | undefined;
+      const finishTurn = (resultTurn: Parameters<typeof appendPortfolioAnalystTurn>[1]) => {
+        const latest = priceSourceReview && options.conversations?.readPortfolioAnalystConversation(conversation.id);
+        const baseConversation = latest || conversation;
+        const persistedReview = pendingTurnId ? latest?.turns.find((item) => item.id === pendingTurnId)?.priceSourceReview : undefined;
+        const turn = { ...resultTurn, ...(priceSourceReview ? { priceSourceReview: persistedReview ?? priceSourceReview } : {}) };
+        return pendingTurnId
+          ? replacePortfolioAnalystTurn(baseConversation, { ...turn, ...(reuseImageTurn ? { attachments: imageSource!.attachments, userText: imageSource!.userText, question: imageSource!.question } : {}) }, options.now?.() ?? new Date().toISOString())
+          : appendPortfolioAnalystTurn({ ...baseConversation, language: body.language }, turn);
+      };
 
       let context: PortfolioAnalystContextV1;
       let answer: PortfolioAnalystAnswer;
@@ -378,6 +387,23 @@ export function createPortfolioAnalystHandlers(
           defaultPeriod: requestDefaultPeriod(body),
           memories: options.memory?.listPortfolioAnalystMemories(),
           draftTools,
+          ...(options.discoverPriceSource ? { discoverPriceSource: async (args: { sourceAccountId: string; instrumentId: string; signal?: AbortSignal }) => {
+            if (priceSourceReview) {
+              if (priceSourceReview.sourceAccountId === args.sourceAccountId && priceSourceReview.instrumentId === args.instrumentId) return priceSourceReview;
+              throw new Error("Review one fund source per message. Send another message for a different fund.");
+            }
+            const result = await options.discoverPriceSource!({ ...args, language: body.language });
+            // Persist review before reply generation. A failed answer must not erase it.
+            priceSourceReview = result;
+            if (options.conversations && pendingTurnId) {
+              const latest = options.conversations.readPortfolioAnalystConversation(conversation!.id);
+              if (!latest || options.conversations.readLatestPortfolioAnalystConversation()?.id !== latest.id) throw new Error("Conversation changed during source discovery.");
+              const saved = { ...latest, turns: latest.turns.map((turn) => turn.id === pendingTurnId
+                ? { ...turn, priceSourceReview: result } : turn) };
+              options.conversations.savePortfolioAnalystConversation(saved);
+            }
+            return result;
+          } } : {}),
           hasPendingMemoryProposal: conversation.turns.some((turn) => turn.chat?.memoryProposal?.status === "pending"),
           factsAsOf: portfolio.insights.asOf,
           signal: request.signal,
@@ -524,6 +550,7 @@ function getProductionHandlers() {
         readActivityFacts: () => database.readPortfolioFacts(),
         conversations: database,
         memory: database,
+        discoverPriceSource: createProductionPriceSourceDiscovery(database),
         readImage: (attachment) => createLocalPortfolioAnalystImageStore().read(attachment),
         deleteImage: (attachment) => createLocalPortfolioAnalystImageStore().delete(attachment),
         getImportDraft: (id) => database.getImportDraft(id),

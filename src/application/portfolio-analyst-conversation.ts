@@ -51,6 +51,7 @@ export interface PortfolioAnalystChatReply {
 }
 
 interface PortfolioAnalystConversationTurnBase {
+  priceSourceReview?: import("@/application/agent-price-source-discovery").AgentPriceSourceReview;
   id: string;
   question: string;
   userText?: string;
@@ -308,7 +309,8 @@ export function createPortfolioAnalystHistory(
     const userText = turn.userText ?? turn.question;
     if (!userText && !turn.attachments?.length && !assistantText) return [];
     return [{
-      createdAt: turn.createdAt, userText, assistantText,
+      createdAt: turn.createdAt, userText, assistantText: assistantText + (turn.priceSourceReview
+        ? `\n[Price source review status: ${turn.priceSourceReview.status}; result: ${turn.priceSourceReview.state}; ISIN: ${turn.priceSourceReview.instrumentCode}. This is saved operation metadata, not a new NAV observation.]` : ""),
       ...(turn.attachments?.length ? { sourceTurnId: turn.id, attachments: turn.attachments } : {}),
       factsAsOf: turn.report?.factsAsOf ?? turn.imageAnswer?.generatedAt ?? turn.createdAt,
     }];

@@ -1484,3 +1484,26 @@ it("keeps image observations and web evidence together, then explains the histor
   expect(followup).toMatchObject({ kind: "conversation", reply: expect.stringContaining("1,244.33 CNY"), audit: { toolCalls: [] } });
   expect(searches).toBe(1);
 });
+
+
+it("delegates price discovery through its own tool and returns a review-only acknowledgement", async () => {
+  const fail = () => { throw new Error("Unexpected operation"); };
+  const tools: PortfolioAnalystTools = { readPeriodDrivers: fail, readDataQuality: fail, readPortfolioOverview: fail,
+    readAllHoldings: fail, readAccounts: fail, readAccountHoldings: fail, readHoldingHistory: fail,
+    readAccountActivity: fail, proposeCreateAccount: fail, prepareAccountImport: fail };
+  let called = false;
+  let turn = 0;
+  const runtime = createPiModelControlledPortfolioAnalyst({ model, streamFn: () => {
+    turn += 1;
+    return completedStream(assistant(turn === 1 ? [{ type: "toolCall", id: "source", name: "discover_price_source",
+      arguments: { sourceAccountId: "synthetic-op", instrumentId: "fund" } }] : [{ type: "text", text: "A source is ready for your review. It is not active yet." }], turn === 1 ? "toolUse" : "stop"));
+  } });
+  const result = await runtime.runTurn({ question: "Find a fund price source", history: [], tools, language: "en", includeHoldingNames: true,
+    defaultPeriod: "week", discoverPriceSource: async (args) => {
+      expect(args).toMatchObject({ sourceAccountId: "synthetic-op", instrumentId: "fund" }); called = true;
+      return { state: "verified", status: "pending", sourceAccountId: "synthetic-op", instrumentId: "fund", instrumentCode: "FI4000439773",
+        instrumentName: "Synthetic OP", currency: "EUR", retrievedAt: context.factsAsOf, coverage: "bounded-history", candidates: [], sources: [] };
+    } });
+  expect(called).toBe(true);
+  expect(result).toMatchObject({ kind: "conversation", audit: { toolCalls: [{ name: "discover_price_source", status: "completed" }] } });
+});

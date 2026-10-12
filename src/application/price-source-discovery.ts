@@ -1,11 +1,14 @@
 import type { PortfolioState, Position } from "@/domain/portfolio/types";
-import type { MarketRefreshFailureCategory } from "@/domain/market-data";
+import type { FundNavProvider, MarketRefreshFailureCategory } from "@/domain/market-data";
+
+export type PriceSourceProvider = "eastmoney" | "financial-times";
+export type PriceSourceProviders = Partial<Record<PriceSourceProvider, FundNavProvider>>;
 
 export interface PriceSourceRefreshStatus {
   sourceAccountId: string;
   instrumentId: string;
   instrumentCode: string;
-  provider: "eastmoney";
+  provider: PriceSourceProvider;
   checkedAt: string;
   outcome: "updated" | "unchanged" | "failed";
   latestPriceAsOf?: string;
@@ -18,7 +21,7 @@ export interface PriceSourceCandidate {
   instrumentCode: string;
   currency: string;
   shareClass: string;
-  provider: "eastmoney";
+  provider: PriceSourceProvider;
   identityUrl: string;
 }
 
@@ -29,11 +32,21 @@ export interface PriceSourceBinding {
   instrumentCode: string;
   currency: string;
   shareClass: string;
-  provider: "eastmoney";
+  provider: PriceSourceProvider;
   identityUrl: string;
   confirmedAt: string;
   lastRefresh?: Omit<PriceSourceRefreshStatus, "sourceAccountId" | "instrumentId" | "instrumentCode" | "provider">;
 }
+
+const opCandidate: PriceSourceCandidate = {
+  id: "ft-FI4000439773-EUR",
+  name: "OP-Europe Fund A",
+  instrumentCode: "FI4000439773",
+  currency: "EUR",
+  shareClass: "A (Accumulation)",
+  provider: "financial-times",
+  identityUrl: "https://markets.ft.com/data/funds/tearsheet/historical?s=FI4000439773:EUR",
+};
 
 const pilotCandidate: PriceSourceCandidate = {
   id: "cmf-012414-eastmoney",
@@ -53,6 +66,8 @@ export function discoverPriceSourceCandidates(
   position: Position,
   accountProvider: string,
 ): PriceSourceCandidate[] {
+  if (position.assetType === "fund" && position.currency === opCandidate.currency &&
+      position.instrumentCode === opCandidate.instrumentCode) return [opCandidate];
   if (accountProvider !== "wechat" || position.assetType !== "fund" ||
       position.currency !== "CNY" || /^\d{6}$/.test(position.instrumentCode ?? "")) {
     return [];
@@ -68,6 +83,8 @@ export function bindingMatchesPosition(binding: PriceSourceBinding, position: Po
   return binding.sourceAccountId === position.sourceAccountId &&
     binding.instrumentId === position.instrumentId &&
     binding.currency === position.currency &&
+    (binding.provider !== "financial-times" ||
+      (position.assetType === "fund" && position.instrumentCode === binding.instrumentCode)) &&
     (!/^\d{6}$/.test(position.instrumentCode ?? "") ||
       position.instrumentCode === binding.instrumentCode) &&
     normalizedName(binding.instrumentName) === normalizedName(position.displayName);

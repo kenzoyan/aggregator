@@ -21,6 +21,7 @@ export const portfolioAnalystToolNames = [
   "propose_create_account",
   "prepare_account_import",
   "search_web",
+  "discover_price_source",
   "read_workflow_result",
   "read_image",
   "read_sale_draft",
@@ -67,7 +68,7 @@ export type PortfolioAnalystToolFailureCode =
 export interface PortfolioAnalystToolAudit {
   toolCallId: string;
   name: PortfolioAnalystToolName;
-  input: { period?: Period; accountType?: string; holding?: string; fromDate?: string; toDate?: string; label?: string; query?: string };
+  input: { sourceAccountId?: string; instrumentId?: string; period?: Period; accountType?: string; holding?: string; fromDate?: string; toDate?: string; label?: string; query?: string };
   status: "completed" | "blocked" | "failed";
   factsAsOf?: string;
   evidenceKeys: string[];
@@ -124,6 +125,7 @@ export interface PortfolioAnalystAgentTurn {
   workflowResult?: PortfolioWorkflowResult;
   imageAnalysis?: { read: () => Promise<{ answer: string; uncertainties: string[] }> };
   draftTools?: PortfolioAnalystDraftTools;
+  discoverPriceSource?: (args: { sourceAccountId: string; instrumentId: string; signal?: AbortSignal }) => Promise<import("@/application/agent-price-source-discovery").AgentPriceSourceReview>;
   signal?: AbortSignal;
   onPhase?: (phase: "reading-current-facts" | "generating-answer") => void;
   onToolActivity?: (activity: PortfolioAnalystToolActivity) => void;

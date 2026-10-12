@@ -40,6 +40,19 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000). No API key is required to enter holdings manually. The first portfolio record is created only after an import is reviewed and confirmed.
 
+A fresh database includes empty Alipay, WeChat Wealth Management, Danske Bank and Trading 212 accounts. You can add other account types through **Accounts**. Creating an account does not automatically configure a price provider.
+
+### Try a first portfolio without API keys
+
+Use synthetic values before entering your own records:
+
+1. Open **Accounts**, select **Create account**, and enter an account type such as `Example Broker`.
+2. Open **Update assets**, select that account, choose **Enter manually**, and select **+ Add holding**.
+3. Enter `Example EUR Fund` as the name, `EXAMPLE-EUR` as the code, and **Fund** as the asset type. Set quantity to `2`, currency to `EUR`, historical cost basis to `180`, prior cumulative return to `20`, latest price / NAV to `100`, and current value to `200`. Use today's date for the valuation and price dates.
+4. Review the values and select **Confirm 1 changes**. Open **Overview**: the investment should be worth EUR 200, with holdings P&L of EUR 20 (11.11%). Reload the page to check that the holding remains saved.
+
+A new portfolio does not yet have a 7-day or 30-day baseline. Those views show unavailable or partial history until enough dated records exist. AI chat and screenshot analysis require your own OpenAI API key and incur API charges; manual entry does not.
+
 ### Optional connections
 
 Configure these in the ignored `.env.local` file. [`.env.example`](./.env.example) lists the available model and provider settings.
@@ -50,6 +63,33 @@ Configure these in the ignored `.env.local` file. [`.env.example`](./.env.exampl
 | OpenAI | `OPENAI_API_KEY` | Screenshot extraction, optional Portfolio Agent with source-linked web research, and on-demand market watch. Selected screenshots and agent web queries are sent to the configured OpenAI API account. |
 
 Keys stay server-side. Trading 212 calls only account summary and positions endpoints; no order permission is needed. Public fund NAV and ECB FX checks do not require account credentials. Keep personal screenshots out of the repository.
+
+### Portfolio Agent
+
+With your own OpenAI API key, use chat to explore your portfolio and prepare changes:
+
+- Ask which holdings drove a period's gains or losses, then inspect the cited facts and full contribution details.
+- Ask about a holding's recorded history or an account's sales and withdrawals.
+- Discuss screenshots, prepare import or completed-sale drafts, and edit supported draft fields in conversation. Review and explicitly confirm changes before they affect assets.
+- Request web research for possible market explanations with source links. External explanations remain separate from calculated portfolio changes.
+- Ask the Agent to find a fund NAV source by ISIN. It delegates public identity to a dedicated search role, probes supported readers and saves a review in the conversation. Confirm a verified source explicitly. Candidate webpages without a supported reader remain research links and cannot enable automatic refresh. This pilot supports OP-Europe Fund A (`FI4000439773`, EUR); it does not generate executable adapters for arbitrary websites.
+- Ask to save a preference or background detail as a memory; review and confirm the proposed wording before it is stored.
+
+AI features send conversation content, attached images and relevant portfolio facts to the configured OpenAI API account and incur API charges. The Agent cannot trade or confirm portfolio changes for you.
+
+### Automatic price coverage
+
+Price updates currently use specific supported providers; arbitrary account types do not acquire a data connection automatically:
+
+| Holdings | Current update support |
+| --- | --- |
+| Alipay / WeChat CNY funds and ETFs | Eastmoney NAV history when a supported six-digit fund code is available. Name-only source discovery is limited to one predefined WeChat fund candidate. |
+| Danske EUR holdings | Danske Invest NAVs for supported ISINs configured in the local `data/danske-invest-funds.json` mapping. This private mapping is not included in the repository; an empty installation has no configured Danske fund routes. |
+| OP-Europe Fund A (`FI4000439773`, EUR) in any account | One verified Financial Times historical-price adapter. Open the fund detail and explicitly confirm its price source before refresh can use it. The binding survives restart; the Agent can also prepare this confirmation review from a natural-language request. |
+| Trading 212 positions | Prices for confirmed positions through your configured read-only Trading 212 connection. |
+| Other account types, such as OP | Manual imports and dated manual prices. Automatic provider discovery and configuration are not yet implemented. |
+
+The daily price check runs when a non-empty portfolio loads in the dashboard, at most once per Helsinki calendar day, with a limited retry for eligible failures. It is not a background job that runs while the app is closed. Missing or failed updates retain the last recorded price and its date.
 
 ## 🔄 How updates work
 
@@ -72,7 +112,7 @@ Each holding's **History** lists its initial recorded position, confirmed quanti
 
 Screenshot and Trading 212 reviews detect reduced quantities, including holdings removed from a complete broker snapshot. Before confirmation, identify each reduction as a sale/redemption with proceeds, fees and destination, or an explained quantity correction. Omitted screenshot holdings remain unchanged. Imported cash balances are authoritative and sale proceeds are not added twice. A sale already recorded manually is not recorded again when the updated holdings are imported. Transfers out reduce tracked value and are separate from investment performance.
 
-The dashboard checks prices at most once per `Europe/Helsinki` day when a non-empty portfolio loads. **Refresh prices** triggers an explicit retry. If a provider fails, the last successful local price remains available. A manual dated NAV or price can be entered for an existing holding.
+The dashboard checks prices at most once per `Europe/Helsinki` day when a non-empty portfolio loads. **Refresh prices** triggers an explicit retry. If a provider fails, the last successful local price remains available. A manual dated NAV or price can be entered for an existing holding. A newly confirmed price source receives its first automatic check even if other prices were checked earlier that day. Checks run when the app is open; there is no background scheduler while it is closed.
 
 Portfolio Agent can read one holding’s recorded creation, quantity/cost updates and sales through `read_holding_history`, and one account’s sales and withdrawals through `read_account_activity`. Both tools are read-only, accept optional inclusive date bounds, and return at most the newest 20 matching records with coverage counts. Closed holdings remain searchable. Undone records, missing destinations, net proceeds and realized sale results are separate facts; external transfers are not investment losses. Saved history is not a complete broker transaction history.
 
@@ -122,7 +162,7 @@ npm test
 npm run build
 ```
 
-The regular test suite mocks cloud boundaries and uses synthetic data. Run `RUN_PORTFOLIO_MULTIMODAL_EVAL=1 npm test -- tests/evaluation/portfolio-agent-multimodal.eval.test.ts` for a real API check using the configured main Agent and web research. It sends a synthetic image, checks mixed research/image answers and image follow-up, then resolves an ambiguous account choice and prepares a draft through the production tools in a disposable database. It checks confirmed memory, named-holding quantity edits, preservation of other draft fields, and that assets stay unchanged. Add `PORTFOLIO_EVAL_DRAFT_ONLY=1` to run only account clarification, historical-image import, and named-holding editing without web research. After an approved retry, `PORTFOLIO_EVAL_PRIOR_API_REQUESTS` deducts earlier attempts from the same 12-request limit; it does not expand the budget. This opt-in check applies a gate of 12 API requests and US$0.10 estimated cost per run, counting main-model calls and web research. Missing usage or unknown pricing stops further requests. It saves synthetic replies, tool names, usage and estimated cost to ignored `data/evaluations/multimodal-latest.json`. Prices are estimates, not invoices. This opt-in check consumes API usage and never uses the owner's portfolio database or confirms an import. An opt-in OpenAI vision evaluation is available with `RUN_OPENAI_VISION_EVAL=1 npm test -- tests/evaluation/openai-vision-import.eval.test.ts`; it consumes API usage and uses a committed synthetic image.
+The regular test suite mocks cloud boundaries and uses synthetic data. Run `RUN_PORTFOLIO_MULTIMODAL_EVAL=1 npm test -- tests/evaluation/portfolio-agent-multimodal.eval.test.ts` for a real API check using the configured main Agent and web research. It sends a synthetic image, checks mixed research/image answers and image follow-up, then resolves an ambiguous account choice and prepares a draft through the production tools in a disposable database. It checks confirmed memory, named-holding quantity edits, preservation of other draft fields, and that assets stay unchanged. Add `PORTFOLIO_EVAL_DRAFT_ONLY=1` to run only account clarification, historical-image import, and named-holding editing without web research. After an approved retry, `PORTFOLIO_EVAL_PRIOR_API_REQUESTS` deducts earlier attempts from the same 12-request limit; it does not expand the budget. This opt-in check applies a gate of 12 API requests and US$0.10 estimated cost per run, counting main-model calls and web research. Missing usage or unknown pricing stops further requests. It saves synthetic replies, tool names, usage and estimated cost to ignored `data/evaluations/multimodal-latest.json`. Prices are estimates, not invoices. This opt-in check consumes API usage and never uses the owner's portfolio database or confirms an import. The fund-source Agent check is available with `RUN_PRICE_SOURCE_EVAL=1 npm test -- tests/evaluation/price-source-agent.eval.test.ts`. It uses public OP, Danske and Nordea identities with synthetic positions in disposable databases and checks persisted review states without confirming sources or imports. Main-model and research calls share the same 12-request / US$0.10 gate. Deduct earlier attempts with `PRICE_SOURCE_EVAL_PRIOR_API_REQUESTS` and `PRICE_SOURCE_EVAL_PRIOR_ESTIMATED_USD` when continuing an approved run; reports stay in ignored `data/evaluations/price-source-agent.json`. A persisted review can survive a blocked final reply. An opt-in OpenAI vision evaluation is available with `RUN_OPENAI_VISION_EVAL=1 npm test -- tests/evaluation/openai-vision-import.eval.test.ts`; it consumes API usage and uses a committed synthetic image.
 
 Run `RUN_PORTFOLIO_MEMORY_EVAL=1 npm test -- tests/evaluation/portfolio-agent-memory.eval.test.ts` for four small real-model memory scenarios: temporary background, conditional preferences, an incidental statement, and applying confirmed background with a requested answer language. This uses the same 12-request/US$0.10 gate and a disposable database; reports remain ignored under `data/evaluations/`.
 

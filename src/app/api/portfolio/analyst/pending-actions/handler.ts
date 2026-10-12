@@ -5,7 +5,7 @@ import type { PortfolioDatabase } from "@/infrastructure/sqlite/portfolio-reposi
 
 const cancelSchema = z.object({
   conversationId: z.string().trim().min(1).max(80),
-  kind: z.enum(["import", "sale", "memory"]),
+  kind: z.enum(["import", "sale", "memory", "price-source"]),
   id: z.string().trim().min(1).max(100),
 }).strict();
 type Store = Pick<PortfolioDatabase, "readPortfolioAnalystConversation" | "readLatestPortfolioAnalystConversation"
@@ -39,6 +39,12 @@ export function createPendingActionCancelHandler(store: Store, now = () => new D
         updated = { ...conversation, updatedAt: timestamp, importActivities: conversation.importActivities.map((item) =>
           item.draftId === id ? { ...item, cancelledAt: timestamp } : item) };
       }
+    } else if (kind === "price-source") {
+      const draft = conversation.turns.find((turn) => turn.id === id)?.priceSourceReview;
+      if (!draft) return json({ error: "Price source review was not found." }, 404);
+      if (draft.status === "saved") return json({ error: "Price source is already confirmed." }, 409);
+      updated = { ...conversation, updatedAt: timestamp, turns: conversation.turns.map((turn) => turn.id === id
+        ? { ...turn, priceSourceReview: { ...draft, status: "cancelled" as const } } : turn) };
     } else {
       const turn = conversation.turns.find((item) => item.id === id);
       const draft = kind === "memory" ? turn?.chat?.memoryProposal : turn?.chat?.saleDraft;

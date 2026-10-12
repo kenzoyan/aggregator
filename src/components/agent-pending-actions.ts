@@ -3,7 +3,7 @@ import type { ImportDraftReadModel } from "@/application/imports/import-draft-re
 
 export interface PendingAgentAction {
   key: string;
-  kind: "import" | "sale" | "memory";
+  kind: "import" | "sale" | "memory" | "price-source";
   id: string;
   label?: string;
   createdAt: string;
@@ -22,6 +22,10 @@ export function pendingAgentActions(
       label: activity.targetLabel, createdAt: activity.followUps?.at(-1)?.createdAt ?? activity.createdAt });
   }
   for (const turn of conversation.turns) {
+    if (turn.priceSourceReview?.status === "pending") {
+      actions.push({ key: `price-source:${turn.id}`, kind: "price-source", id: turn.id,
+        label: turn.priceSourceReview.instrumentName, createdAt: turn.createdAt });
+    }
     if (turn.chat?.saleDraft?.status === "pending") {
       actions.push({ key: `sale:${turn.id}`, kind: "sale", id: turn.id,
         label: [turn.chat.saleDraft.extraction?.accountName, turn.chat.saleDraft.extraction?.name].filter(Boolean).join(" · ") || undefined, createdAt: turn.createdAt });

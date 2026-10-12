@@ -128,6 +128,8 @@ export function SavedConversationEntries({
                 </button>
               </div>}
             </> : null}
+          {entry.turn.priceSourceReview?.status === "saved" && <p role="status">{language === "zh-CN" ? "价格源已确认，之后的净值检查会复用此来源。" : "Price source confirmed. Future NAV checks will reuse it."}</p>}
+          {entry.turn.priceSourceReview?.status === "cancelled" && entry.turn.priceSourceReview.state === "verified" && <p>{language === "zh-CN" ? "价格源审核已取消。" : "Price source review cancelled."}</p>}
         </div>
       ) : entry.kind === "import-follow-up" ? (
         <div className="analyst-turn" key={entry.followUp.id}>
@@ -244,7 +246,8 @@ export function pendingPhaseLabel(
       "invalid-request": "请求格式有误，尚未开始分析。请修改问题后重新发送。",
       "request-too-large": "请求内容过大，尚未开始分析。请减少内容后重新发送。",
       "request-failed": "处理请求时出错，回答没有完成。你的消息还在，可以重试。",
-    } : {
+      discover_price_source: "基金价格源查找",
+  } : {
       "invalid-provider-output": "I couldn't verify the model's answer. Your message is still here; please try again.",
       "provider-unavailable": "The model service couldn't respond. Your message is still here; please try again later.",
       "context-too-large": "This request has too much context. Please shorten your question and try again.",
@@ -312,6 +315,7 @@ function analystToolLabel(
     propose_create_account: "account creation proposal",
     prepare_account_import: "asset import preparation",
     search_web: "web research",
+    discover_price_source: "fund price source discovery",
     read_workflow_result: "operation result",
     read_image: "image observations",
     prepare_import_draft: "prepare import draft", read_import_draft: "import draft", update_import_draft: "update import draft", cancel_import_draft: "cancel import draft", review_import_draft: "review import draft",

@@ -28,7 +28,7 @@ export function researchWebsites(urls: readonly string[]) {
 
 export function researchProgress(calls: readonly (PortfolioAnalystToolActivity | PortfolioAnalystToolAudit)[], interrupted: boolean) {
   const latest = new Map<string, PortfolioAnalystToolActivity | PortfolioAnalystToolAudit>();
-  for (const call of calls) if (call.name === "search_web") latest.set(call.toolCallId, call);
+  for (const call of calls) if (call.name === "search_web" || call.name === "discover_price_source") latest.set(call.toolCallId, call);
   const searches = [...latest.values()];
   const sites = researchWebsites(searches.flatMap((call) => "sourceUrls" in call ? call.sourceUrls ?? [] : []));
   const active = searches.some((call) => "stage" in call && call.stage === "started");

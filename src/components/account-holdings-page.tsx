@@ -140,7 +140,8 @@ export function AccountHoldingsPage({ accountId, requestedHoldingId }: {
   const accountValue = holdings.reduce((total, item) => total + (item.eurValue ?? 0), 0);
   const priceSourceEligible = Boolean(
     selected?.instrumentId && selected.category === "Fund" &&
-    selected.currency === "CNY" && !/^\d{6}$/.test(selected.symbol),
+    ((selected.currency === "CNY" && !/^\d{6}$/.test(selected.symbol)) ||
+      (selected.currency === "EUR" && /^[A-Z]{2}[A-Z0-9]{10}$/.test(selected.symbol))),
   );
 
   useEffect(() => {
@@ -361,6 +362,7 @@ export function AccountHoldingsPage({ accountId, requestedHoldingId }: {
                   <p role="status">{priceSourceLookup.binding.lastRefresh
                     ? `Last checked ${new Date(priceSourceLookup.binding.lastRefresh.checkedAt).toLocaleString("en-GB", { timeZone: "Europe/Helsinki" })} · ${priceSourceLookup.binding.lastRefresh.outcome}${priceSourceLookup.binding.lastRefresh.failureCategory ? ` (${priceSourceLookup.binding.lastRefresh.failureCategory})` : ""}`
                     : "Awaiting the first price check."}</p>
+                  {priceSourceLookup.binding.lastRefresh?.latestPriceAsOf && <p>Latest saved NAV date: {priceSourceLookup.binding.lastRefresh.latestPriceAsOf}</p>}
                 </div>}
                 {priceSourceEligible && Boolean(priceSourceLookup?.candidates.length) && <details className="market-data-source-options" open={!priceSourceLookup?.binding}>
                   <summary>{priceSourceLookup?.binding ? "Change price source" : "Set up automatic NAV updates"}</summary>
@@ -370,7 +372,7 @@ export function AccountHoldingsPage({ accountId, requestedHoldingId }: {
                   <p>{candidate.quoteAvailable
                     ? `Recent NAV: ${candidate.price} ${candidate.currency} · ${candidate.priceAsOf}`
                     : "A recent NAV is unavailable. Confirmation is paused."}</p>
-                  <a href={candidate.identityUrl} target="_blank" rel="noreferrer">Check the fund manager’s product page</a>
+                  <a href={candidate.identityUrl} target="_blank" rel="noreferrer">View source page</a>
                   <button type="button" disabled={!candidate.quoteAvailable || priceSourceSaving}
                     onClick={() => confirmPriceSource(candidate)}>
                     {priceSourceSaving ? "Confirming…" : "Confirm this price source"}

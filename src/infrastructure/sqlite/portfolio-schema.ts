@@ -2,7 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 
 import { legacyPartialSnapshotWarningMarker } from "@/domain/imports";
 
-export const portfolioSchemaVersion = 12;
+export const portfolioSchemaVersion = 13;
 
 export class LegacyPortfolioDatabaseError extends Error {
   constructor() {
@@ -110,7 +110,7 @@ const priceSourceBindingsSchema = (withStatus: boolean) => `
     instrument_code TEXT NOT NULL,
     currency TEXT NOT NULL,
     share_class TEXT NOT NULL,
-    provider TEXT NOT NULL CHECK (provider = 'eastmoney'),
+    provider TEXT NOT NULL CHECK (provider IN ('eastmoney', 'financial-times')),
     identity_url TEXT NOT NULL,
     confirmed_at TEXT NOT NULL,
     ${withStatus ? `last_checked_at TEXT,
@@ -460,6 +460,23 @@ export function initializePortfolioSchema(database: DatabaseSync) {
         FROM portfolio_analyst_memory;
         DROP TABLE portfolio_analyst_memory;
         UPDATE schema_metadata SET version = 12;
+      `);
+      database.exec("COMMIT");
+    } catch (error) {
+      database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+  const providerRow = database.prepare("SELECT version FROM schema_metadata LIMIT 1").get() as { version: number } | undefined;
+  if (providerRow?.version === 12) {
+    database.exec("BEGIN IMMEDIATE");
+    try {
+      database.exec(`
+        ALTER TABLE price_source_bindings RENAME TO price_source_bindings_v12;
+        ${priceSourceBindingsSchema(true)}
+        INSERT INTO price_source_bindings SELECT * FROM price_source_bindings_v12;
+        DROP TABLE price_source_bindings_v12;
+        UPDATE schema_metadata SET version = 13;
       `);
       database.exec("COMMIT");
     } catch (error) {

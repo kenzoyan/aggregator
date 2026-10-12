@@ -1,5 +1,6 @@
 "use client";
 
+import { AgentPriceSourceReviewContent } from "@/components/agent-price-source-review";
 import { createPortal } from "react-dom";
 import { MAX_PORTFOLIO_ANALYST_QUESTION_CHARS } from "@/application/portfolio-analyst-request-limits";
 import { motion } from "motion/react";
@@ -121,7 +122,7 @@ export function PortfolioAnalyst({
   const [provider, setProvider] = useState<PortfolioAnalystProviderId>("openai");
   const [period, setPeriod] = useState<Period>("week");
   const [language, setLanguage] = useState<PortfolioAnalystLanguage>("en");
-  const [reviewPanel, setReviewPanel] = useState<"sale" | "memory" | "sources" | "import">();
+  const [reviewPanel, setReviewPanel] = useState<"sale" | "memory" | "sources" | "import" | "price-source">();
   const [selectedActionKey, setSelectedActionKey] = useState<string>();
   const [selectedReviewId, setSelectedReviewId] = useState<string>();
   const [selectedEvidenceId, setSelectedEvidenceId] = useState<string>();
@@ -132,6 +133,7 @@ export function PortfolioAnalyst({
   const [question, setQuestion] = useState("");
   const [loading, setLoading] = useState(false);
   const [importBusy, setImportBusy] = useState(false);
+  const [priceSourceReviewBusy, setPriceSourceReviewBusy] = useState(false);
   const [error, setError] = useState<string>();
   const [memoryReviewBusy, setMemoryReviewBusy] = useState(false);
   const [actionCancelBusy, setActionCancelBusy] = useState(false);
@@ -542,6 +544,9 @@ export function PortfolioAnalyst({
             if (newDraft) { setSelectedReviewId(newDraft.id); setSelectedActionKey(`import:${newDraft.id}`); setReviewPanel("import"); }
           }
           const latestTurn = event.conversation.turns.at(-1);
+          if (latestTurn?.priceSourceReview?.status === "pending") {
+            setSelectedActionKey(`price-source:${latestTurn.id}`); setSelectedEvidenceId(undefined); setReviewPanel("price-source");
+          }
           if (latestTurn?.chat?.saleDraft?.status === "pending") {
             setSelectedActionKey(`sale:${latestTurn.id}`);
             setReviewPanel(undefined);
@@ -662,6 +667,8 @@ export function PortfolioAnalyst({
   const activeDateRequest = activeDraft && nextImportDateFollowUp(activeDraft);
   const selectedEvidenceTurn = conversation?.turns.find((turn) => turn.id === selectedEvidenceId && turn.report);
   const activeSaleTurn = conversation?.turns.findLast((turn) => turn.chat?.saleDraft?.status === "pending");
+  const pendingPriceSourceTurn = currentAction?.kind === "price-source"
+    ? conversation?.turns.find((turn) => turn.id === currentAction.id) : undefined;
   const pendingMemoryTurn = currentAction?.kind === "memory"
     ? conversation?.turns.find((turn) => turn.id === currentAction.id) : undefined;
 
@@ -691,12 +698,13 @@ export function PortfolioAnalyst({
   }
 
   function actionLabel(action: PendingAgentAction) {
-    return action.kind === "import"
+    return action.kind === "price-source" ? (language === "zh-CN" ? `价格源审核 · ${action.label ?? ""}` : `Price source review · ${action.label ?? ""}`)
+      : action.kind === "import"
       ? (language === "zh-CN" ? "导入草稿" : "Import draft")
       : action.kind === "sale" ? (language === "zh-CN" ? "卖出草稿" : "Sale draft")
       : (language === "zh-CN" ? "记忆草稿" : "Memory draft");
   }
-  const actionSwitchBusy = loading || importBusy || memoryReviewBusy || actionCancelBusy || Object.values(saveStatus).includes("saving");
+  const actionSwitchBusy = priceSourceReviewBusy || loading || importBusy || memoryReviewBusy || actionCancelBusy || Object.values(saveStatus).includes("saving");
   const canFillQuestion = !blocked && !actionSwitchBusy && Boolean(selectedProvider?.configured) && !question.trim();
   const consumedQuestionRequest = useRef<number | undefined>(undefined);
   useEffect(() => { onQuestionAvailabilityChange?.(canFillQuestion); }, [canFillQuestion, onQuestionAvailabilityChange]);
@@ -790,7 +798,7 @@ export function PortfolioAnalyst({
                   <button
                     type="button"
                     key={prompt}
-                    disabled={loading || !selectedProvider?.configured}
+                    disabled={loading || priceSourceReviewBusy || !selectedProvider?.configured}
                     onClick={() => void runAnalyst(prompt)}
                   >
                     {prompt}
@@ -857,7 +865,7 @@ export function PortfolioAnalyst({
                 <div className={`analyst-streaming-message analyst-assistant-message ${pendingTurn.phase}`}>
                   <p>{pendingPhaseLabel(pendingTurn.phase, language, pendingTurn.failureCode)}</p>
                   {pendingTurn.phase === "failed" && <button type="button" className="secondary"
-                    onClick={retryFailedTurn} disabled={loading || importBusy}>
+                    onClick={retryFailedTurn} disabled={loading || importBusy || priceSourceReviewBusy}>
                     {language === "zh-CN" ? "重试" : "Try again"}
                   </button>}
                 </div>
@@ -884,7 +892,7 @@ export function PortfolioAnalyst({
               ref={composer}
               rows={2}
               maxLength={MAX_PORTFOLIO_ANALYST_QUESTION_CHARS}
-              disabled={loading || importBusy || memoryReviewBusy || actionCancelBusy || !selectedProvider?.configured}
+              disabled={loading || importBusy || memoryReviewBusy || priceSourceReviewBusy || actionCancelBusy || !selectedProvider?.configured}
               value={question}
               aria-label={language === "zh-CN" ? "给助手发送消息" : "Message your assistant"}
               placeholder={language === "zh-CN" ? "提出问题，或分享一张图片……" : "Ask a question or share an image…"}
@@ -917,7 +925,7 @@ export function PortfolioAnalyst({
                   <motion.button whileTap={{ scale: .96 }} type="button" onClick={submitComposer}
                     aria-label={language === "zh-CN" ? "发送" : "Send"}
                     title={language === "zh-CN" ? "发送" : "Send"}
-                    disabled={memoryReviewBusy || actionCancelBusy || !selectedProvider?.configured || (!question.trim() && importAttachments.files.length === 0)}>
+                    disabled={priceSourceReviewBusy || memoryReviewBusy || actionCancelBusy || !selectedProvider?.configured || (!question.trim() && importAttachments.files.length === 0)}>
                     <Send size={18} aria-hidden="true" />
                   </motion.button>
                 )}
@@ -935,7 +943,7 @@ export function PortfolioAnalyst({
         <p>{language === "zh-CN" ? "这会删除当前聊天记录及关联图片。已确认的资产记录和长期记忆会保留。此操作无法撤销。" : "This deletes this chat and its attached images. Confirmed portfolio records and saved memories remain. This cannot be undone."}</p>
         <div className="agent-delete-actions">
           <button ref={deleteCancel} type="button" onClick={() => setDeleteDialogOpen(false)}>{language === "zh-CN" ? "保留记录" : "Keep history"}</button>
-          <button type="button" className="destructive" disabled={loading || importBusy} onClick={() => {
+          <button type="button" className="destructive" disabled={loading || importBusy || priceSourceReviewBusy} onClick={() => {
             setDeleteDialogOpen(false);
             void resetConversation();
           }}>{language === "zh-CN" ? "删除记录" : "Delete history"}</button>
@@ -947,10 +955,18 @@ export function PortfolioAnalyst({
           busy={actionSwitchBusy} onClose={() => setReviewPanel(undefined)}>
           <AgentSaleDraftReview key={activeSaleTurn.id} conversationId={conversation.id} turnId={activeSaleTurn.id}
             draft={activeSaleTurn.chat.saleDraft} language={language} onConversation={setConversation}
-            disabled={loading || importBusy || memoryReviewBusy || actionCancelBusy} onBusy={setImportBusy}
+            disabled={loading || importBusy || memoryReviewBusy || priceSourceReviewBusy || actionCancelBusy} onBusy={setImportBusy}
             onSaved={() => { setReviewPanel(undefined); onPortfolioChanged?.(); }} />
         </AgentDraftReviewPanel>, importReviewHost
       )}
+      {pendingPriceSourceTurn?.priceSourceReview && conversation && reviewPanel === "price-source" && currentAction?.key === selectedActionKey && importReviewHost && createPortal(
+        <AgentDraftReviewPanel title={language === "zh-CN" ? "价格源审核" : "Price source review"} closeLabel={closeReviewLabel}
+          busy={actionSwitchBusy} onClose={() => setReviewPanel(undefined)}>
+          <AgentPriceSourceReviewContent key={pendingPriceSourceTurn.id} review={pendingPriceSourceTurn.priceSourceReview}
+            conversationId={conversation.id} turnId={pendingPriceSourceTurn.id} language={language} busy={actionSwitchBusy}
+            setBusy={setPriceSourceReviewBusy} onConfirmed={(saved) => { setConversation(saved); setReviewPanel(undefined); }}
+            onCancel={() => void cancelAction(currentAction!)} />
+        </AgentDraftReviewPanel>, importReviewHost)}
       {pendingMemoryTurn?.chat?.memoryProposal && reviewPanel === "memory" && currentAction?.key === selectedActionKey && importReviewHost && createPortal(
         <AgentDraftReviewPanel title={language === "zh-CN" ? "核对记忆草稿" : "Review memory draft"} closeLabel={closeReviewLabel}
           busy={actionSwitchBusy} onClose={() => setReviewPanel(undefined)}>
@@ -962,7 +978,7 @@ export function PortfolioAnalyst({
             <label className="agent-memory-draft-field">
               <span>{language === "zh-CN" ? "记忆内容 · 可修改" : "Memory content · editable"}</span>
               <textarea rows={3} maxLength={MAX_PORTFOLIO_ANALYST_MEMORY_CHARS}
-                disabled={loading || importBusy || memoryReviewBusy || actionCancelBusy}
+                disabled={loading || importBusy || memoryReviewBusy || priceSourceReviewBusy || actionCancelBusy}
                 value={pendingMemoryTurn.chat.memoryProposal.content}
                 onChange={(event) => editMemoryDraft(pendingMemoryTurn.id, event.target.value)} />
             </label>
@@ -1012,7 +1028,7 @@ export function PortfolioAnalyst({
           </div>
           <div className="home-review-scroll">
             {error && <p role="alert" className="error-message">{error}</p>}
-            <fieldset className="agent-import-review-fields" disabled={loading || importBusy || memoryReviewBusy || actionCancelBusy}>
+            <fieldset className="agent-import-review-fields" disabled={loading || importBusy || memoryReviewBusy || priceSourceReviewBusy || actionCancelBusy}>
             <AgentImportDraftReview
               draft={activeDraft}
               targetLabel={activeReview.targetLabel}

@@ -24,7 +24,11 @@ export function createPriceSourceBindingRepository(database: DatabaseSync): Pric
       share_class = excluded.share_class,
       provider = excluded.provider,
       identity_url = excluded.identity_url,
-      confirmed_at = excluded.confirmed_at
+      confirmed_at = excluded.confirmed_at,
+      last_checked_at = NULL,
+      last_outcome = NULL,
+      latest_price_as_of = NULL,
+      last_failure_category = NULL
   `);
 
   return {

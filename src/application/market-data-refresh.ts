@@ -5,7 +5,7 @@ import {
   type MarketRefreshResult,
 } from "@/application/market-refresh";
 import { portfolioCalendarDate } from "@/application/portfolio-calendar";
-import { applyConfirmedPriceSources, bindingMatchesPosition, type PriceSourceBinding, type PriceSourceRefreshStatus } from "@/application/price-source-discovery";
+import { applyConfirmedPriceSources, bindingMatchesPosition, type PriceSourceBinding, type PriceSourceRefreshStatus, type PriceSourceProviders } from "@/application/price-source-discovery";
 import { marketObservationsFromTrading212Snapshot } from "@/application/trading212-market-data";
 import type {
   FundNavProvider,
@@ -57,6 +57,7 @@ interface MarketRefreshDatabase {
 export interface MarketDataRefreshDependencies {
   database: MarketRefreshDatabase;
   fundNavProvider: FundNavProvider;
+  priceSourceProviders?: PriceSourceProviders;
   refreshTrading212Snapshot?: () => Promise<OpeningSnapshotInput | undefined>;
   now?: () => string;
 }
@@ -92,6 +93,12 @@ export function createMarketDataRefresh(
     const automatic = mode === "automatic";
     const marketData = input.database.readMarketData();
     const latest = marketData.latestMarketRefresh;
+    const facts = input.database.readPortfolioFacts();
+    const bindings = input.database.readPriceSourceBindings?.() ?? [];
+    const activeBindings = bindings.filter((binding) =>
+      facts.state.positions.some((position) => bindingMatchesPosition(binding, position)));
+    const uncheckedBindingKeys = activeBindings.filter((binding) => !binding.lastRefresh)
+      .map((binding) => `${binding.sourceAccountId}:${binding.instrumentId}`);
     const alreadyRefreshedToday = Boolean(
       automatic && latest &&
       portfolioCalendarDate(latest.completedAt) === portfolioCalendarDate(now),
@@ -100,7 +107,7 @@ export function createMarketDataRefresh(
       Date.parse(now) - Date.parse(latest.completedAt) >= retryDelayMs
       ? latest.failures.filter(retryableFailure)
       : [];
-    if (alreadyRefreshedToday && latest && retryFailures.length === 0) {
+    if (alreadyRefreshedToday && latest && retryFailures.length === 0 && uncheckedBindingKeys.length === 0) {
       return {
         automatic: true,
         skipped: true,
@@ -109,15 +116,11 @@ export function createMarketDataRefresh(
       };
     }
 
-    const facts = input.database.readPortfolioFacts();
-    const bindings = input.database.readPriceSourceBindings?.() ?? [];
     const confirmedState = applyConfirmedPriceSources(facts.state, bindings);
-    const bindingKeys = new Set(bindings.filter((binding) =>
-      facts.state.positions.some((position) => bindingMatchesPosition(binding, position))
-    ).map((binding) => `${binding.sourceAccountId}:${binding.instrumentId}:${binding.instrumentCode}`));
     const sourceAccounts = input.database.readSourceAccounts?.() ?? [];
-    const retryTargetKeys = new Set(retryFailures.map(failureKey));
-    const retrying = retryFailures.length > 0;
+    const retryFailureKeys = new Set(retryFailures.map(failureKey));
+    const retryTargetKeys = new Set([...retryFailureKeys, ...(alreadyRefreshedToday ? uncheckedBindingKeys : [])]);
+    const retrying = alreadyRefreshedToday && retryTargetKeys.size > 0;
     const refreshState = retrying ? {
       ...confirmedState,
       positions: confirmedState.positions.filter((position) =>
@@ -129,7 +132,7 @@ export function createMarketDataRefresh(
       (!retrying || retryTargetKeys.has(`${trading212SourceAccountId}:snapshot`)),
     );
     const hasRefreshablePosition = refreshState.positions.some((position) =>
-      hasFundNavRefreshTarget(position, input.fundNavProvider, sourceAccounts)
+      hasFundNavRefreshTarget(position, input.fundNavProvider, sourceAccounts, bindings)
     ) || (refreshTrading212 && facts.state.positions.some((position) =>
       position.sourceAccountId === trading212SourceAccountId
     ));
@@ -157,18 +160,22 @@ export function createMarketDataRefresh(
           .map((item) => [item.key, item.asOf]),
       ),
       provider: input.fundNavProvider,
+      priceSourceBindings: bindings,
+      priceSourceProviders: input.priceSourceProviders,
       record: (recorded) => { observations.push(...recorded); },
       onAttempt: (attempt) => {
-        if (bindingKeys.has(`${attempt.sourceAccountId}:${attempt.instrumentId}:${attempt.instrumentCode}`)) {
+        const binding = activeBindings.find((item) => item.sourceAccountId === attempt.sourceAccountId &&
+          item.instrumentId === attempt.instrumentId && item.instrumentCode === attempt.instrumentCode);
+        if (binding) {
           const savedNavDate = attempt.outcome === "unchanged"
             ? marketData.observations
               .filter((observation) => observation.sourceAccountId === attempt.sourceAccountId &&
-                observation.instrumentId === attempt.instrumentId && observation.source === "eastmoney")
+                observation.instrumentId === attempt.instrumentId && observation.source === binding.provider)
               .map((observation) => observation.asOf.slice(0, 10)).sort().at(-1)
             : attempt.latestPriceAsOf;
           priceSourceStatuses.push({
             ...attempt,
-            provider: "eastmoney",
+            provider: binding.provider,
             ...(savedNavDate ? { latestPriceAsOf: savedNavDate } : {}),
           });
         }
@@ -210,7 +217,7 @@ export function createMarketDataRefresh(
       : [];
     const attemptedFailures = [...result.failed, ...trading212Failures].map((failure) => ({
       ...failure,
-      ...(retrying ? { retryCount: 1 } : {}),
+      ...(retryFailureKeys.has(failureKey(failure)) ? { retryCount: 1 } : {}),
     }));
 
     const combinedResult: MarketRefreshResult & { automatic: boolean } = {

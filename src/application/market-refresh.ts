@@ -1,3 +1,6 @@
+import { z } from "zod";
+import { portfolioCalendarDate } from "@/application/portfolio-calendar";
+import { bindingMatchesPosition, type PriceSourceBinding, type PriceSourceProviders } from "@/application/price-source-discovery";
 import type {
   FundNavProvider,
   MarketRefreshFailure,
@@ -73,6 +76,9 @@ export function safeMarketRefreshFailure(error: unknown): MarketRefreshFailure {
       message: "Market data provider request timed out",
     };
   }
+  if (/provider is not configured/i.test(message)) {
+    return { instrumentCode: "", category: "configuration", message: "Confirmed price source provider is not configured" };
+  }
   if (/currency mismatch/i.test(message)) {
     return {
       instrumentCode: "",
@@ -121,12 +127,17 @@ function isDanskeFundCandidate(position: Position, sourceAccounts: readonly Sour
       position.assetType === "etf");
 }
 
+export function confirmedPriceSource(position: Position, bindings: readonly PriceSourceBinding[] = []) {
+  return bindings.find((binding) => bindingMatchesPosition(binding, position));
+}
+
 export function hasFundNavRefreshTarget(
   position: Position,
   provider?: FundNavProvider,
   sourceAccounts: readonly SourceAccountDefinition[] = [],
+  bindings: readonly PriceSourceBinding[] = [],
 ): boolean {
-  return supportsFundNavRefresh(position, provider, sourceAccounts) ||
+  return Boolean(confirmedPriceSource(position, bindings)) || supportsFundNavRefresh(position, provider, sourceAccounts) ||
     isDanskeFundCandidate(position, sourceAccounts);
 }
 
@@ -179,6 +190,8 @@ export async function refreshFundNavs(input: {
   existingObservations: readonly MarketPriceObservation[];
   monitoringStartedAtByPosition: Readonly<Record<string, string>>;
   provider: FundNavProvider;
+  priceSourceBindings?: readonly PriceSourceBinding[];
+  priceSourceProviders?: PriceSourceProviders;
   record: (
     observations: readonly MarketPriceObservation[],
   ) => void | Promise<void>;
@@ -193,11 +206,13 @@ export async function refreshFundNavs(input: {
   }) => void;
   now: string;
 }): Promise<MarketRefreshResult> {
-  const eligible = input.state.positions.filter((position) =>
-    supportsFundNavRefresh(position, input.provider, input.sourceAccounts)
+  const eligible = input.state.positions.filter((position): position is Position & { instrumentCode: string } =>
+    Boolean(position.instrumentCode) && (Boolean(confirmedPriceSource(position, input.priceSourceBindings)) ||
+      supportsFundNavRefresh(position, input.provider, input.sourceAccounts))
   );
   const configurationFailures: MarketRefreshFailure[] = input.state.positions
     .flatMap((position) => {
+      if (confirmedPriceSource(position, input.priceSourceBindings)) return [];
       if (!isDanskeFundCandidate(position, input.sourceAccounts)) return [];
       if (!input.provider.supportsInstrumentCode) return [];
       if (input.provider.supportsInstrumentCode(position.instrumentCode)) return [];
@@ -216,6 +231,11 @@ export async function refreshFundNavs(input: {
 
   for (const position of eligible) {
     try {
+      const binding = confirmedPriceSource(position, input.priceSourceBindings);
+      const provider = binding
+        ? input.priceSourceProviders?.[binding.provider] ?? (binding.provider === "eastmoney" ? input.provider : undefined)
+        : input.provider;
+      if (!provider) throw new Error("Confirmed price source provider is not configured");
       const positionKey = `${position.sourceAccountId}:${position.instrumentId}`;
       const monitoringStart = (
         input.monitoringStartedAtByPosition[positionKey] ??
@@ -225,10 +245,20 @@ export async function refreshFundNavs(input: {
       const knownDate = newestKnownPriceDate(position, input.existingObservations);
       // The displayed NAV may predate a screenshot confirmed during a market closure.
       const fetchStart = knownDate ?? monitoringStart;
-      const quotes = await input.provider.fetchSince(
+      const quotes = await provider.fetchSince(
         position.instrumentCode,
         fetchStart,
       );
+      // Validate the whole batch before recording any observations.
+      for (const quote of quotes) {
+        if (quote.currency !== position.currency) throw new Error("Currency mismatch");
+        if (quote.instrumentCode !== position.instrumentCode ||
+            (binding && quote.source !== binding.provider) ||
+            !z.iso.date().safeParse(quote.asOf).success || quote.asOf > portfolioCalendarDate(input.now) ||
+            !Number.isFinite(Number(quote.price)) || Number(quote.price) <= 0) {
+          throw new Error("Invalid NAV data returned");
+        }
+      }
       const newQuotes = quotes.filter((quote) =>
         (quote.asOf >= monitoringStart ||
           (knownDate !== undefined && quote.asOf > knownDate)) && (
@@ -248,7 +278,7 @@ export async function refreshFundNavs(input: {
           .filter((observation) =>
             observation.sourceAccountId === position.sourceAccountId &&
             observation.instrumentId === position.instrumentId &&
-            observation.source === input.provider.id
+            observation.source === (binding?.provider ?? provider.id)
           )
           .map((observation) => observation.asOf.slice(0, 10))
           .sort().at(-1);

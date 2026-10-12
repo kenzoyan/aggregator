@@ -201,6 +201,7 @@ function systemPrompt(input: PortfolioAnalystAgentTurn, currentDate: string): st
     "When the user asks to update or import assets for an existing account, read the account registry and return the exact matching start-account-import allowed action as proposedUpdate. Respect the account's update method: screenshot accounts can receive screenshots, while Trading 212 uses its API connection. Confirmation is performed by the application; never claim that this text turn changed holdings.",
     "Use read_holding_history for one holding's recorded history and read_account_activity for an account's sales or withdrawals. Resolve ambiguous or missing accounts/holdings with the user; never assume empty history when unavailable. Cite record dates. History covers saved records only, and shownRecordCount smaller than recordCount means truncated; never claim a complete transaction history. Units added from snapshots are observed changes, not confirmed purchases. Undone records do not represent active sales or outflows. External net sale proceeds and withdrawals leave tracked assets; this outflow is not investment loss. realizedResult is net sale proceeds minus allocated cost and is distinct from price/FX performance. Do not sum different currencies or infer a destination when destinationKnown is false. Historical cost estimates use the recorded holdings; explain missing cost evidence.",
     "When the user asks what a specific account currently holds or refers to a recently imported account, use read_account_holdings. Use read_accounts first if the account reference needs resolving. A portfolio overview does not contain individual account holdings. If the target account cannot be identified, ask for its name rather than inventing holdings.",
+    "For requests to find or set up a fund's automatic NAV source, resolve the exact existing holding with read_all_holdings/read_accounts first and call discover_price_source using its local sourceAccountId and instrumentId. Missing ISIN or multiple matching holdings requires clarification. This delegates to a dedicated read-only research role; search_web alone cannot prepare a price binding. The result may open a pending right-side review, never activates a source or changes prices. Describe verified versus adapter-required, identity-unmatched or unavailable accurately. Already-confirmed means the saved binding can be reused without searching. After this tool, give a concise conversational reply based on its operation facts; tell the owner to explicitly confirm in review. Never claim the trial NAV has updated the portfolio.",
     "For questions requiring current external research, use search_web when available. Cite the returned web evidence and show the source dates. Public web quotes are separate from saved portfolio valuations; never claim a web quote changed a holding. If the tool reports unavailable or no verified source, say so without guessing.",
     "For general company information or latest news without an explicit date window, omit fromDate and toDate. Latest does not mean published today only. Never invent a date window or future dates. Use date bounds only when the user explicitly requests a period or the question concerns a holding's observed performance window. An empty research result means this attempt returned no usable evidence; it does not prove that no information exists on the web.",
     "For why a portfolio or holding rose/fell over a period, first read_period_drivers for the requested period. Separate calculated numerical attribution (price and FX) from market explanations. When method=current-quantity, explain that quantities are held at current levels; this is not realized transaction performance. The returned leading drivers are only a subset; do not claim their sum covers every holding. Report missing coverage, excluded exited holdings and material residuals. Estimated portfolio activity is unexplained value movement, not verified deposits or a proven cause.",
@@ -272,7 +273,7 @@ function createTools(
   webResearch?: WebResearch,
   recordMemoryTool?: (toolCallId: string, name: "read_memories" | "propose_memory", memoryCount?: number) => void,
   proposeMemory?: (content: string) => boolean,
-  recordWorkflowTool?: (toolCallId: string, name: "read_workflow_result" | "read_image" | import("@/application/portfolio-analyst-agent").PortfolioAnalystDraftToolName) => void,
+  recordWorkflowTool?: (toolCallId: string, name: "read_workflow_result" | "read_image" | import("@/application/portfolio-analyst-agent").PortfolioAnalystDraftToolName | "discover_price_source", metadata?: { researchStatus?: PortfolioAnalystToolAudit["researchStatus"]; sourceUrls: string[]; input: PortfolioAnalystToolAudit["input"] }) => void,
 ): AgentTool[] {
   const periodParameters = Type.Object({
     period: Type.Union([
@@ -574,7 +575,24 @@ function createTools(
       return { content: [{ type: "text", text: JSON.stringify(result) }], details: {} };
     },
   })) : [];
+  const priceSourceParameters = Type.Object({ sourceAccountId: Type.String({ minLength: 1, maxLength: 100 }),
+    instrumentId: Type.String({ minLength: 1, maxLength: 200 }) }, { additionalProperties: false });
+  const priceSourceTool: AgentTool<typeof priceSourceParameters> | undefined = input.discoverPriceSource ? {
+    name: "discover_price_source", label: "Find a fund NAV source",
+    description: "Delegate exact fund identity to a dedicated public-web research role, probe supported readers and prepare owner review. Never confirms or updates prices.",
+    parameters: priceSourceParameters, executionMode: "sequential",
+    async execute(toolCallId, args) {
+      input.onToolActivity?.({ stage: "started", toolCallId, name: "discover_price_source", input: args });
+      const result = await input.discoverPriceSource!({ ...args, signal: input.signal });
+      const sourceUrls = [...new Set([...result.sources.map((source) => source.url), ...result.candidates.map((candidate) => candidate.identityUrl)])];
+      recordWorkflowTool?.(toolCallId, "discover_price_source", { sourceUrls, input: args, researchStatus: result.researchStatus });
+      input.onToolActivity?.({ stage: "completed", toolCallId, name: "discover_price_source", input: args, evidenceCount: 0, sourceUrls,
+        researchStatus: result.researchStatus ?? "completed" });
+      return { content: [{ type: "text", text: JSON.stringify(result) }], details: {} };
+    },
+  } : undefined;
   return [
+    ...(priceSourceTool ? [priceSourceTool] : []),
     ...draftTools,
     periodTool,
     qualityTool,
@@ -628,9 +646,10 @@ class PiModelControlledPortfolioAnalyst implements PortfolioAnalystAgentRuntime 
       if (memoryProposal) return false;
       memoryProposal = content;
       return true;
-    }, (toolCallId, name) => {
-      if (name.endsWith("_draft")) draftToolCompleted = true;
-      toolCalls.push({ toolCallId, name, input: {}, status: "completed", evidenceKeys: [] });
+    }, (toolCallId, name, metadata) => {
+      if (name.endsWith("_draft") || name === "discover_price_source") draftToolCompleted = true;
+      toolCalls.push({ toolCallId, name, input: metadata?.input ?? {}, status: "completed", evidenceKeys: [],
+        ...(metadata ? { sourceUrls: metadata.sourceUrls, researchStatus: metadata.researchStatus } : {}) });
     });
     const agent = new Agent({
       initialState: {

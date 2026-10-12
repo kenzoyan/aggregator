@@ -66,6 +66,7 @@ function accountHoldingsContext(input: {
       ...holdings.slice(0, maxHoldings).map((holding, index) => ({
         key: `account.holding.${index + 1}`,
         kind: "account-holding" as const,
+        ...(holding.holdingKey ? { sourceAccountId: holding.holdingKey.sourceAccountId, instrumentId: holding.holdingKey.instrumentId } : {}),
         label: "Account holding" as const,
         ...(input.includeHoldingNames ? {
           name: holding.analystDisplayName ?? holding.name,

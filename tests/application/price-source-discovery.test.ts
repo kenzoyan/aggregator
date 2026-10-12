@@ -29,6 +29,20 @@ describe("price source discovery pilot", () => {
     expect(discoverPriceSourceCandidates(position, "alipay")).toEqual([]);
   });
 
+  it("matches the OP candidate by ISIN independent of account name, and invalidates changed identities", () => {
+    const op = { ...position, instrumentCode: "FI4000439773", displayName: "OP Europe", currency: "EUR" };
+    const candidate = discoverPriceSourceCandidates(op, "generic")[0]!;
+    expect(candidate).toMatchObject({ provider: "financial-times", shareClass: "A (Accumulation)" });
+    expect(discoverPriceSourceCandidates({ ...op, currency: "USD" }, "generic")).toEqual([]);
+    expect(discoverPriceSourceCandidates({ ...op, assetType: "stock" }, "generic")).toEqual([]);
+    expect(discoverPriceSourceCandidates({ ...op, instrumentCode: "FI0000000000" }, "generic")).toEqual([]);
+    const binding = { ...candidate, sourceAccountId: op.sourceAccountId, instrumentId: op.instrumentId,
+      instrumentName: op.displayName, confirmedAt: "2026-10-12T00:00:00Z" };
+    expect(bindingMatchesPosition(binding, op)).toBe(true);
+    expect(bindingMatchesPosition(binding, { ...op, instrumentCode: "FI0000000000" })).toBe(false);
+    expect(bindingMatchesPosition(binding, { ...op, assetType: "stock" })).toBe(false);
+    expect(bindingMatchesPosition(binding, { ...op, currency: "USD" })).toBe(false);
+  });
   it("does not reuse a saved binding after the holding identity changes", () => {
     const binding = {
       sourceAccountId: position.sourceAccountId,

@@ -81,3 +81,13 @@ describe("pending Agent actions", () => {
     expect(pendingAgentActions(conversation, drafts).some((action) => action.kind === "sale")).toBe(false);
   });
 });
+
+it("restores a source review independently of its Agent reply and removes it after confirmation", () => {
+  const { conversation, drafts } = fixture();
+  conversation.turns.push({ id: "source", createdAt: "2026-10-12T12:00:00Z", question: "Find source", chat: { assistantText: "", failureCode: "provider-unavailable" },
+    priceSourceReview: { status: "pending", state: "verified", sourceAccountId: "synthetic", instrumentId: "fund", instrumentCode: "FI4000439773",
+      instrumentName: "Synthetic OP", currency: "EUR", retrievedAt: "2026-10-12T12:00:00Z", candidates: [], sources: [], coverage: "bounded-history" } });
+  expect(pendingAgentActions(JSON.parse(JSON.stringify(conversation)), drafts)[0]).toMatchObject({ kind: "price-source", id: "source" });
+  conversation.turns.at(-1)!.priceSourceReview!.status = "saved";
+  expect(pendingAgentActions(conversation, drafts).some((action) => action.kind === "price-source")).toBe(false);
+});

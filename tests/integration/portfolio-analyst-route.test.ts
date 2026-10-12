@@ -1209,3 +1209,25 @@ it("answers an uploaded image through the main Agent, preserves it, then passes 
   expect(received[1].history[1]).toMatchObject({ role: "assistant", text: "Main Agent answer" });
   expect(received[1].question).toBe("Use the first image later.");
 });
+
+it.each([{ failReply: false, cancel: false }, { failReply: true, cancel: false }, { failReply: false, cancel: true }])("persists review before reply and retains final review state: %j", async ({ failReply, cancel }) => {
+  const store = conversationStore();
+  const review = { state: "verified" as const, status: "pending" as const, sourceAccountId: "synthetic-op", instrumentId: "fund",
+    instrumentCode: "FI4000439773", instrumentName: "Synthetic OP", currency: "EUR", retrievedAt: "2026-10-12T12:00:00Z",
+    coverage: "bounded-history" as const, candidates: [], sources: [] };
+  const handlers = createPortfolioAnalystHandlers({ models: { openai: "synthetic" }, defaultProvider: "openai",
+    agentRuntimes: { openai: { runTurn: async (input) => {
+      await input.discoverPriceSource!({ sourceAccountId: "synthetic-op", instrumentId: "fund" });
+      expect(store.readLatestPortfolioAnalystConversation()!.turns.at(-1)?.priceSourceReview).toEqual(review);
+      if (cancel) {
+        const latest = store.readLatestPortfolioAnalystConversation()!;
+        latest.turns.at(-1)!.priceSourceReview!.status = "cancelled";
+        store.savePortfolioAnalystConversation(latest);
+      }
+      if (failReply) throw new Error("Synthetic reply failure");
+      return { kind: "conversation", reply: "Review this source before activating it.", audit: { runtime: "pi-agent-core", modelTurns: 1, stopReason: "completed", toolCalls: [] } };
+    } } } }, { conversations: store, readCurrentPortfolio: portfolio, discoverPriceSource: async () => review });
+  const response = await handlers.POST(request({ provider: "openai", mode: "agent", question: "Find a NAV source", defaultPeriod: "week", language: "en", includeHoldingNames: true }));
+  expect(response.status).toBe(200);
+  expect(store.readLatestPortfolioAnalystConversation()!.turns.at(-1)?.priceSourceReview).toEqual({ ...review, status: cancel ? "cancelled" : "pending" });
+});

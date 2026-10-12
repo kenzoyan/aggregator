@@ -209,6 +209,8 @@ export interface AccountHoldingsSummaryFact {
 }
 
 export interface AccountHoldingFact {
+  sourceAccountId?: string;
+  instrumentId?: string;
   key: string;
   kind: "account-holding";
   label: "Account holding";
