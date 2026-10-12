@@ -5,6 +5,9 @@ import { SummaryDialog } from "@/components/ui/summary-dialog";
 import Image from "next/image";
 import Link from "next/link";
 import {
+  ArrowDown,
+  ArrowUp,
+  ArrowUpDown,
   Plus,
   RefreshCw,
 } from "lucide-react";
@@ -16,6 +19,7 @@ import {
 } from "react";
 
 import { periodLabels } from "@/application/portfolio-period-labels";
+import { nextHoldingChangeSort, sortHoldingsByPeriodChange, type HoldingChangeSort } from "@/components/holding-change-sort";
 import { shouldShowPortfolioValueTrend } from "@/application/portfolio-chart-presentation";
 import type {
   FxOverviewReadModel,
@@ -161,6 +165,7 @@ export function Dashboard() {
   const [chartMode, setChartMode] = useState<ChartMode>("daily-change");
   const [selectedDailyDate, setSelectedDailyDate] = useState<string>();
   const [source, setSource] = useState(allAccounts);
+  const [holdingChangeSort, setHoldingChangeSort] = useState<HoldingChangeSort>("default");
   const [loading, setLoading] = useState(true);
   const [portfolioLoadError, setPortfolioLoadError] = useState<string>();
   const [localPortfolio, setLocalPortfolio] = useState<PortfolioOverviewReadModel>();
@@ -258,6 +263,7 @@ export function Dashboard() {
   };
   const total = localPortfolio?.totalValueEur ?? 0;
   const filtered = source === allAccounts ? holdings : holdings.filter((holding) => holding.source === source);
+  const sortedHoldings = sortHoldingsByPeriodChange(filtered, period, holdingChangeSort);
   const sources = [allAccounts, ...new Set(holdings.map((holding) => holding.source))];
   const latestMarketResult = localPortfolio?.marketData.latestResult;
   const marketRefreshHistory = localPortfolio?.marketData.refreshHistory ?? [];
@@ -527,8 +533,14 @@ export function Dashboard() {
             </label>
           </div>
           <div className="holdings-card">
-            <div className="holding-row holding-header"><span>Asset</span><span>Status</span><span>Current value</span><span>Period change</span></div>
-            {filtered.map((holding) => (
+            <div className="holding-row holding-header"><span>Asset</span><span>Status</span><span>Current value</span><button
+              type="button"
+              className="holding-change-sort"
+              title="Sort by absolute period change in EUR"
+              aria-label={`Absolute period change in EUR: ${holdingChangeSort === "default" ? "default order; sort largest movement first" : holdingChangeSort === "descending" ? "largest movement first; sort smallest movement first" : "smallest movement first; restore default order"}`}
+              onClick={() => setHoldingChangeSort(nextHoldingChangeSort)}
+            >Period change {holdingChangeSort === "default" ? <ArrowUpDown size={14} aria-hidden="true" /> : holdingChangeSort === "descending" ? <ArrowDown size={14} aria-hidden="true" /> : <ArrowUp size={14} aria-hidden="true" />}</button></div>
+            {sortedHoldings.map((holding) => (
               <article
                 className={`holding-row${isLocal ? " holding-row-interactive" : ""}`}
                 key={holding.id}

@@ -3,6 +3,9 @@
 .source-filter select { border: 1px solid #dbe2e7; background: white; color: var(--ink); border-radius: 10px; padding: 9px 32px 9px 11px; }
 .holdings-card { overflow: hidden; }
 .holding-row { display: grid; grid-template-columns: minmax(320px, 1.7fr) 110px 150px minmax(260px, 1.15fr); align-items: center; gap: 18px; padding: 18px 22px; border-top: 1px solid #edf0f2; }
+.holding-change-sort { display: inline-flex; align-items: center; gap: 6px; justify-self: start; border: 0; padding: 0; background: transparent; color: inherit; font: inherit; cursor: pointer; }
+.holding-change-sort:hover { color: var(--accent); }
+.holding-change-sort:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: 2px; }
 .holding-row-interactive { cursor: pointer; transition: background .18s ease; }
 .holding-row-interactive:hover { background: #f8fbff; }
 .holding-row-interactive { position: relative; }
