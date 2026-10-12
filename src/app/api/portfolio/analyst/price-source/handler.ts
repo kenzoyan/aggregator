@@ -1,3 +1,6 @@
+import { randomUUID } from "node:crypto";
+import { appendPortfolioAnalystTurn } from "@/application/portfolio-analyst-conversation";
+import { completePortfolioWorkflowReply, type WorkflowReplyGenerator } from "@/application/portfolio-workflow-reply";
 import { z } from "zod";
 import { currentPriceSourcePosition, PriceSourceError, type PriceSourceDatabase, type createPriceSourceService } from "@/application/price-source-service";
 import type { PortfolioAnalystConversationStore } from "@/application/portfolio-analyst-conversation";
@@ -7,6 +10,8 @@ export function createAgentPriceSourceConfirmHandler(input: {
   database: PriceSourceDatabase & PortfolioAnalystConversationStore;
   service: ReturnType<typeof createPriceSourceService>;
   now?: () => string;
+  createId?: () => string;
+  respond?: WorkflowReplyGenerator;
 }) {
   return async (request: Request) => {
     const json = (value: unknown, status = 200) => Response.json(value, { status, headers: { "Cache-Control": "no-store" } });
@@ -36,10 +41,25 @@ export function createAgentPriceSourceConfirmHandler(input: {
       if (binding.provider !== candidate.provider || binding.instrumentCode !== candidate.instrumentCode) return json({ error: "A different source is already confirmed." }, 409);
       const latest = readReview();
       if (!latest) return json({ error: "Conversation changed. The saved source is available in holding detail." }, 409);
+      const latestReview = latest.turns.find((turn) => turn.id === turnId)?.priceSourceReview ?? review;
+      const replyTurnId = latestReview.confirmationReplyTurnId ?? (input.createId ?? randomUUID)();
       const updated = { ...latest, updatedAt: input.now?.() ?? new Date().toISOString(), turns: latest.turns.map((turn) =>
-        turn.id === turnId ? { ...turn, priceSourceReview: { ...review, binding, status: "saved" as const } } : turn) };
-      input.database.savePortfolioAnalystConversation(updated);
-      return json({ conversation: updated, binding });
+        turn.id === turnId ? { ...turn, priceSourceReview: { ...latestReview, binding, status: "saved" as const, confirmationReplyTurnId: replyTurnId } } : turn) };
+      const conversationWithResult = updated.turns.some((turn) => turn.id === replyTurnId) ? updated : appendPortfolioAnalystTurn(updated, {
+        id: replyTurnId, question: "", createdAt: updated.updatedAt,
+        chat: { assistantText: "", requestStatus: "pending", workflowResult: {
+          workflow: "price-source", operation: "save", status: "succeeded", recordedAt: binding.confirmedAt, portfolioChanged: false,
+          priceSource: { sourceAccountId: binding.sourceAccountId, instrumentId: binding.instrumentId,
+            instrumentCode: binding.instrumentCode, instrumentName: binding.instrumentName, provider: binding.provider,
+            currency: binding.currency, shareClass: binding.shareClass, identityUrl: binding.identityUrl,
+            confirmedAt: binding.confirmedAt, pricesUpdated: false, nextCheck: "manual-or-dashboard-daily" },
+        } },
+      });
+      input.database.savePortfolioAnalystConversation(conversationWithResult);
+      if (!input.respond) return json({ conversation: conversationWithResult, binding });
+      const reply = await completePortfolioWorkflowReply({ conversations: input.database, conversation: conversationWithResult,
+        turnId: replyTurnId, generate: input.respond, signal: request.signal });
+      return json({ ...reply, binding });
     } catch (error) {
       if (error instanceof PriceSourceError) return json({ error: error.message }, error.status);
       return json({ error: "Price source could not be confirmed. Try again." }, 503);

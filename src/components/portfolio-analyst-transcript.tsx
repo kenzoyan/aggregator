@@ -128,8 +128,6 @@ export function SavedConversationEntries({
                 </button>
               </div>}
             </> : null}
-          {entry.turn.priceSourceReview?.status === "saved" && <p role="status">{language === "zh-CN" ? "价格源已确认，之后的净值检查会复用此来源。" : "Price source confirmed. Future NAV checks will reuse it."}</p>}
-          {entry.turn.priceSourceReview?.status === "cancelled" && entry.turn.priceSourceReview.state === "verified" && <p>{language === "zh-CN" ? "价格源审核已取消。" : "Price source review cancelled."}</p>}
         </div>
       ) : entry.kind === "import-follow-up" ? (
         <div className="analyst-turn" key={entry.followUp.id}>

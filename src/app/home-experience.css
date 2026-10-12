@@ -435,3 +435,40 @@
 .contribution-research details { margin-top: 20px; font-size: 13px; }
 .contribution-research article { margin-top: 16px; }
 .portfolio-contribution-detail [hidden] { display: none; }
+
+/* Source review shares the desktop review shell; its body has its own hierarchy. */
+.home-workspace .agent-price-source-review { display: grid; gap: 20px; min-width: 0; padding: 24px; }
+.agent-price-source-review .source-review-heading { display: grid; gap: 8px; }
+.home-workspace .agent-price-source-review h2 { margin: 0; font-size: 20px; line-height: 1.4; overflow-wrap: anywhere; }
+.home-workspace .agent-price-source-review p { margin: 0; font-size: 13px; line-height: 1.65; }
+.agent-price-source-review .eyebrow { color: var(--muted); font-size: 11px; letter-spacing: .06em; }
+.agent-price-source-review .source-review-identity { color: var(--muted); font-variant-numeric: tabular-nums; }
+.agent-price-source-review .source-review-note, .agent-price-source-review .source-review-notice { padding: 12px 14px; border-radius: 8px; background: var(--muted-surface); color: var(--muted); }
+.source-review-candidates { display: grid; gap: 16px; min-width: 0; }
+.source-review-candidate { display: grid; gap: 16px; padding: 20px; border: 1px solid var(--quiet-border); border-radius: 12px; background: var(--surface); min-width: 0; }
+.source-review-candidate-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.source-review-status { padding: 4px 8px; border-radius: 6px; background: var(--muted-surface); color: var(--muted); font-size: 11px; }
+.source-review-status.verified { color: var(--accent); background: var(--muted-surface); }
+.source-review-candidate h3 { margin: 0; font-family: var(--font-geist-sans), sans-serif; font-size: 18px; font-weight: 550; line-height: 1.45; overflow-wrap: anywhere; }
+.source-review-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 20px; margin: 0; }
+.source-review-facts > div { min-width: 0; }
+.source-review-facts dt { color: var(--muted); margin-bottom: 4px; }
+.source-review-facts dd { margin: 0; overflow-wrap: anywhere; }
+.source-review-quote { display: grid; gap: 6px; padding: 16px; background: var(--muted-surface); border-radius: 8px; font-variant-numeric: tabular-nums; }
+.source-review-quote > span { font-size: 12px; color: var(--muted); }
+.source-review-quote > strong { font-size: 28px; font-weight: 550; line-height: 1.3; overflow-wrap: anywhere; }
+.source-review-quote strong small { font-size: 13px; font-weight: 400; color: var(--muted); }
+.source-review-link, .source-review-references a { color: var(--accent); font-size: 13px; text-decoration: underline; text-underline-offset: 3px; overflow-wrap: anywhere; }
+.agent-price-source-review .source-review-coverage, .agent-price-source-review .source-review-retrieved { font-size: 12px; color: var(--muted); }
+.source-review-confirm { justify-self: start; padding: 10px 16px; border: 0; border-radius: 8px; background: var(--accent); color: var(--accent-contrast); font-weight: 600; cursor: pointer; }
+.source-review-references { border-top: 1px solid var(--line); padding-top: 16px; min-width: 0; }
+.source-review-references summary { cursor: pointer; font-size: 13px; color: var(--muted); }
+.source-review-references > p { margin-top: 12px !important; color: var(--muted); }
+.source-review-references ul { display: grid; gap: 16px; padding: 0; margin: 16px 0 0; list-style: none; }
+.source-review-references li { min-width: 0; }
+.source-review-references li p { margin-top: 6px !important; color: var(--muted); overflow-wrap: anywhere; }
+.source-review-actions { padding-top: 16px; border-top: 1px solid var(--line); }
+.source-review-actions button { padding: 9px 14px; border: 1px solid var(--quiet-border); border-radius: 8px; background: var(--surface); color: var(--muted); cursor: pointer; }
+.agent-price-source-review .source-review-error { padding: 12px; border: 1px solid currentColor; border-radius: 8px; color: var(--loss); }
+.agent-price-source-review button:disabled { cursor: not-allowed; opacity: .55; }
+.agent-price-source-review :is(button, a, summary):focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }

@@ -1,11 +1,14 @@
 import type { SaleDraftFields } from "@/application/agent-sale-draft";
 
 export interface PortfolioWorkflowResult {
-  workflow: "sale" | "import" | "image";
+  workflow: "sale" | "import" | "image" | "price-source";
   operation: "prepare" | "update" | "cancel" | "review" | "save";
   status: "succeeded" | "failed";
   recordedAt: string;
   portfolioChanged: boolean;
+  priceSource?: { sourceAccountId: string; instrumentId: string; instrumentCode: string; instrumentName: string;
+    provider: string; currency: string; shareClass: string; identityUrl: string; confirmedAt: string;
+    pricesUpdated: false; nextCheck: "manual-or-dashboard-daily" };
   code?: string;
   details?: string;
   draft?: SaleDraftFields;

@@ -1,4 +1,5 @@
 import Markdown from "react-markdown";
+import { portfolioAnalystToolNames } from "@/application/portfolio-analyst-agent";
 import type { Nodes, Root } from "mdast";
 import remarkGfm from "remark-gfm";
 
@@ -7,12 +8,20 @@ import { normalizeAssistantMarkdown } from "@/components/assistant-markdown";
 /** Remove internal tool citations from prose, leaving links and code untouched.
  * Apply at rendering time so saved reports retain their original evidence.
  */
+const internalToolCitation = new RegExp(`[\\[【]\\s*(?:${portfolioAnalystToolNames.join("|")})\\s*[\\]】]`, "g");
+
 function hideInternalEvidenceCitations() {
   return (tree: Root) => {
     function visit(node: Nodes) {
       if (["link", "linkReference", "image", "imageReference", "code", "inlineCode"].includes(node.type)) return;
       if (node.type === "text") {
         node.value = node.value
+          .replace(/cite([^]+)/g, (marker, keys: string) => keys.split("").every((key) =>
+            /^call\d+\.[\w.-]+$/.test(key) || portfolioAnalystToolNames.includes(key as typeof portfolioAnalystToolNames[number])) ? "" : marker)
+          .replace(/citecall\d+\.[\w.-]*$/, "")
+          .replace(internalToolCitation, "")
+          .replace(/【\s*call\d+\.[\w.-]+(?:[\s,;]+call\d+\.[\w.-]+)*\s*】/g, "")
+          .replace(/【\s*call\d+\.[\w.-]*(?:[\s,;]+call\d+\.[\w.-]*)*[\s,;]*$/, "")
           .replace(/\[\s*call\d+\.[\w.-]+(?:[\s,;]+call\d+\.[\w.-]+)*\s*\]/g, "")
           // Streaming may stop before the closing bracket arrives.
           .replace(/\[\s*call\d+\.[\w.-]*(?:[\s,;]+call\d+\.[\w.-]*)*[\s,;]*$/, "");

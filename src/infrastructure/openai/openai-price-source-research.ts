@@ -9,7 +9,7 @@ export class OpenAIPriceSourceResearch implements PriceSourceResearch {
   }
   search(input: Parameters<PriceSourceResearch["search"]>[0]) {
     return this.research.search({
-      query: JSON.stringify({ task: "Find public pages for daily fund unit NAV, its exact valuation date, currency and share class. Identify the exact ISIN. Return evidence links, not executable code or investment advice.", isin: input.isin, fundName: input.name, currency: input.currency }),
+      query: JSON.stringify({ task: "Find public pages for daily fund unit NAV, its exact valuation date, currency and share class. Identify the exact ISIN. holdingLabel is a user-assigned local display name, not the official fund identity; a label difference alone is not an identity mismatch. Return evidence links, not executable code or investment advice.", isin: input.isin, holdingLabel: input.name, currency: input.currency }),
       language: input.language, signal: input.signal,
     });
   }

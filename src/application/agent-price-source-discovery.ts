@@ -19,6 +19,7 @@ export interface AgentPriceSourceReview {
   sources: WebResearchResult["findings"];
   researchStatus?: WebResearchResult["status"];
   binding?: import("@/application/price-source-discovery").PriceSourceBinding;
+  confirmationReplyTurnId?: string;
   coverage: "bounded-history";
 }
 

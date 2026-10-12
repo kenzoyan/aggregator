@@ -1,4 +1,4 @@
-import { FinancialTimesFundNavClient } from "@/infrastructure/financial-times/financial-times-fund-nav-client";
+import { createProductionPriceSourceProviders } from "@/server/price-source-service";
 import { randomUUID } from "node:crypto";
 
 import { NextResponse } from "next/server";
@@ -52,7 +52,7 @@ function getMarketRefreshHandler() {
   const trading212Config = getTrading212ConnectionConfig(trading212SourceAccountId);
   marketRefreshHandler = createMarketRefreshHandler({
     database: getPortfolioDatabase(),
-    priceSourceProviders: { "financial-times": new FinancialTimesFundNavClient() },
+    priceSourceProviders: createProductionPriceSourceProviders(),
     provider: new PortfolioFundNavClient([
       new EastmoneyFundNavClient(),
       new DanskeInvestFundNavClient({

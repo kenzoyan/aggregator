@@ -107,3 +107,27 @@ describe("internal evidence citation display", () => {
     expect(markup).toContain('<code class="language-text">[call1.overview.summary]');
   });
 });
+
+it("renders Chinese emphasis ending with punctuation without exposing delimiters", () => {
+  const markup = renderToStaticMarkup(createElement(AssistantMessageContent, { text: '已生成。**草稿待确认，来源尚未启用。**请在右侧确认。\n\n`**保留原样。**请`' }));
+  expect(markup).toContain('<strong>草稿待确认，来源尚未启用</strong>。请');
+  expect(markup).toContain('<code>**保留原样。**请</code>');
+});
+
+it("hides Chinese-bracket internal evidence and tool markers while preserving normal text and code", () => {
+  const markup = renderToStaticMarkup(createElement(AssistantMessageContent, { text: '请确认。【call1.account2.account.holding.1】【call1.account2.account.holdings.summary】【discover_price_source】\n\n【重要】保留。`【discover_price_source】`' }));
+  expect(markup).not.toContain('call1.account2');
+  expect(markup).not.toContain('请确认。【discover_price_source】');
+  expect(markup).toContain('【重要】保留');
+  expect(markup).toContain('<code>【discover_price_source】</code>');
+});
+
+
+it("hides internal model citation envelopes, including streamed prefixes, without deleting external references", () => {
+  const render = (text: string) => renderToStaticMarkup(createElement(AssistantMessageContent, { text }));
+  const markup = render("试读成功。citecall2.account1.account.holding.1call1.account.1\n\n`citecall1.account.1`\n\n外部引用：citeexternal-source");
+  expect(markup).not.toContain("试读成功。cite");
+  expect(markup).toContain("<code>citecall1.account.1</code>");
+  expect(markup).toContain("external-source");
+  expect(render("试读成功。citecall2.account1")).not.toContain("call2.account1");
+});

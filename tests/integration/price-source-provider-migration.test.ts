@@ -28,4 +28,20 @@ describe("price source provider migration", () => {
       initializePortfolioSchema(db);
     } finally { db.close(); }
   });
+  it("preserves v13 bindings and statuses while permitting the new Danske provider", () => {
+    const db = new DatabaseSync(":memory:");
+    try {
+      initializePortfolioSchema(db);
+      db.exec(`UPDATE schema_metadata SET version = 13;
+        INSERT INTO price_source_bindings VALUES ('synthetic','fund','Example','FI4000439773','EUR','A','financial-times',
+          'https://example.test','2026-10-01','2026-10-09','updated','2026-10-08',NULL);`);
+      const before = db.prepare("SELECT * FROM price_source_bindings").all();
+      initializePortfolioSchema(db);
+      expect(db.prepare("SELECT * FROM price_source_bindings").all()).toEqual(before);
+      db.exec("UPDATE price_source_bindings SET provider = 'danske-invest'");
+      expect(() => db.exec("UPDATE price_source_bindings SET provider = 'unknown'")).toThrow();
+      initializePortfolioSchema(db);
+    } finally { db.close(); }
+  });
+
 });

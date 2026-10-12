@@ -9,6 +9,10 @@ export function normalizeAssistantMarkdown(text: string) {
       return line;
     }
     if (fence || /^(?: {4}|\t)/.test(line)) return line;
+    // CommonMark cannot close emphasis after punctuation directly before CJK letters.
+    // Move that punctuation outside emphasis without touching code spans or fences.
+    line = line.split(/(`+[^`]*`+)/g).map((part) => part.startsWith("`") ? part :
+      part.replace(/(\*\*|__)([^*_\n]+?)([，。；：！？、）…])\1(?=[\p{L}\p{N}])/gu, "$1$2$1$3")).join("");
     const attached = /^([^#\n]{1,40}[,，:：])[ \t]*(#{1,6})[ \t]+(.+)$/.exec(line);
     if (!attached) return line;
     const [, greeting, marker, rest] = attached;

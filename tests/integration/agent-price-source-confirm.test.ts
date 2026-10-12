@@ -1,3 +1,4 @@
+import { createWorkflowReplyHandler } from "@/app/api/portfolio/analyst/sale/reply/handler";
 import { createPendingActionCancelHandler } from "@/app/api/portfolio/analyst/pending-actions/handler";
 import { describe, expect, it, vi } from "vitest";
 import { createAgentPriceSourceConfirmHandler } from "@/app/api/portfolio/analyst/price-source/handler";
@@ -81,4 +82,44 @@ describe("Agent source confirmation", () => {
     } finally { db.close(); }
   });
 
+});
+
+it("feeds a structured saved-source result to the main Agent and persists its reply without replacing the research answer", async () => {
+  const { db, database, service } = await setup();
+  try {
+    const respond = vi.fn(async (_conversation, result) => {
+      expect(result).toMatchObject({ workflow: "price-source", operation: "save", status: "succeeded", portfolioChanged: false,
+        priceSource: { provider: "financial-times", instrumentCode: "FI4000439773", currency: "EUR", pricesUpdated: false } });
+      expect(db.readPriceSourceBindings()).toHaveLength(1);
+      return { text: "这个价格源已保存，下次检查净值会使用它。", audit: { runtime: "pi-agent-core" as const, modelTurns: 2, stopReason: "completed" as const, toolCalls: [] } };
+    });
+    const handler = createAgentPriceSourceConfirmHandler({ database, service, now, respond, createId: () => "source-result" });
+    expect((await handler(request())).status).toBe(200);
+    const chat = db.readPortfolioAnalystConversation("chat")!;
+    expect(chat.turns[0].chat?.assistantText).toBe("Review required");
+    expect(chat.turns.at(-1)?.chat?.assistantText).toContain("这个价格源已保存");
+    expect((await handler(request())).status).toBe(200);
+    expect(respond).toHaveBeenCalledTimes(1);
+    expect(db.readPortfolioAnalystConversation("chat")!.turns).toHaveLength(2);
+    expect(db.readMarketData().observations).toEqual([]);
+  } finally { db.close(); }
+});
+
+it("keeps the confirmed binding and a retryable structured outcome if the confirmation reply fails", async () => {
+  const { db, database, service } = await setup();
+  try {
+    const response = await createAgentPriceSourceConfirmHandler({ database, service, now, createId: () => "source-result", respond: async () => { throw new Error("Model unavailable"); } })(request());
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ replyUnavailable: true, replyTurnId: "source-result" });
+    expect(db.readPriceSourceBindings()).toHaveLength(1);
+    expect(db.readPortfolioAnalystConversation("chat")!.turns.at(-1)?.chat).toMatchObject({ assistantText: "", requestStatus: "pending", workflowResult: { workflow: "price-source", status: "succeeded" } });
+    const retry = createWorkflowReplyHandler({ conversations: db, generate: async (_chat, result) => {
+      expect(result.priceSource?.pricesUpdated).toBe(false);
+      return { text: "价格源已保存。", audit: { runtime: "pi-agent-core", modelTurns: 2, stopReason: "completed", toolCalls: [] } };
+    } });
+    expect((await retry(new Request("http://localhost/reply", { method: "POST", body: JSON.stringify({ conversationId: "chat", turnId: "source-result" }) }))).status).toBe(200);
+    expect(db.readPortfolioAnalystConversation("chat")!.turns.at(-1)?.chat?.assistantText).toBe("价格源已保存。");
+    expect(db.readPriceSourceBindings()).toHaveLength(1);
+    expect(db.readMarketData().observations).toEqual([]);
+  } finally { db.close(); }
 });

@@ -1,7 +1,8 @@
+import { danskeEuropeanEquitySource } from "@/domain/public-fund-price-sources";
 import type { PortfolioState, Position } from "@/domain/portfolio/types";
 import type { FundNavProvider, MarketRefreshFailureCategory } from "@/domain/market-data";
 
-export type PriceSourceProvider = "eastmoney" | "financial-times";
+export type PriceSourceProvider = "eastmoney" | "financial-times" | "danske-invest";
 export type PriceSourceProviders = Partial<Record<PriceSourceProvider, FundNavProvider>>;
 
 export interface PriceSourceRefreshStatus {
@@ -38,6 +39,16 @@ export interface PriceSourceBinding {
   lastRefresh?: Omit<PriceSourceRefreshStatus, "sourceAccountId" | "instrumentId" | "instrumentCode" | "provider">;
 }
 
+const danskeCandidate: PriceSourceCandidate = {
+  id: "danske-FI0008802988-EUR",
+  name: danskeEuropeanEquitySource.name,
+  instrumentCode: danskeEuropeanEquitySource.isin,
+  currency: danskeEuropeanEquitySource.currency,
+  shareClass: danskeEuropeanEquitySource.shareClass,
+  provider: "danske-invest",
+  identityUrl: danskeEuropeanEquitySource.identityUrl,
+};
+
 const opCandidate: PriceSourceCandidate = {
   id: "ft-FI4000439773-EUR",
   name: "OP-Europe Fund A",
@@ -66,8 +77,9 @@ export function discoverPriceSourceCandidates(
   position: Position,
   accountProvider: string,
 ): PriceSourceCandidate[] {
-  if (position.assetType === "fund" && position.currency === opCandidate.currency &&
-      position.instrumentCode === opCandidate.instrumentCode) return [opCandidate];
+  for (const candidate of [opCandidate, danskeCandidate]) {
+    if (position.assetType === "fund" && position.currency === candidate.currency && position.instrumentCode === candidate.instrumentCode) return [candidate];
+  }
   if (accountProvider !== "wechat" || position.assetType !== "fund" ||
       position.currency !== "CNY" || /^\d{6}$/.test(position.instrumentCode ?? "")) {
     return [];
@@ -83,7 +95,7 @@ export function bindingMatchesPosition(binding: PriceSourceBinding, position: Po
   return binding.sourceAccountId === position.sourceAccountId &&
     binding.instrumentId === position.instrumentId &&
     binding.currency === position.currency &&
-    (binding.provider !== "financial-times" ||
+    (binding.provider === "eastmoney" ||
       (position.assetType === "fund" && position.instrumentCode === binding.instrumentCode)) &&
     (!/^\d{6}$/.test(position.instrumentCode ?? "") ||
       position.instrumentCode === binding.instrumentCode) &&
