@@ -9,7 +9,7 @@ import { portfolioCalendarDate } from "@/application/portfolio-calendar";
 import type { PriceSourceBinding, PriceSourceCandidate } from "@/application/price-source-discovery";
 import type { HoldingPriceHistoryReadModel, Period, PortfolioOverviewReadModel } from "@/application/portfolio-read-model";
 import type { SourceAccountsPageReadModel } from "@/application/source-account-status";
-import { holdingDetailTabs, holdingTabForKey, type HoldingDetailTab } from "@/components/holding-detail-navigation";
+import { accountDetailBackLink, accountDetailHref, holdingDetailTabs, holdingTabForKey, type HoldingDetailTab } from "@/components/holding-detail-navigation";
 import { selectAccountHolding } from "@/components/account-holding-selection";
 import { HoldingPerformanceChart } from "@/components/holding-performance-chart";
 import { PortfolioCashActivity } from "@/components/portfolio-cash-activity";
@@ -63,10 +63,12 @@ function HoldingMarketData({ history, sourceInfo, action }: {
   </section>;
 }
 
-export function AccountHoldingsPage({ accountId, requestedHoldingId }: {
+export function AccountHoldingsPage({ accountId, requestedHoldingId, navigationOrigin }: {
   accountId: string;
   requestedHoldingId?: string;
+  navigationOrigin?: string | string[];
 }) {
+  const backLink = accountDetailBackLink(navigationOrigin);
   const [accountsPage, setAccountsPage] = useState<SourceAccountsPageReadModel>();
   const [activity, setActivity] = useState<CashActivityReadModel>();
   const [portfolio, setPortfolio] = useState<PortfolioOverviewReadModel>();
@@ -250,7 +252,7 @@ export function AccountHoldingsPage({ accountId, requestedHoldingId }: {
 
   return <main className="account-detail-page">
     <div className="account-detail-topline">
-      <Link href="/accounts">← All accounts</Link>
+      <Link href={backLink.href}>{backLink.label}</Link>
       {account && <Link className="account-detail-update" href={`/imports?account=${encodeURIComponent(accountId)}`}>Update this account</Link>}
     </div>
     {loading ? <p className="account-detail-message" role="status">Loading account holdings…</p>
@@ -278,7 +280,7 @@ export function AccountHoldingsPage({ accountId, requestedHoldingId }: {
                 <select id="account-holding-select" value={selected.id} onChange={(event) => {
                   const id = event.target.value;
                   setActiveHoldingId(id); setDetailTab("overview"); setEditingPrice(false); setEditingSale(false); setPeriod("week");
-                  router.replace(`/accounts/${encodeURIComponent(accountId)}?holding=${encodeURIComponent(id)}`, { scroll: false });
+                  router.replace(accountDetailHref(accountId, id, navigationOrigin), { scroll: false });
                 }}>
                   {holdings.map((holding) => <option key={holding.id} value={holding.id}>{holding.name}</option>)}
                 </select>

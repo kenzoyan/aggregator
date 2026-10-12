@@ -1,6 +1,12 @@
 import Decimal from "decimal.js";
 import { investmentHoldingId } from "@/application/portfolio-holding-id";
-import type { PortfolioOverviewReadModel } from "@/application/portfolio-read-model";
+import type { HoldingReadModel, PortfolioOverviewReadModel } from "@/application/portfolio-read-model";
+
+export function hasCurrentHoldingsPnl(holding: HoldingReadModel): boolean {
+  return holding.category !== "Portfolio cash" && holding.totalReturn !== undefined
+    && Number.isFinite(holding.eurValue) && Number.isFinite(holding.totalReturn.eurAmount)
+    && new Decimal(holding.eurValue).minus(holding.totalReturn.eurAmount).gte(0);
+}
 
 export interface CurrentHoldingsPnl {
   coverage: "complete" | "partial" | "unavailable" | "empty";
@@ -26,7 +32,7 @@ export function currentHoldingsPnl(
   }
   let pnl = new Decimal(0), cost = new Decimal(0), includedHoldingCount = 0;
   for (const holding of investments) {
-    if (!holding.totalReturn || !Number.isFinite(holding.eurValue) || !Number.isFinite(holding.totalReturn.eurAmount)) continue;
+    if (!hasCurrentHoldingsPnl(holding) || !holding.totalReturn) continue;
     const holdingCost = new Decimal(holding.eurValue).minus(holding.totalReturn.eurAmount);
     if (holdingCost.isNegative()) continue;
     pnl = pnl.plus(holding.totalReturn.eurAmount);

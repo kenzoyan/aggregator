@@ -8,6 +8,7 @@ import {
   ArrowDown,
   ArrowUp,
   ArrowUpDown,
+  ChevronDown,
   Info,
   Plus,
   RefreshCw,
@@ -21,6 +22,8 @@ import {
 
 import { periodLabels } from "@/application/portfolio-period-labels";
 import { currentHoldingsPnl } from "@/application/current-holdings-pnl";
+import { HoldingsPnlBreakdown } from "@/components/holdings-pnl-breakdown";
+import { accountDetailHref } from "@/components/holding-detail-navigation";
 import { nextHoldingChangeSort, sortHoldingsByPeriodChange, type HoldingChangeSort } from "@/components/holding-change-sort";
 import { shouldShowPortfolioValueTrend } from "@/application/portfolio-chart-presentation";
 import type {
@@ -165,6 +168,7 @@ export function Dashboard() {
   const questionRequestId = useRef(0);
   const [period, setPeriod] = useState<Period>("week");
   const [chartMode, setChartMode] = useState<ChartMode>("daily-change");
+  const [pnlExpanded, setPnlExpanded] = useState(false);
   const [selectedDailyDate, setSelectedDailyDate] = useState<string>();
   const [source, setSource] = useState(allAccounts);
   const [holdingChangeSort, setHoldingChangeSort] = useState<HoldingChangeSort>("default");
@@ -366,19 +370,17 @@ export function Dashboard() {
             <div className="home-balance-meta">
               <div className="home-holdings-pnl">
                 <div className="home-holdings-pnl-label">
-                  <span>Holdings P&amp;L</span>
+                  <button type="button" className="pnl-expand-button" aria-expanded={pnlExpanded} aria-controls="holdings-pnl-contributions" onClick={() => setPnlExpanded(!pnlExpanded)}>
+                    <span>Holdings P&amp;L</span>
+                    <strong className={holdingsPnl?.pnlEur === undefined ? "" : holdingsPnl.pnlEur >= 0 ? "positive" : "negative"}>
+                      {loading ? "—" : portfolioLoadError ? "Unavailable" : holdingsPnl?.pnlEur !== undefined ? signedEur(holdingsPnl.pnlEur) : "—"}
+                    </strong>
+                    <ChevronDown size={16} aria-hidden="true" />
+                  </button>
                   <details className="home-pnl-info">
                     <summary aria-label="About holdings profit and loss"><Info size={14} aria-hidden="true" /></summary>
-                    <p>Current holdings value minus their remaining cost. Excludes cash and realised profit or loss. Converted to EUR at current rates; the percentage is based on covered holdings’ total cost.</p>
+                    <p>• Value − remaining cost, in EUR.<br />• Excludes cash and realised P&amp;L.<br />• Top 5 contributors; accounts show net P&amp;L.</p>
                   </details>
-                </div>
-                <div className="home-holdings-pnl-value">
-                  <strong className={holdingsPnl?.pnlEur === undefined ? "" : holdingsPnl.pnlEur >= 0 ? "positive" : "negative"}>
-                    {loading ? "—" : portfolioLoadError ? "Unavailable" : holdingsPnl?.pnlEur !== undefined ? signedEur(holdingsPnl.pnlEur) : "—"}
-                  </strong>
-                  {!loading && !portfolioLoadError && holdingsPnl?.percent !== undefined && <span className={holdingsPnl.percent >= 0 ? "positive" : "negative"}>
-                    {holdingsPnl.percent >= 0 ? "+" : "−"}{Math.abs(holdingsPnl.percent).toFixed(2)}%
-                  </span>}
                 </div>
                 {(loading || portfolioLoadError || holdingsPnl?.coverage !== "complete") && <small>{loading ? "Loading…" : portfolioLoadError ? "Could not load holdings" : holdingsPnl?.coverage === "partial"
                   ? `${holdingsPnl.includedHoldingCount}/${holdingsPnl.totalHoldingCount} holdings covered`
@@ -395,6 +397,7 @@ export function Dashboard() {
                 </SummaryDialog>
               </div>
             </div>
+            <HoldingsPnlBreakdown portfolio={localPortfolio} loading={loading} error={portfolioLoadError} expanded={pnlExpanded} />
             <div className="chart-toolbar">
               <div className="chart-mode-tabs" role="group" aria-label="Select chart metric">
                 <button type="button" className={chartMode === "daily-change" ? "selected" : ""} onClick={() => setChartMode("daily-change")} aria-pressed={chartMode === "daily-change"}>Investment change{chartMode === "daily-change" && <motion.span className="tab-selection" layoutId="chart-metric" />}</button>
@@ -558,7 +561,7 @@ export function Dashboard() {
               </select>
             </label>
           </div>
-          <div className="holdings-card">
+          <div className="holdings-card holdings-scroll-region" role="region" aria-label="Holdings list" tabIndex={0}>
             <div className="holding-row holding-header"><span>Asset</span><span>Status</span><span>Current value</span><button
               type="button"
               className="holding-change-sort"
@@ -571,7 +574,7 @@ export function Dashboard() {
                 className={`holding-row${isLocal ? " holding-row-interactive" : ""}`}
                 key={holding.id}
               >
-                {isLocal && <Link className="holding-row-overlay" href={`/accounts/${encodeURIComponent(holding.sourceAccountId)}?holding=${encodeURIComponent(holding.id)}`} aria-label={`View ${holding.name} in ${holding.source}`} />}
+                {isLocal && <Link className="holding-row-overlay" href={accountDetailHref(holding.sourceAccountId, holding.id, "holdings")} aria-label={`View ${holding.name} in ${holding.source}`} />}
                 <div className="asset-cell"><span className="asset-icon">{holding.category === "Bond" ? "B" : holding.category === "Fund" ? "F" : holding.category === "ETF" ? "E" : holding.category === "Portfolio cash" ? "€" : holding.category === "Stock" ? "S" : "?"}</span><p><strong>{holding.name}</strong><small>{holding.source} · {holding.symbol} · {holding.category}</small></p></div>
                 <div className="holding-status"><span className={`freshness ${holding.freshness}`}>{freshnessLabels[holding.freshness]}</span><small className="as-of">{holding.asOf}</small></div>
                 <div className="value-cell">

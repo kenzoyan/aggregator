@@ -109,3 +109,24 @@
 .exposure-list > div > strong { justify-self: end; font-size: 9px; }
 .exposure-list i { grid-column: 1 / -1; height: 3px; overflow: hidden; border-radius: 999px; background: #e5ebf1; }
 .exposure-list i span { display: block; height: 100%; border-radius: inherit; background: var(--blue); }
+/* Current P&L stays compact until the owner expands its contributors. */
+.pnl-expand-button { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 12px; padding: 4px 0; border: 0; background: transparent; color: var(--muted); font: inherit; cursor: pointer; }
+.pnl-expand-button strong { font-size: 24px; font-weight: 550; letter-spacing: -.03em; }
+.pnl-expand-button[aria-expanded="true"] svg { transform: rotate(180deg); }
+.pnl-expand-button:focus-visible, .pnl-grouping button:focus-visible, .pnl-contributions a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.pnl-breakdown { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--line); }
+.pnl-breakdown-heading { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px; color: var(--muted); font-size: 11px; }
+.pnl-grouping { display: inline-flex; padding: 4px; border-radius: 9px; background: var(--muted-surface); }
+.pnl-grouping button { padding: 6px 10px; border: 0; border-radius: 7px; background: transparent; color: var(--muted); font: inherit; cursor: pointer; }
+.pnl-grouping button[aria-pressed="true"] { background: var(--surface); color: var(--ink); }
+.pnl-contributions { list-style: none; margin: 8px 0 0; padding: 0; }
+.pnl-contributions a { display: grid; grid-template-columns: minmax(0, 1fr) minmax(80px, 1fr) auto; align-items: center; gap: 16px; padding: 10px 0; color: inherit; text-decoration: none; }
+.pnl-contributions a:hover .pnl-contribution-name { text-decoration: underline; }
+.pnl-contribution-name { min-width: 0; overflow-wrap: anywhere; color: var(--ink); font-size: 12px; }
+.pnl-contribution-name small { display: block; margin-top: 2px; color: var(--muted); font-size: 10px; }
+.pnl-contribution-amount { min-width: 80px; text-align: right; font-size: 12px; font-variant-numeric: tabular-nums; }
+.pnl-contribution-track { position: relative; height: 6px; }
+.pnl-contribution-track::after { content: ""; position: absolute; left: 50%; top: -3px; height: 12px; border-left: 1px solid var(--line); }
+.pnl-contribution-track i { position: absolute; left: 50%; width: var(--pnl-width); height: 100%; border-radius: 3px; background: currentColor; }
+.negative .pnl-contribution-track i { left: auto; right: 50%; }
+.pnl-breakdown-note, .pnl-contribution-empty { margin: 8px 0 0; color: var(--muted); font-size: 11px; line-height: 1.5; }

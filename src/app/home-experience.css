@@ -70,6 +70,35 @@
 .home-workspace .source-filter { font-size: 13px; }
 .home-workspace .holding-row { grid-template-columns: minmax(200px, 1.6fr) 100px minmax(120px, 1fr) minmax(150px, 1fr); gap: 16px; min-width: 650px; padding: 20px; }
 .home-workspace .holding-header { padding-block: 14px; font-size: 12px; }
+
+@media (min-width: 701px) {
+  .home-workspace .holdings-scroll-region {
+    max-height: 48rem;
+    overflow: auto;
+    scrollbar-gutter: stable;
+    scrollbar-width: auto;
+    scrollbar-color: var(--muted) var(--muted-surface);
+    scroll-padding-top: 52px;
+  }
+  .home-workspace .holdings-scroll-region .holding-header {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    background: var(--muted-surface);
+    border-bottom: 1px solid var(--line);
+  }
+  .home-workspace .holdings-scroll-region:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 3px;
+  }
+  .home-workspace .holdings-scroll-region::-webkit-scrollbar { width: 12px; height: 12px; }
+  .home-workspace .holdings-scroll-region::-webkit-scrollbar-track { background: var(--muted-surface); }
+  .home-workspace .holdings-scroll-region::-webkit-scrollbar-thumb {
+    background: var(--muted);
+    border: 3px solid var(--muted-surface);
+    border-radius: 6px;
+  }
+}
 .home-workspace .asset-cell strong, .home-workspace .value-cell strong { font-family: var(--font-geist-sans), sans-serif; font-size: 15px; font-weight: 550; }
 .home-workspace .asset-cell small, .home-workspace .value-cell small, .home-workspace .as-of { font-size: 12px; }
 .home-workspace .asset-icon { width: 36px; height: 36px; flex-basis: 36px; background: var(--muted-surface); }
