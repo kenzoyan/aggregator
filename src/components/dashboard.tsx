@@ -8,6 +8,7 @@ import {
   ArrowDown,
   ArrowUp,
   ArrowUpDown,
+  Info,
   Plus,
   RefreshCw,
 } from "lucide-react";
@@ -19,6 +20,7 @@ import {
 } from "react";
 
 import { periodLabels } from "@/application/portfolio-period-labels";
+import { currentHoldingsPnl } from "@/application/current-holdings-pnl";
 import { nextHoldingChangeSort, sortHoldingsByPeriodChange, type HoldingChangeSort } from "@/components/holding-change-sort";
 import { shouldShowPortfolioValueTrend } from "@/application/portfolio-chart-presentation";
 import type {
@@ -262,6 +264,7 @@ export function Dashboard() {
     percent: localHistory?.percent ?? 0,
   };
   const total = localPortfolio?.totalValueEur ?? 0;
+  const holdingsPnl = localPortfolio ? currentHoldingsPnl(localPortfolio) : undefined;
   const filtered = source === allAccounts ? holdings : holdings.filter((holding) => holding.source === source);
   const sortedHoldings = sortHoldingsByPeriodChange(filtered, period, holdingChangeSort);
   const sources = [allAccounts, ...new Set(holdings.map((holding) => holding.source))];
@@ -360,14 +363,37 @@ export function Dashboard() {
               <span className="coverage">{loading ? "Loading portfolio…" : isLocal ? `${holdings.length} valued positions` : "No confirmed positions"}</span>
             </div>
             <strong className="total-value">{loading ? "—" : portfolioLoadError ? "Unavailable" : eur.format(total)}</strong>
-            <p className="subtle">EUR base currency · original currencies retained</p>
-            <div className="home-fx-entry">
-              <SummaryDialog title="EUR/CNY" summary={<><strong>{loading ? "Loading rate…" : eurCnyOverview ? `€1 = ¥${fxRate.format(eurCnyOverview.currentRate)}` : "Rate unavailable"}</strong><small>{eurCnyOverview ? `ECB · ${eurCnyOverview.asOf}` : "ECB reference rate"}</small></>}>
-                <h2>Exchange rate</h2>
-                <p className="home-fx-current">{eurCnyOverview ? `€1 = ¥${fxRate.format(eurCnyOverview.currentRate)}` : "CNY rate unavailable"}</p>
-                <p className="subtle">ECB reference rate · {eurCnyOverview?.asOf ?? "No recorded rate yet"}</p>
-                {eurCnyOverview && <table className="home-fx-history"><caption>Recent recorded rates</caption><thead><tr><th>Date</th><th>CNY per EUR</th></tr></thead><tbody>{eurCnyOverview.history.slice(-20).toReversed().map((point) => <tr key={point.asOf}><td>{point.asOf}</td><td>{fxRate.format(point.rate)}</td></tr>)}</tbody></table>}
-              </SummaryDialog>
+            <div className="home-balance-meta">
+              <div className="home-holdings-pnl">
+                <div className="home-holdings-pnl-label">
+                  <span>Holdings P&amp;L</span>
+                  <details className="home-pnl-info">
+                    <summary aria-label="About holdings profit and loss"><Info size={14} aria-hidden="true" /></summary>
+                    <p>Current holdings value minus their remaining cost. Excludes cash and realised profit or loss. Converted to EUR at current rates; the percentage is based on covered holdings’ total cost.</p>
+                  </details>
+                </div>
+                <div className="home-holdings-pnl-value">
+                  <strong className={holdingsPnl?.pnlEur === undefined ? "" : holdingsPnl.pnlEur >= 0 ? "positive" : "negative"}>
+                    {loading ? "—" : portfolioLoadError ? "Unavailable" : holdingsPnl?.pnlEur !== undefined ? signedEur(holdingsPnl.pnlEur) : "—"}
+                  </strong>
+                  {!loading && !portfolioLoadError && holdingsPnl?.percent !== undefined && <span className={holdingsPnl.percent >= 0 ? "positive" : "negative"}>
+                    {holdingsPnl.percent >= 0 ? "+" : "−"}{Math.abs(holdingsPnl.percent).toFixed(2)}%
+                  </span>}
+                </div>
+                {(loading || portfolioLoadError || holdingsPnl?.coverage !== "complete") && <small>{loading ? "Loading…" : portfolioLoadError ? "Could not load holdings" : holdingsPnl?.coverage === "partial"
+                  ? `${holdingsPnl.includedHoldingCount}/${holdingsPnl.totalHoldingCount} holdings covered`
+                  : holdingsPnl?.coverage === "unavailable" ? "Cost or valuation data unavailable"
+                    : !holdingsPnl || holdingsPnl.coverage === "empty" ? "No investment holdings yet"
+                      : ""}</small>}
+              </div>
+              <div className="home-fx-entry">
+                <SummaryDialog title="EUR/CNY" summary={<strong>{loading ? "—" : eurCnyOverview ? fxRate.format(eurCnyOverview.currentRate) : "Unavailable"}</strong>}>
+                  <h2>Exchange rate</h2>
+                  <p className="home-fx-current">{eurCnyOverview ? `€1 = ¥${fxRate.format(eurCnyOverview.currentRate)}` : "CNY rate unavailable"}</p>
+                  <p className="subtle">ECB reference rate · {eurCnyOverview?.asOf ?? "No recorded rate yet"}</p>
+                  {eurCnyOverview && <table className="home-fx-history"><caption>Recent recorded rates</caption><thead><tr><th>Date</th><th>CNY per EUR</th></tr></thead><tbody>{eurCnyOverview.history.slice(-20).toReversed().map((point) => <tr key={point.asOf}><td>{point.asOf}</td><td>{fxRate.format(point.rate)}</td></tr>)}</tbody></table>}
+                </SummaryDialog>
+              </div>
             </div>
             <div className="chart-toolbar">
               <div className="chart-mode-tabs" role="group" aria-label="Select chart metric">
