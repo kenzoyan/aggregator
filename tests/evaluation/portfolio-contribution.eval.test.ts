@@ -18,12 +18,20 @@ describe.skipIf(!enabled)("real period contribution and market explanations", ()
     const model = getPortfolioAnalystProviderRegistry().models.openai;
     const only = process.env.PORTFOLIO_CONTRIBUTION_EVAL_ONLY;
     const replayResearch = process.env.PORTFOLIO_CONTRIBUTION_REPLAY === "1";
-    if (only && !["local", "research", "unavailable", "adapter-replay"].includes(only)) throw new Error("Unknown evaluation scenario");
+    if (only && !["local", "research", "unavailable", "adapter-replay", "reliability"].includes(only)) throw new Error("Unknown evaluation scenario");
     const priorApiRequests = Number(process.env.PORTFOLIO_EVAL_PRIOR_API_REQUESTS ?? "0");
     const priorEstimatedUsd = Number(process.env.PORTFOLIO_EVAL_PRIOR_ESTIMATED_USD ?? "0");
-    if (!Number.isInteger(priorApiRequests) || priorApiRequests < 0 || priorApiRequests >= 12 ||
-      !Number.isFinite(priorEstimatedUsd) || priorEstimatedUsd < 0 || priorEstimatedUsd >= .10) throw new Error("Invalid prior budget usage");
-    const measurement = measureApiUsage(globalThis.fetch, { maxRequests: defaultApiTestBudget.maxRequests - priorApiRequests,
+    // Set only after explicit owner approval; prior usage remains in the report.
+    const extension = process.env.PORTFOLIO_EVAL_APPROVED_EXTENSION === "6-requests-0.05-usd";
+    const extensionUsedRequests = Number(process.env.PORTFOLIO_EVAL_EXTENSION_USED_REQUESTS ?? "0");
+    const extensionUsedUsd = Number(process.env.PORTFOLIO_EVAL_EXTENSION_USED_USD ?? "0");
+    if (!Number.isInteger(extensionUsedRequests) || extensionUsedRequests < 0 || extensionUsedRequests > 6 ||
+      !Number.isFinite(extensionUsedUsd) || extensionUsedUsd < 0 || extensionUsedUsd > .05 ||
+      (!extension && (extensionUsedRequests || extensionUsedUsd))) throw new Error("Invalid extension usage");
+    if (!Number.isInteger(priorApiRequests) || priorApiRequests < 0 || (!extension && priorApiRequests >= 12) ||
+      !Number.isFinite(priorEstimatedUsd) || priorEstimatedUsd < 0 || (!extension && priorEstimatedUsd >= .10)) throw new Error("Invalid prior budget usage");
+    const measurement = measureApiUsage(globalThis.fetch, extension ? { maxRequests: 6 - extensionUsedRequests, maxEstimatedUsd: .05 - extensionUsedUsd } : {
+      maxRequests: defaultApiTestBudget.maxRequests - priorApiRequests,
       maxEstimatedUsd: defaultApiTestBudget.maxEstimatedUsd - priorEstimatedUsd });
     const researchOutputs: unknown[] = [];
     const measuredResearchFetch: typeof fetch = async (url, options) => {
@@ -47,6 +55,16 @@ describe.skipIf(!enabled)("real period contribution and market explanations", ()
     });
     const tools = createPortfolioAnalystTools(portfolio, []);
     const replayFetch: typeof fetch = async () => {
+      const verifiedReplayFile = process.env.PORTFOLIO_CONTRIBUTION_VERIFIED_REPLAY_FILE;
+      if (verifiedReplayFile) {
+        // Replay previously validated public findings, not a new live search or the raw provider envelope.
+        const report = JSON.parse(readFileSync(verifiedReplayFile, "utf8"));
+        const result = JSON.parse(report.outcomes.find((outcome: { scenario: string }) => outcome.scenario === "adapter-replay").answer);
+        return Response.json({ status: "completed", output: [
+          { type: "web_search_call", action: { sources: result.findings.map((finding: { url: string; title: string }) => ({ url: finding.url, title: finding.title })) } },
+          { type: "message", content: [{ type: "output_text", text: JSON.stringify({ findings: result.findings }) }] },
+        ] });
+      }
       const outputs = JSON.parse(readFileSync("data/evaluations/contribution-research-public-output.json", "utf8"));
       return Response.json({ status: "completed", output: outputs[0] });
     };
@@ -66,6 +84,13 @@ describe.skipIf(!enabled)("real period contribution and market explanations", ()
       return result;
     };
     try {
+      if (only === "reliability") {
+        const company = await run("live-company-research", "Search the web and explain what the Finnish company Granlund does. Cite usable sources. This is a general company profile, not a request for a dated news event.");
+        expect(company.kind).toBe("report");
+        expect(company.audit.toolCalls.find((call) => call.name === "search_web")?.input.fromDate).toBeUndefined();
+        expect(company.audit.toolCalls.find((call) => call.name === "search_web")?.input.toDate).toBeUndefined();
+        if (company.kind === "report") expect(company.context.facts.some((fact) => fact.kind === "web-research-source")).toBe(true);
+      }
       if (only === "adapter-replay") {
         expect(replayResearch).toBe(true);
         const result = await webResearch.search({ query: "Nasdaq-100 historical drivers", language: "en", dateRange: { from: "2024-09-16", to: "2024-09-23" } });
@@ -86,8 +111,10 @@ describe.skipIf(!enabled)("real period contribution and market explanations", ()
       expect(arithmetic.answer.answer.text).toMatch(/current.*quantit|quantit.*current/i);
       }
 
-      if (!only || only === "research") {
-      const research = await run("historical-market-drivers", `${replayResearch ? "In your first response request both the period read and web research before writing an answer. " : ""}First read my saved 7-day performance, then research possible Nasdaq-100 market drivers for 2024-09-16 through 2024-09-23 inclusive. Keep publication dates distinct from event dates. Distinguish source reports from hypotheses about the synthetic tracker. Do not claim proved causation or substitute current news.`);
+      if (!only || only === "research" || only === "reliability") {
+      const historicalRuntime = only === "reliability" ? createPiNativePortfolioAnalystRuntime({ model, apiKey, fetch: measurement.fetch,
+        webResearch: new OpenAIWebResearch({ model, apiKey, fetch: replayFetch }) }) : runtime;
+      const research = await run("historical-market-drivers", "First read my saved 7-day performance, then research possible Nasdaq-100 market drivers for 2024-09-16 through 2024-09-23 inclusive. Keep publication dates distinct from event dates. Distinguish source reports from hypotheses about the synthetic tracker. Do not claim proved causation or substitute current news.", historicalRuntime);
       expect(research.kind).toBe("report");
       const searchCall = research.audit.toolCalls.find((call) => call.name === "search_web");
       expect(searchCall).toMatchObject({ input: { fromDate: "2024-09-16", toDate: "2024-09-23" } });
@@ -113,13 +140,21 @@ describe.skipIf(!enabled)("real period contribution and market explanations", ()
       }
       passed = true;
     } finally {
-      const report = { status: passed ? "passed" : "failed", scenarioCount: only ? 1 : 3, replayResearch, priorApiRequests, priorEstimatedUsd, attemptedTurns, userTurns: only === "adapter-replay" ? 0 : outcomes.length,
-        recordedAt: new Date().toISOString(), model, ...(await measurement.report()), outcomes };
+      const usage = await measurement.report();
+      const report = { status: passed ? "passed" : "failed", scenarioCount: only === "reliability" ? 2 : only ? 1 : 3, replayResearch,
+        historicalResearchReplayed: only === "reliability" || replayResearch,
+        verifiedFindingsReplayed: Boolean(process.env.PORTFOLIO_CONTRIBUTION_VERIFIED_REPLAY_FILE),
+        approvedExtension: extension, priorApiRequests, priorEstimatedUsd,
+        extensionUsedRequests, extensionUsedUsd,
+        cumulativeApiRequests: priorApiRequests + extensionUsedRequests + usage.apiRequests,
+        cumulativeEstimatedUsd: usage.estimatedUsd === null ? null : priorEstimatedUsd + extensionUsedUsd + usage.estimatedUsd,
+        attemptedTurns, userTurns: only === "adapter-replay" ? 0 : outcomes.length,
+        recordedAt: new Date().toISOString(), model, ...usage, outcomes };
       const directory = join(process.cwd(), "data/evaluations");
       mkdirSync(directory, { recursive: true });
       writeFileSync(join(directory, "contribution-latest.json"), JSON.stringify(report, null, 2));
       writeFileSync(join(directory, `contribution-${randomUUID()}.json`), JSON.stringify(report, null, 2));
-      if (researchOutputs.length) writeFileSync(join(directory, "contribution-research-public-output.json"), JSON.stringify(researchOutputs, null, 2));
+      if (researchOutputs.length) writeFileSync(join(directory, `contribution-research-${only === "reliability" ? "company-" : ""}public-output.json`), JSON.stringify(researchOutputs, null, 2));
       console.info(`Contribution evaluation: ${report.userTurns}/${attemptedTurns} turns, ${report.apiRequests} API requests, estimated USD ${report.estimatedUsd ?? "unavailable"}`);
       database.close();
     }

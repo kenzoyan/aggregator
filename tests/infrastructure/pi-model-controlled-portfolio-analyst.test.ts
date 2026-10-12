@@ -227,12 +227,14 @@ describe("Pi model-controlled Portfolio Analyst", () => {
 
   it("uses a verified web source as read-only evidence for an external question", async () => {
     let modelCall = 0;
-    const streamFn: StreamFn = () => {
+    const streamFn: StreamFn = (_model, sentContext) => {
+      expect(sentContext.systemPrompt).toContain("Current server date (UTC): 2026-10-11");
+      expect(sentContext.systemPrompt).toContain("omit fromDate and toDate");
       modelCall += 1;
       return modelCall === 1
         ? completedStream(assistant([{
             type: "toolCall", id: "web-call", name: "search_web",
-            arguments: { query: "Fund C share class" },
+            arguments: { query: "Fund C share class", fromDate: null, toDate: null },
           }], "toolUse"))
         : completedStream(assistant([{ type: "text", text: JSON.stringify({
             factsAsOf: "2026-10-04T10:00:00.000Z",
@@ -256,8 +258,9 @@ describe("Pi model-controlled Portfolio Analyst", () => {
     const searched: string[] = [];
     const searchActivities: import("@/application/portfolio-analyst-agent").PortfolioAnalystToolActivity[] = [];
     const runtime = createPiModelControlledPortfolioAnalyst({
-      model, streamFn,
-      webResearch: { search: async ({ query }) => {
+      model, streamFn, now: () => "2026-10-11T12:00:00Z",
+      webResearch: { search: async ({ query, dateRange }) => {
+        expect(dateRange).toBeUndefined();
         searched.push(query);
         return {
           status: "completed", retrievedAt: "2026-10-04T10:00:00.000Z",

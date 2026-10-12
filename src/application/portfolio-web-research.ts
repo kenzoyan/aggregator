@@ -6,6 +6,13 @@ export interface WebResearchResult {
   findings: Array<{ title: string; url: string; summary: string; publishedAt?: string | null; eventAsOf?: string | null }>;
   retrievedAt: string;
   status: "completed" | "unavailable";
+  diagnostics?: {
+    reason: "verified-findings" | "no-source-urls" | "no-selected-findings" | "findings-rejected" | "invalid-date-range" | "provider-error";
+    returnedSourceCount: number;
+    candidateFindingCount: number;
+    verifiedFindingCount: number;
+    errorCode?: string;
+  };
 }
 
 export interface WebResearch {
@@ -62,6 +69,7 @@ export function webResearchContext(input: {
           kind: "web-research-status",
           label: "Web research status",
           state: input.result.status === "unavailable" ? "unavailable" : "no-verified-source",
+          ...(input.result.diagnostics ? { diagnostics: input.result.diagnostics } : {}),
           retrievedAt: input.result.retrievedAt,
           provenance: "openai-web-search",
         }],

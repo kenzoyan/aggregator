@@ -280,6 +280,7 @@ export interface WebResearchStatusFact {
   kind: "web-research-status";
   label: "Web research status";
   state: "no-verified-source" | "unavailable";
+  diagnostics?: import("./portfolio-web-research").WebResearchResult["diagnostics"];
   retrievedAt: string;
   provenance: "openai-web-search";
 }

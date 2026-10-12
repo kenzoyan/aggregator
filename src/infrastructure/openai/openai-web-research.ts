@@ -3,6 +3,7 @@ import { z } from "zod";
 import {
   isWebResearchUrl,
   type WebResearch,
+  type WebResearchResult,
 } from "@/application/portfolio-web-research";
 import { requestStructuredResponse, StructuredResponseError } from "@/infrastructure/responses/structured-response-client";
 
@@ -50,9 +51,13 @@ export class OpenAIWebResearch implements WebResearch {
 
   async search(input: Parameters<WebResearch["search"]>[0]) {
     const retrievedAt = this.input.now?.() ?? new Date().toISOString();
+    const diagnostics: NonNullable<WebResearchResult["diagnostics"]> = {
+      reason: "provider-error", returnedSourceCount: 0, candidateFindingCount: 0, verifiedFindingCount: 0,
+    };
     try {
       if (input.dateRange && (!sourceDateSchema.safeParse(input.dateRange.from).success ||
         !sourceDateSchema.safeParse(input.dateRange.to).success || input.dateRange.from > input.dateRange.to)) {
+        diagnostics.reason = "invalid-date-range";
         throw new StructuredResponseError("invalid-response");
       }
       const findings = await requestStructuredResponse({
@@ -63,6 +68,7 @@ export class OpenAIWebResearch implements WebResearch {
         timeoutMs: 30_000,
         instructions: [
           "Research the user query using the web search tool. Prefer primary sources when available and describe uncertainty when sources disagree.",
+          `Current server date (UTC): ${retrievedAt.slice(0, 10)}. For latest news, seek the most recent relevant reports; do not require publication today. For company information, established official pages are valid even without a publication date.`,
           "Return up to three short findings, each tied to one source URL actually found by the search.",
           "Copy each URL exactly as returned by the search, including any query string. Do not reconstruct, shorten or canonicalize source URLs.",
           "Return publishedAt (source publication date) and eventAsOf (date of the event discussed) as YYYY-MM-DD or null when not established by the source. Never substitute retrieval date, infer a date from a URL, or invent a missing date. Keep a later report's publication date separate from its historical event date.",
@@ -104,7 +110,9 @@ export class OpenAIWebResearch implements WebResearch {
               }
             }
           }
+          diagnostics.returnedSourceCount = returnedSources.size;
           const candidate = resultSchema.parse(payload);
+          diagnostics.candidateFindingCount = candidate.findings.length;
           const verified = candidate.findings.flatMap((finding) => {
             const source = returnedSources.get(normalizedUrl(finding.url));
             if (!source) return [];
@@ -117,14 +125,17 @@ export class OpenAIWebResearch implements WebResearch {
             const date = finding.eventAsOf ?? finding.publishedAt;
             return !input.dateRange || !date || (date >= input.dateRange.from && date <= input.dateRange.to);
           });
+          diagnostics.verifiedFindingCount = verified.length;
+          diagnostics.reason = verified.length ? "verified-findings" : candidate.findings.length ? "findings-rejected" : returnedSources.size ? "no-selected-findings" : "no-source-urls";
           if (candidate.findings.length && !verified.length) throw new StructuredResponseError("invalid-response");
           return verified;
         },
       });
-      return { findings, retrievedAt, status: "completed" as const };
+      return { findings, retrievedAt, status: "completed" as const, diagnostics };
     } catch (error) {
       if (input.signal?.aborted) throw error;
-      return { findings: [], retrievedAt, status: "unavailable" as const };
+      diagnostics.errorCode = error instanceof StructuredResponseError ? error.code : "invalid-or-unavailable-response";
+      return { findings: [], retrievedAt, status: "unavailable" as const, diagnostics };
     }
   }
 }

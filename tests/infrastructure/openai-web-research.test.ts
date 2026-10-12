@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { OpenAIWebResearch } from "@/infrastructure/openai/openai-web-research";
+import { webResearchContext } from "@/application/portfolio-web-research";
 
 function response(findings: unknown, sources: string[], searched = true) {
   return new Response(JSON.stringify({
@@ -17,6 +18,31 @@ function response(findings: unknown, sources: string[], searched = true) {
 }
 
 describe("web research", () => {
+  it("distinguishes missing provider URLs from returned URLs with no selected summary", async () => {
+    for (const sources of [[], ["https://www.granlund.fi/en/"]]) {
+      const search = new OpenAIWebResearch({ apiKey: "synthetic", model: "test",
+        fetch: vi.fn(async () => response([], sources)) as typeof globalThis.fetch });
+      const result = await search.search({ query: "Granlund company information", language: "en" });
+      expect(result).toMatchObject({
+        status: "completed", findings: [], diagnostics: {
+          reason: sources.length ? "no-selected-findings" : "no-source-urls",
+          returnedSourceCount: sources.length, candidateFindingCount: 0, verifiedFindingCount: 0,
+        },
+      });
+      expect(webResearchContext({ result, factsAsOf: "2026-10-11T12:00:00Z", language: "en" }).facts[0]).toMatchObject({
+        kind: "web-research-status", state: "no-verified-source", diagnostics: result.diagnostics,
+      });
+    }
+  });
+
+  it("preserves a safe provider failure category separately from an empty search", async () => {
+    const search = new OpenAIWebResearch({ apiKey: "synthetic", model: "test",
+      fetch: vi.fn(async () => new Response("", { status: 429 })) as typeof globalThis.fetch });
+    expect(await search.search({ query: "Company information", language: "en" })).toMatchObject({
+      status: "unavailable", diagnostics: { reason: "provider-error", errorCode: "rate-limited" },
+    });
+  });
+
   it("searches without a domain allowlist and accepts a source returned by the web tool", async () => {
     const fetch = vi.fn(async (_url: RequestInfo | URL, _init?: RequestInit) => response([{
       title: "Nasdaq", url: "https://www.nasdaq.com/market-activity/index/comp",
@@ -35,6 +61,7 @@ describe("web research", () => {
     expect(request.store).toBe(false);
     expect(request.tools[0].filters).toBeUndefined();
     expect(request.include).toEqual(["web_search_call.action.sources"]);
+    expect(request.instructions).toContain("do not require publication today");
   });
 
   it("does not pass through a model-invented or unsafe URL", async () => {
