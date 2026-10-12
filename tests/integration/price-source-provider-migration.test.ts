@@ -3,6 +3,32 @@ import { describe, expect, it } from "vitest";
 import { initializePortfolioSchema, portfolioSchemaVersion } from "@/infrastructure/sqlite/portfolio-schema";
 
 describe("price source provider migration", () => {
+  it("preserves v14 bindings for all existing providers and statuses when enabling Nordea", () => {
+    const db = new DatabaseSync(":memory:");
+    try {
+      initializePortfolioSchema(db);
+      db.exec(`DROP TABLE price_source_bindings;
+        CREATE TABLE price_source_bindings (
+          source_account_id TEXT NOT NULL, instrument_id TEXT NOT NULL, instrument_name TEXT NOT NULL,
+          instrument_code TEXT NOT NULL, currency TEXT NOT NULL, share_class TEXT NOT NULL,
+          provider TEXT NOT NULL CHECK (provider IN ('eastmoney','financial-times','danske-invest')), identity_url TEXT NOT NULL,
+          confirmed_at TEXT NOT NULL, last_checked_at TEXT,
+          last_outcome TEXT CHECK (last_outcome IN ('updated','unchanged','failed')),
+          latest_price_as_of TEXT, last_failure_category TEXT,
+          PRIMARY KEY (source_account_id, instrument_id));
+        UPDATE schema_metadata SET version = 14;`);
+      for (const [provider, status] of [["eastmoney", "updated"], ["financial-times", "unchanged"], ["danske-invest", "failed"]]) {
+        db.prepare("INSERT INTO price_source_bindings VALUES (?, 'fund','Synthetic','CODE','EUR','B',?,'https://example.test','2026-10-01','2026-10-12',?,'2026-10-09',NULL)").run(provider!, provider!, status!);
+      }
+      const before = db.prepare("SELECT * FROM price_source_bindings ORDER BY source_account_id").all();
+      initializePortfolioSchema(db);
+      expect(db.prepare("SELECT * FROM price_source_bindings ORDER BY source_account_id").all()).toEqual(before);
+      expect(db.prepare("SELECT version FROM schema_metadata").get()).toEqual({ version: portfolioSchemaVersion });
+      db.exec("UPDATE price_source_bindings SET provider = 'nordea-funds'");
+      expect(() => db.exec("UPDATE price_source_bindings SET provider = 'unknown'")).toThrow();
+      initializePortfolioSchema(db);
+    } finally { db.close(); }
+  });
   it("preserves the existing Eastmoney binding and its refresh status when upgrading v12", () => {
     const db = new DatabaseSync(":memory:");
     try {

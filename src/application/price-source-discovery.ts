@@ -1,8 +1,8 @@
-import { danskeEuropeanEquitySource } from "@/domain/public-fund-price-sources";
+import { danskeEuropeanEquitySource, nordeaEuropeanIndexSource } from "@/domain/public-fund-price-sources";
 import type { PortfolioState, Position } from "@/domain/portfolio/types";
 import type { FundNavProvider, MarketRefreshFailureCategory } from "@/domain/market-data";
 
-export type PriceSourceProvider = "eastmoney" | "financial-times" | "danske-invest";
+export type PriceSourceProvider = "eastmoney" | "financial-times" | "danske-invest" | "nordea-funds";
 export type PriceSourceProviders = Partial<Record<PriceSourceProvider, FundNavProvider>>;
 
 export interface PriceSourceRefreshStatus {
@@ -17,6 +17,7 @@ export interface PriceSourceRefreshStatus {
 }
 
 export interface PriceSourceCandidate {
+  coverage?: "bounded-history" | "latest-only";
   id: string;
   name: string;
   instrumentCode: string;
@@ -38,6 +39,17 @@ export interface PriceSourceBinding {
   confirmedAt: string;
   lastRefresh?: Omit<PriceSourceRefreshStatus, "sourceAccountId" | "instrumentId" | "instrumentCode" | "provider">;
 }
+
+const nordeaCandidate: PriceSourceCandidate = {
+  id: "nordea-FI4000010558-EUR",
+  name: nordeaEuropeanIndexSource.name,
+  instrumentCode: nordeaEuropeanIndexSource.isin,
+  currency: nordeaEuropeanIndexSource.currency,
+  shareClass: nordeaEuropeanIndexSource.shareClass,
+  provider: "nordea-funds",
+  identityUrl: nordeaEuropeanIndexSource.identityUrl,
+  coverage: "latest-only",
+};
 
 const danskeCandidate: PriceSourceCandidate = {
   id: "danske-FI0008802988-EUR",
@@ -77,7 +89,7 @@ export function discoverPriceSourceCandidates(
   position: Position,
   accountProvider: string,
 ): PriceSourceCandidate[] {
-  for (const candidate of [opCandidate, danskeCandidate]) {
+  for (const candidate of [opCandidate, danskeCandidate, nordeaCandidate]) {
     if (position.assetType === "fund" && position.currency === candidate.currency && position.instrumentCode === candidate.instrumentCode) return [candidate];
   }
   if (accountProvider !== "wechat" || position.assetType !== "fund" ||

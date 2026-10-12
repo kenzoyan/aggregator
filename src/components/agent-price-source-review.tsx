@@ -21,7 +21,7 @@ export function AgentPriceSourceReviewContent({ review, conversationId, turnId, 
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Confirmation failed."); }
     finally { setBusy(false); }
   }
-  const providerName = (provider: string) => ({ "financial-times": "Financial Times", "danske-invest": "Danske Invest", eastmoney: zh ? "东方财富" : "Eastmoney" }[provider] ?? provider);
+  const providerName = (provider: string) => ({ "financial-times": "Financial Times", "danske-invest": "Danske Invest", "nordea-funds": "Nordea Funds", eastmoney: zh ? "东方财富" : "Eastmoney" }[provider] ?? provider);
   return <section className="home-review-panel agent-price-source-review" aria-label={zh ? "价格源审核内容" : "Price source review details"}>
     <header className="source-review-heading">
       <p className="eyebrow">{zh ? "账户中的持仓" : "YOUR HOLDING"}</p>
@@ -50,7 +50,9 @@ export function AgentPriceSourceReviewContent({ review, conversationId, turnId, 
             : <p role="status">{zh ? "无法读取近期净值，暂时不能确认。" : "A recent NAV could not be read. Confirmation is unavailable."}</p>}
         </div>
         <a className="source-review-link" href={candidate.identityUrl} target="_blank" rel="noopener noreferrer">{zh ? "打开来源网页 ↗" : "Open source page ↗"}</a>
-        <p className="source-review-coverage">{zh ? "可读取近期历史；完整历史覆盖尚未验证。" : "Recent history is available. Complete historical coverage has not been verified."}</p>
+        <p className="source-review-coverage">{candidate.coverage === "latest-only"
+          ? zh ? "此来源只提供最新一期带日期的净值；后续检查会积累记录，不能补齐遗漏日期或历史净值。" : "This reader provides only the latest dated NAV. Future checks accumulate records; missed dates and historical NAVs cannot be backfilled."
+          : zh ? "可读取近期历史；完整历史覆盖尚未验证。" : "Recent history is available. Complete historical coverage has not been verified."}</p>
         <button type="button" className="source-review-confirm" disabled={busy || !candidate.quoteAvailable} onClick={() => void confirm(candidate.id)}>
           {busy ? zh ? "正在确认并生成回复…" : "Confirming and preparing reply…" : zh ? "确认这个价格源" : "Confirm this price source"}
         </button>

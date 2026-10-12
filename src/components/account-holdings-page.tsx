@@ -361,6 +361,7 @@ export function AccountHoldingsPage({ accountId, requestedHoldingId, navigationO
                 {priceSourceError && <p className="error-message" role="alert">{priceSourceError}</p>}
                 {priceSourceLookup?.binding && <div className="price-source-confirmed">
                   <p>Source: {priceSourceLookup.binding.provider} · {priceSourceLookup.binding.instrumentCode} · {priceSourceLookup.binding.shareClass} share class.</p>
+                  {priceSourceLookup.binding.provider === "nordea-funds" && <p>This source reads the latest dated NAV only. Checks accumulate records; missed dates cannot be backfilled.</p>}
                   <p role="status">{priceSourceLookup.binding.lastRefresh
                     ? `Last checked ${new Date(priceSourceLookup.binding.lastRefresh.checkedAt).toLocaleString("en-GB", { timeZone: "Europe/Helsinki" })} · ${priceSourceLookup.binding.lastRefresh.outcome}${priceSourceLookup.binding.lastRefresh.failureCategory ? ` (${priceSourceLookup.binding.lastRefresh.failureCategory})` : ""}`
                     : "Awaiting the first price check."}</p>
@@ -375,6 +376,7 @@ export function AccountHoldingsPage({ accountId, requestedHoldingId, navigationO
                     ? `Recent NAV: ${candidate.price} ${candidate.currency} · ${candidate.priceAsOf}`
                     : "A recent NAV is unavailable. Confirmation is paused."}</p>
                   <a href={candidate.identityUrl} target="_blank" rel="noreferrer">View source page</a>
+                  {candidate.coverage === "latest-only" && <p>Latest dated NAV only. Historical NAVs and missed dates cannot be backfilled.</p>}
                   <button type="button" disabled={!candidate.quoteAvailable || priceSourceSaving}
                     onClick={() => confirmPriceSource(candidate)}>
                     {priceSourceSaving ? "Confirming…" : "Confirm this price source"}

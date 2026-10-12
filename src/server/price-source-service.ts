@@ -1,4 +1,5 @@
 import { VerifiedDanskeFundNavClient } from "@/infrastructure/danske-invest/verified-danske-fund-nav-client";
+import { NordeaFundNavClient } from "@/infrastructure/nordea/nordea-fund-nav-client";
 import { createPriceSourceService, type PriceSourceDatabase } from "@/application/price-source-service";
 import { createAgentPriceSourceDiscovery } from "@/application/agent-price-source-discovery";
 import { EastmoneyFundNavClient } from "@/infrastructure/eastmoney/eastmoney-fund-nav-client";
@@ -6,7 +7,7 @@ import { FinancialTimesFundNavClient } from "@/infrastructure/financial-times/fi
 import { OpenAIPriceSourceResearch } from "@/infrastructure/openai/openai-price-source-research";
 
 export function createProductionPriceSourceProviders() {
-  return { "financial-times": new FinancialTimesFundNavClient(), "danske-invest": new VerifiedDanskeFundNavClient() };
+  return { "financial-times": new FinancialTimesFundNavClient(), "danske-invest": new VerifiedDanskeFundNavClient(), "nordea-funds": new NordeaFundNavClient() };
 }
 export function createProductionPriceSourceService(database: PriceSourceDatabase) {
   return createPriceSourceService({ database, fundNavProvider: new EastmoneyFundNavClient(),

@@ -32,7 +32,7 @@ describe.skipIf(process.env.RUN_PRICE_SOURCE_EVAL !== "1")("Real fund source Age
       for (const sample of [
         { bank: "OP", isin: "FI4000439773", name: "OP-Europe Fund A", expected: "verified" },
         { bank: "Danske", isin: "FI0008802988", name: "Danske Invest Eurooppa Osake K", expected: "verified" },
-        { bank: "Nordea", isin: "FI4000010558", name: "Nordea Eurooppa Indeksi Select B", expected: "adapter-required" },
+        { bank: "Nordea", isin: "FI4000010558", name: "Nordea Eurooppa Indeksi Select B", expected: "verified" },
       ].filter((sample) => !bank || sample.bank === bank)) {
         const db = createPortfolioDatabase(":memory:");
         try {
@@ -53,6 +53,7 @@ describe.skipIf(process.env.RUN_PRICE_SOURCE_EVAL !== "1")("Real fund source Age
           expect(response.status).toBe(200);
           expect(turn?.priceSourceReview?.state).toBe(sample.expected);
           expect(turn?.priceSourceReview?.status).toBe("pending");
+          if (sample.bank === "Nordea") expect(turn?.priceSourceReview?.coverage).toBe("latest-only");
           if (process.env.PRICE_SOURCE_EVAL_SYNTHETIC_LABEL === "1" && sample.expected === "verified") {
             expect(turn?.chat?.assistantText).not.toMatch(/不一致|不匹配|不符|【call|【discover_price_source/);
             expect(turn?.chat?.assistantText).toContain(turn!.priceSourceReview!.candidates[0]!.price!);

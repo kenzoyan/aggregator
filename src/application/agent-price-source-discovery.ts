@@ -1,4 +1,4 @@
-import { bindingMatchesPosition } from "@/application/price-source-discovery";
+import { bindingMatchesPosition, discoverPriceSourceCandidates } from "@/application/price-source-discovery";
 import { currentPriceSourcePosition, type PriceSourceDatabase, type createPriceSourceService } from "@/application/price-source-service";
 import type { WebResearchResult } from "@/application/portfolio-web-research";
 import type { PortfolioAnalystLanguage } from "@/application/portfolio-analyst-contract";
@@ -20,7 +20,7 @@ export interface AgentPriceSourceReview {
   researchStatus?: WebResearchResult["status"];
   binding?: import("@/application/price-source-discovery").PriceSourceBinding;
   confirmationReplyTurnId?: string;
-  coverage: "bounded-history";
+  coverage: "bounded-history" | "latest-only";
 }
 
 export function createAgentPriceSourceDiscovery(input: {
@@ -35,7 +35,8 @@ export function createAgentPriceSourceDiscovery(input: {
     const position = current.position;
     const base = { sourceAccountId: position.sourceAccountId, instrumentId: position.instrumentId,
       instrumentCode: position.instrumentCode ?? "", instrumentName: position.displayName ?? "", currency: position.currency,
-      retrievedAt: input.now?.() ?? new Date().toISOString(), candidates: [], sources: [], coverage: "bounded-history" as const };
+      retrievedAt: input.now?.() ?? new Date().toISOString(), candidates: [], sources: [],
+      coverage: discoverPriceSourceCandidates(position, current.provider)[0]?.coverage ?? "bounded-history" as const };
     const binding = input.database.readPriceSourceBindings().find((item) => bindingMatchesPosition(item, position));
     if (binding) return { ...base, state: "already-confirmed", status: "saved", binding };
     if (position.assetType !== "fund" || !/^[A-Z]{2}[A-Z0-9]{10}$/.test(base.instrumentCode)) {

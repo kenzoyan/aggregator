@@ -1,4 +1,12 @@
 // Public, verified pilot identities. No personal holdings or local account routes.
+export const nordeaEuropeanIndexSource = {
+  isin: "FI4000010558",
+  name: "Nordea Eurooppa Indeksi Select B",
+  currency: "EUR",
+  shareClass: "B (Accumulation)",
+  identityUrl: "https://www.nordeafunds.com/fi/rahastot/nordea-eurooppa-indeksi-select-b",
+} as const;
+
 export const danskeEuropeanEquitySource = {
   isin: "FI0008802988",
   name: "Eurooppa Osake K",
