@@ -1,3 +1,4 @@
+import { getAIEnvironment } from "@/server/ai-provider-settings";
 import type {
   NarrativeProviderId,
   PortfolioNarrativeProvider,
@@ -16,8 +17,9 @@ function configuredSecret(value: string | undefined): string | undefined {
 }
 
 export function getPortfolioNarrativeProviderRegistry(
-  environment: NodeJS.ProcessEnv = process.env,
+  environment: Readonly<Record<string, string | undefined>> = process.env,
 ): PortfolioNarrativeProviderRegistry {
+  environment = getAIEnvironment(environment);
   const openAIModel = configuredSecret(environment.OPENAI_NARRATIVE_MODEL) ??
     "gpt-5.6-terra";
   const openAIKey = configuredSecret(environment.OPENAI_API_KEY);

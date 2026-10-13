@@ -1,3 +1,4 @@
+import { getAIEnvironment } from "@/server/ai-provider-settings";
 import type { PortfolioAnalystProviderId } from "@/application/portfolio-analyst-provider";
 import type { PortfolioAnalystAgentRuntime } from "@/application/portfolio-analyst-agent";
 import { OpenAIWebResearch } from "@/infrastructure/openai/openai-web-research";
@@ -17,6 +18,7 @@ function configuredValue(value: string | undefined): string | undefined {
 export function getPortfolioAnalystProviderRegistry(
   environment: Readonly<Record<string, string | undefined>> = process.env,
 ): PortfolioAnalystProviderRegistry {
+  environment = getAIEnvironment(environment);
   const openAIModel = configuredValue(environment.OPENAI_ANALYST_MODEL) ??
     configuredValue(environment.OPENAI_NARRATIVE_MODEL) ??
     "gpt-6-luna";

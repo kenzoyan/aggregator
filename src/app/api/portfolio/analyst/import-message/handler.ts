@@ -1,3 +1,4 @@
+import { getAIEnvironment } from "@/server/ai-provider-settings";
 import { completePortfolioWorkflowReply, type WorkflowReplyGenerator } from "@/application/portfolio-workflow-reply";
 import type { PortfolioWorkflowResult } from "@/application/portfolio-workflow-result";
 import { createPortfolioWorkflowReply } from "@/server/portfolio-workflow-reply";
@@ -156,9 +157,10 @@ export function createImportMessageHandler(input: {
 }
 
 export async function POST(request: Request) {
+  const environment = getAIEnvironment();
   const database = getPortfolioDatabase();
   const registry = getPortfolioAnalystProviderRegistry();
-  const apiKey = process.env.OPENAI_API_KEY;
+  const apiKey = environment.OPENAI_API_KEY;
   if (!apiKey?.trim()) return json({ error: "Assistant configuration is unavailable." }, 503);
   const interpreter = createImportMessageInterpreter({
     apiKey: apiKey.trim(), model: registry.models.openai,

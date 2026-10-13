@@ -1,3 +1,4 @@
+import { getAIEnvironment } from "@/server/ai-provider-settings";
 import { createPortfolioWorkflowReply } from "@/server/portfolio-workflow-reply";
 import { createAgentSaleHandlers } from "@/app/api/portfolio/analyst/sale/handler";
 import { getPortfolioDatabase } from "@/server/portfolio-db";
@@ -23,9 +24,10 @@ export function createPortfolioSaleHandlers(database: ReturnType<typeof getPortf
     },
     confirmSale: (...args) => database.confirmSale(...args),
     extract: (request) => {
-      const apiKey = process.env.OPENAI_API_KEY?.trim();
+      const environment = getAIEnvironment();
+      const apiKey = environment.OPENAI_API_KEY?.trim();
       if (!apiKey) throw new Error("OpenAI screenshot analysis is not configured.");
-      return createOpenAISaleExtractor({ apiKey, model: process.env.OPENAI_IMAGE_IMPORT_MODEL?.trim() || getPortfolioAnalystProviderRegistry().models.openai })(request);
+      return createOpenAISaleExtractor({ apiKey, model: environment.OPENAI_IMAGE_IMPORT_MODEL?.trim() || getPortfolioAnalystProviderRegistry().models.openai })(request);
     },
   });
 }

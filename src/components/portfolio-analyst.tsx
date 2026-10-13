@@ -785,7 +785,7 @@ export function PortfolioAnalyst({
         {!configuration && !error && <p className="portfolio-analyst-state">Checking provider configuration…</p>}
         {selectedProvider && !selectedProvider.configured && !error && (
           <p className="portfolio-analyst-state">
-            Add OPENAI_API_KEY to .env.local, then restart the app.
+            Add your OpenAI API key in <a href="/settings">Settings → AI provider</a>.
           </p>
         )}
         <AnalystConversationView language={language} sending={Boolean(pendingTurn?.phase === "sending" || pendingImageMessage)}>

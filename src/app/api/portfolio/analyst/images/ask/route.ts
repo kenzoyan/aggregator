@@ -1,3 +1,4 @@
+import { getAIEnvironment } from "@/server/ai-provider-settings";
 import { createPortfolioImageReply } from "@/server/portfolio-image-reply";
 import { createPortfolioAnalystImageHandlers } from "../handler";
 
@@ -9,12 +10,13 @@ import { getPortfolioAnalystProviderRegistry } from "@/server/portfolio-analyst-
 export const runtime = "nodejs";
 
 export async function POST(request: Request) {
-  const apiKey = process.env.OPENAI_API_KEY?.trim();
+  const environment = getAIEnvironment();
+  const apiKey = environment.OPENAI_API_KEY?.trim();
   if (!apiKey) {
     return Response.json({ error: "OpenAI image analysis is not configured." }, { status: 503 });
   }
-  const model = process.env.OPENAI_IMAGE_QUESTION_MODEL?.trim()
-    || process.env.OPENAI_IMAGE_IMPORT_MODEL?.trim()
+  const model = environment.OPENAI_IMAGE_QUESTION_MODEL?.trim()
+    || environment.OPENAI_IMAGE_IMPORT_MODEL?.trim()
     || getPortfolioAnalystProviderRegistry().models.openai;
   return createPortfolioAnalystImageHandlers({
     conversations: getPortfolioDatabase(),

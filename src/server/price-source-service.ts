@@ -1,3 +1,4 @@
+import { getAIEnvironment } from "@/server/ai-provider-settings";
 import { VerifiedDanskeFundNavClient } from "@/infrastructure/danske-invest/verified-danske-fund-nav-client";
 import { NordeaFundNavClient } from "@/infrastructure/nordea/nordea-fund-nav-client";
 import { createPriceSourceService, type PriceSourceDatabase } from "@/application/price-source-service";
@@ -14,7 +15,8 @@ export function createProductionPriceSourceService(database: PriceSourceDatabase
     priceSourceProviders: createProductionPriceSourceProviders() });
 }
 export function createProductionPriceSourceDiscovery(database: PriceSourceDatabase) {
+  const environment = getAIEnvironment();
   return createAgentPriceSourceDiscovery({ database, service: createProductionPriceSourceService(database),
-    research: new OpenAIPriceSourceResearch({ apiKey: process.env.OPENAI_API_KEY?.trim() ?? "",
-      model: process.env.OPENAI_ANALYST_MODEL?.trim() || process.env.OPENAI_NARRATIVE_MODEL?.trim() || "gpt-6-luna" }) });
+    research: new OpenAIPriceSourceResearch({ apiKey: environment.OPENAI_API_KEY?.trim() ?? "",
+      model: environment.OPENAI_ANALYST_MODEL?.trim() || environment.OPENAI_NARRATIVE_MODEL?.trim() || "gpt-6-luna" }) });
 }

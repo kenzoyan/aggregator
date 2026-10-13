@@ -336,6 +336,9 @@
 .settings-fields label > span { font-size: 12px; font-weight: 650; }
 .settings-fields label > small { min-height: 30px; color: var(--muted); font-size: 9px; line-height: 1.45; }
 .settings-fields select { width: 100%; min-height: 42px; margin-top: 5px; padding: 9px 32px 9px 11px; border: 1px solid #d7d4ca; border-radius: 8px; background: var(--surface); color: var(--ink); font-size: 12px; }
+.settings-fields input { width: 100%; min-height: 42px; margin-top: 5px; padding: 9px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--ink); font: inherit; font-size: 12px; }
+.settings-provider-actions { display: flex; align-items: center; gap: 12px; margin-top: 16px; }
+.settings-provider-note { margin: 12px 0 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
 .settings-memory-table-wrap { overflow-x: auto; border: 1px solid #e4e1d8; border-radius: 10px; }
 .settings-memory-table { width: 100%; border-collapse: collapse; text-align: left; }
 .settings-memory-table th { padding: 10px 12px; background: #f8f6f0; color: var(--muted); font-size: 10px; font-weight: 650; }

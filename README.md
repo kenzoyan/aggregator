@@ -55,12 +55,14 @@ A new portfolio does not yet have a 7-day or 30-day baseline. Those views show u
 
 ### Optional connections
 
-Configure these in the ignored `.env.local` file. [`.env.example`](./.env.example) lists the available model and provider settings.
+Configure OpenAI through **Settings → AI provider**: enter a model ID and API key, then save. The settings apply to the next AI request without restarting. The key is stored server-side in the ignored `data/ai-provider-settings.json` file with owner-only file permissions; the browser receives only its configured status. Leave the key field blank to keep it, or select **Remove key** to disable AI features. Saved settings override OpenAI environment values, including the model for screenshot and research requests.
+
+Trading 212 stays in the ignored `.env.local` file. Existing OpenAI environment values still work until overridden in Settings. [`.env.example`](./.env.example) lists the available environment settings.
 
 | Connection | Configuration | What it enables |
 | --- | --- | --- |
 | Trading 212 | `TRADING212_API_KEY`, `TRADING212_API_SECRET`, `TRADING212_ENVIRONMENT` | Read-only account and position sync. Start with `demo`; use a separate Live key with account-data and portfolio read permissions only. |
-| OpenAI | `OPENAI_API_KEY` | Screenshot extraction, optional Portfolio Agent with source-linked web research, and on-demand market watch. Selected screenshots and agent web queries are sent to the configured OpenAI API account. |
+| OpenAI | Settings → AI provider (legacy: `OPENAI_API_KEY`) | Screenshot extraction, optional Portfolio Agent with source-linked web research, and on-demand market watch. Selected screenshots and agent web queries are sent to the configured OpenAI API account. |
 
 Keys stay server-side. Trading 212 calls only account summary and positions endpoints; no order permission is needed. Public fund NAV and ECB FX checks do not require account credentials. Keep personal screenshots out of the repository.
 

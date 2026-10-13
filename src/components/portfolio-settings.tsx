@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 
 import type { PortfolioAnalystConversation } from "@/application/portfolio-analyst-conversation";
 import { PortfolioMemorySettings } from "@/components/portfolio-memory-settings";
+import { AIProviderSettings } from "@/components/ai-provider-settings";
 import {
   defaultPortfolioAnalystPreferences,
   readPortfolioAnalystPreferences,
@@ -128,16 +129,7 @@ export function PortfolioSettings() {
             </div>
           </section>
 
-          <section className="settings-card" aria-labelledby="settings-provider-heading">
-            <div className="settings-card-heading">
-              <div>
-                <p className="eyebrow">YOUR ASSISTANT</p>
-                <h2 id="settings-provider-heading">AI provider</h2>
-                <p>Portfolio Agent uses OpenAI. Relevant holding names and symbols are included in the bounded facts used to answer your question.</p>
-              </div>
-            </div>
-            <p>OpenAI · {configuration?.providers.find((item) => item.id === "openai")?.model ?? "Model unavailable"}</p>
-          </section>
+          <AIProviderSettings />
 
           {activeConversation && (
             <aside className="settings-conversation-note">

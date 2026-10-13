@@ -1,3 +1,4 @@
+import { getAIEnvironment } from "@/server/ai-provider-settings";
 import { createHash, randomUUID } from "node:crypto";
 
 import { NextResponse } from "next/server";
@@ -303,6 +304,7 @@ export function createAnalyzeImportHandler(input: {
 }
 
 export async function POST(request: Request) {
+  const environment = getAIEnvironment();
   const database = getPortfolioDatabase();
   return createAnalyzeImportHandler({
     database,
@@ -310,8 +312,8 @@ export async function POST(request: Request) {
     images: createLocalPortfolioAnalystImageStore(),
     createExtractor: () =>
       new OpenAIVisionExtractor({
-        apiKey: process.env.OPENAI_API_KEY ?? "",
-        model: process.env.OPENAI_IMAGE_IMPORT_MODEL ?? "gpt-5.6-terra",
+        apiKey: environment.OPENAI_API_KEY ?? "",
+        model: environment.OPENAI_IMAGE_IMPORT_MODEL ?? "gpt-5.6-terra",
       }),
     newId: randomUUID,
     now: () => new Date().toISOString(),

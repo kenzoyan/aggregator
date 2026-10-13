@@ -1,3 +1,4 @@
+import { getAIEnvironment } from "@/server/ai-provider-settings";
 import type { MarketIntelligenceProvider } from "@/application/market-intelligence";
 import { OpenAIMarketIntelligenceProvider } from "@/infrastructure/openai/openai-market-intelligence-provider";
 
@@ -13,6 +14,7 @@ function configured(value: string | undefined) {
 export function getMarketIntelligenceRegistry(
   environment: Readonly<Record<string, string | undefined>> = process.env,
 ): MarketIntelligenceRegistry {
+  environment = getAIEnvironment(environment);
   const model = configured(environment.OPENAI_MARKET_INTELLIGENCE_MODEL) ??
     configured(environment.OPENAI_ANALYST_MODEL) ??
     configured(environment.OPENAI_NARRATIVE_MODEL) ??
