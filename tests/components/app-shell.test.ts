@@ -21,5 +21,10 @@ describe("application shell", () => {
     expect(currentLink).toContain('href="/accounts"');
     expect(markup).toContain('href="/#holdings"');
     expect(markup).toContain("Account content");
+    // Icon navigation must remain accessible and interactive while the labels are collapsed.
+    const navigation = markup.match(/<aside\b[^>]*id="app-navigation"[^>]*>/)?.[0];
+    expect(navigation).toBeDefined();
+    expect(navigation).not.toContain("inert");
+    expect(navigation).not.toContain('aria-hidden="true"');
   });
 });

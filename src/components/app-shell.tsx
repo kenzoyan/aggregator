@@ -8,6 +8,8 @@ import {
   ArrowDownToLine,
   ChartNoAxesCombined,
   LayoutDashboard,
+  PanelLeftClose,
+  PanelLeftOpen,
   Settings,
   WalletCards,
 } from "lucide-react";
@@ -85,21 +87,14 @@ export function AppShell({ children }: { children: ReactNode }) {
   return (
     <MotionConfig reducedMotion="user" transition={{ type: "spring", stiffness: 380, damping: 34 }}>
     <div className={cn("app-shell", sidebarExpanded && !navigationBlocked ? "sidebar-expanded" : "sidebar-collapsed")}>
-      {sidebarExpanded && !navigationBlocked && <button type="button" className="navigation-dismiss" tabIndex={-1} aria-label="Close navigation" onClick={() => {
-        setSidebarExpanded(false);
-        navigationToggle.current?.focus();
-      }} />}
-      <button ref={navigationToggle} type="button" className="navigation-launcher" aria-label={sidebarExpanded ? "Close navigation" : "Open navigation"} aria-expanded={sidebarExpanded && !navigationBlocked} aria-controls="app-navigation" disabled={navigationBlocked} onClick={toggleSidebar}>
-        <Image src="/brand/aggrigator-icon-192.png" alt="" width={30} height={30} />
+      <button ref={navigationToggle} type="button" className="navigation-launcher" aria-label={sidebarExpanded ? "Collapse navigation" : "Expand navigation"} title={sidebarExpanded ? "Collapse navigation" : "Expand navigation"} aria-expanded={sidebarExpanded && !navigationBlocked} aria-controls="app-navigation" disabled={navigationBlocked} onClick={toggleSidebar}>
+        {sidebarExpanded ? <PanelLeftClose size={20} aria-hidden="true" /> : <PanelLeftOpen size={20} aria-hidden="true" />}
       </button>
-      <aside id="app-navigation" className="sidebar" aria-hidden={!sidebarExpanded || navigationBlocked || undefined} inert={!sidebarExpanded || navigationBlocked || undefined}>
-        <button type="button" className="brand" aria-label="Close navigation" onClick={() => {
-          setSidebarExpanded(false);
-          navigationToggle.current?.focus();
-        }}>
+      <aside id="app-navigation" className="sidebar" aria-hidden={navigationBlocked || undefined} inert={navigationBlocked || undefined}>
+        <div className="brand">
           <Image className="brand-mark" src="/brand/aggrigator-icon-192.png" alt="" width={38} height={38} />
           <span className="brand-copy"><strong>Aggrigator</strong><small>All your investments, together</small></span>
-        </button>
+        </div>
         <nav id="app-navigation-links" aria-label="Main navigation">
           {items.map((item) => {
             const Icon = item.icon;
@@ -110,13 +105,14 @@ export function AppShell({ children }: { children: ReactNode }) {
                 aria-label={item.label}
                 title={item.label}
                 onClick={() => {
+                  if (!sidebarExpanded) return;
                   setSidebarExpanded(false);
                   navigationToggle.current?.focus();
                 }}
                 aria-current={item.active ? item.current : undefined}
                 key={item.href}
               >
-                <Icon aria-hidden="true" />{item.label}
+                <Icon aria-hidden="true" /><span className="nav-label">{item.label}</span>
               </Link>
             );
           })}
@@ -124,7 +120,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       </aside>
 
       <AppShellModalContext.Provider value={setNavigationBlocked}>
-        <div className="app-route-content">{children}</div>
+        <div className="app-route-content"><div className="app-page-frame">{children}</div></div>
       </AppShellModalContext.Provider>
 
       <nav className="mobile-nav" aria-label="Mobile navigation" aria-hidden={navigationBlocked || undefined} inert={navigationBlocked || undefined}>

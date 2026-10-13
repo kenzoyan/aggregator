@@ -251,31 +251,37 @@
 .home-workspace .analyst-account-confirmation :is(span, strong, p, button, a) { font-size: 13px; line-height: 1.7; }
 .home-workspace .portfolio-analyst-state { padding: 12px; border-radius: 8px; background: var(--muted-surface); font-size: 13px; line-height: 1.6; }
 .home-workspace .analyst-composer .screenshot-tray :is(small, button, p) { font-size: 12px; }
-/* The navigation menu overlays the workspace; opening it never changes content width. */
-.brand { padding: 0; border: 0; background: transparent; color: inherit; cursor: pointer; text-align: left; }
-.navigation-dismiss, .navigation-launcher { display: none; }
+/* The narrow desktop rail owns its space; neither state covers page content. */
+.brand { padding: 0; border: 0; background: transparent; color: inherit; text-align: left; }
+.navigation-launcher { display: none; }
+.app-page-frame { width: 100%; min-width: 0; margin-inline: auto; }
 @media (min-width: 701px) {
-  .app-shell:is(.sidebar-collapsed, .sidebar-expanded) .app-route-content { margin-left: 0; transition: none; }
-  .app-shell:is(.sidebar-collapsed, .sidebar-expanded) .sidebar { z-index: 50; width: 224px; padding: 20px 16px 76px; align-items: stretch; transition: transform .2s ease, visibility .2s; }
-  .app-shell.sidebar-collapsed .sidebar { visibility: hidden; transform: translateX(-100%); }
-  .navigation-launcher { position: fixed; z-index: 51; left: 16px; top: 16px; display: grid; place-items: center; width: 44px; height: 44px; padding: 0; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); box-shadow: 0 3px 14px rgba(25,33,30,.08); cursor: pointer; transition: box-shadow .18s ease, transform .18s ease; }
-  .home-workspace .portfolio-agent-header { padding-left: 52px; }
-  .app-route-content > .main-content:not(.home-workspace) > .topbar { padding-left: 40px; }
-  .navigation-launcher:hover { box-shadow: 0 5px 18px rgba(25,33,30,.14); transform: translateY(-1px); }
-  .navigation-launcher:disabled { visibility: hidden; }
-  .app-shell .brand { gap: 12px; margin: 0 0 28px; }
-  .app-shell .brand-mark { width: 32px; height: 32px; }
-  .app-shell .brand-copy { display: none; }
-  .app-shell.sidebar-expanded .sidebar { visibility: visible; transform: translateX(0); box-shadow: 8px 0 32px rgba(25,33,30,.12); }
-  .app-shell.sidebar-expanded .brand { min-height: 44px; padding-left: 56px; }
-  .app-shell.sidebar-expanded .brand-mark { display: none; }
+  .app-shell { --navigation-width: 56px; }
+  .app-shell.sidebar-expanded { --navigation-width: 224px; }
+  .app-shell:is(.sidebar-collapsed, .sidebar-expanded) .app-route-content { margin-left: var(--navigation-width); transition: none; }
+  .app-page-frame { width: min(100%, max(1200px, 66.6667%)); max-width: 1600px; }
+  .app-shell:is(.sidebar-collapsed, .sidebar-expanded) .sidebar {
+    z-index: 50; width: var(--navigation-width); padding: 68px 6px 20px;
+    align-items: stretch; visibility: visible; transform: none; overflow-y: auto;
+  }
+  .app-shell.sidebar-expanded .sidebar { padding-inline: 16px; }
+  .navigation-launcher {
+    position: fixed; z-index: 51; left: 6px; top: 12px;
+    display: grid; place-items: center; width: 44px; height: 44px; padding: 0;
+    border: 0; border-radius: 8px; background: transparent; color: #dfe7e1; cursor: pointer;
+  }
+  .navigation-launcher:hover { background: rgba(255,255,255,.075); }
+  .navigation-launcher:focus-visible, .app-shell .sidebar a:focus-visible { outline: 2px solid #8eb5a3; outline-offset: -2px; }
+  .navigation-launcher:disabled { opacity: .4; cursor: not-allowed; }
+  .app-shell .brand { display: none; gap: 12px; margin: 0 0 24px; }
+  .app-shell .brand-mark { display: block; width: 32px; height: 32px; border-radius: 8px; }
+  .app-shell.sidebar-expanded .brand { display: flex; }
   .app-shell.sidebar-expanded .brand-copy { display: grid; }
   .app-shell.sidebar-expanded .brand-copy small { font-size: 11px; letter-spacing: 0; }
+  .app-shell .sidebar .nav-item { justify-content: center; width: 44px; min-height: 44px; padding: 0; }
+  .app-shell.sidebar-collapsed .nav-label { display: none; }
   .app-shell.sidebar-expanded .nav-item { justify-content: flex-start; width: 100%; padding-inline: 12px; font-size: 14px; }
-  .navigation-dismiss { position: fixed; z-index: 49; inset: 0; display: block; width: 100%; height: 100%; padding: 0; border: 0; background: transparent; cursor: default; }
-}
-@media (prefers-reduced-motion: reduce) {
-  .app-shell .sidebar, .navigation-launcher { transition: none; }
+  .app-shell.sidebar-expanded .nav-label { display: inline; }
 }
 /* One focus treatment around the complete composer, not a second rectangle around the textarea. */
 .home-workspace .analyst-composer textarea:focus-visible { outline: none; }
