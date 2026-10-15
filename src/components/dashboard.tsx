@@ -346,7 +346,7 @@ export function Dashboard() {
         {!loading && !portfolioLoadError && !isLocal && (
           <section className="empty-portfolio-banner">
             <div>
-              <span><Image src="/brand/aggrigator-icon-192.png" alt="" width={48} height={48} /></span>
+              <span><Image src="/brand/aggregator-icon-192.png" alt="" width={48} height={48} /></span>
               <div>
                 <p className="eyebrow">YOUR PORTFOLIO IS EMPTY</p>
                 <h2>Start with a screenshot, manual entry or Trading 212</h2>

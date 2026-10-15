@@ -14,9 +14,9 @@ import "./design-overrides.css";
 import "./home-experience.css";
 
 export const metadata: Metadata = {
-  title: "Aggrigator",
-  description: "All your investments, together. A private portfolio overview in euros.",
-  applicationName: "Aggrigator",
+  title: "Aggregator",
+  description: "Your investments. One view. A sharper perspective. A private portfolio overview in euros.",
+  applicationName: "Aggregator",
 };
 
 export const viewport: Viewport = {

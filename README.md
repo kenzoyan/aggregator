@@ -1,13 +1,15 @@
 <div align="center">
-  <h1>Aggrigator</h1>
-  <p>All your investments, together.</p>
-  <img src="./public/brand/aggrigator-mascot.png" alt="Aggrigator mascot: a smiling alligator holding a bundle of money" width="240" />
+  <h1>Aggregator</h1>
+  <p>Your investments. One view. A sharper perspective.</p>
+  <img src="./public/brand/aggregator-mascot.png" alt="Aggregator mascot: a smiling alligator holding a bundle of money" width="240" />
   <p><strong>A personal investment tracker for multiple accounts and currencies, with one EUR view.</strong></p>
 </div>
 
-Aggrigator helps you understand investments spread across different platforms and currencies without switching between accounts to piece together the whole portfolio. View values in EUR, compare account and holding contributions, and separate price and exchange-rate effects from changes in total value.
+Aggregator helps you understand investments spread across different platforms and currencies without switching between accounts to piece together the whole portfolio. View values in EUR, compare account and holding contributions, and separate price and exchange-rate effects from changes in total value.
 
-Aggrigator brings holdings, account cash and recorded history together. Run it on your own computer, enter or import your holdings, and see which investments contribute to changes over time.
+Aggregator brings holdings, account cash and recorded history together. Run it on your own computer, enter or import your holdings, and see which investments contribute to changes over time.
+
+**Meet Gator. Make sense of your portfolio.** Gator is the optional AI assistant inside Aggregator. Ask about recorded portfolio facts, share a screenshot, or prepare an update for your review.
 
 This is a personal project in active development, designed for one owner on desktop web. It does not place trades or provide investment advice. There is no hosted service; optional AI features use the OpenAI API.
 
@@ -58,7 +60,7 @@ This is a personal project in active development, designed for one owner on desk
 | **Change analysis** | Compare total value with investment change, inspect holding contributions, and separate price effects from exchange-rate effects. |
 | **Recorded history** | Inspect individual holdings, confirmed updates, completed sales and cash withdrawals. |
 | **Reviewed asset updates** | Use manual entry, CSV, screenshots or a read-only Trading 212 connection. Proposed holding changes need review and explicit confirmation. |
-| **Optional Portfolio Agent** | Ask about recorded portfolio facts, prepare screenshot imports, edit supported draft fields, or find and verify supported fund price sources. Answers link to evidence; the Agent cannot confirm asset changes for you. |
+| **Gator · Optional AI assistant** | Ask about recorded portfolio facts, prepare screenshot imports, edit supported draft fields, or find and verify supported fund price sources. Answers link to evidence; Gator cannot confirm asset changes for you. |
 | **Market context** | Request upcoming economic releases from official sources or ask for web research. External explanations remain separate from calculated portfolio facts. |
 
 Price checks update dated market observations. They cannot silently change quantities, cost basis or cash. Creating an account does not automatically connect it to a price provider.

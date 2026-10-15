@@ -42,7 +42,7 @@ function seedDatabase(filename: string) {
 
 describe("reviewed sale event", () => {
   it("previews without saving, then confirms once and survives database reopening", async () => {
-    const directory = mkdtempSync(join(tmpdir(), "aggrigator-sale-"));
+    const directory = mkdtempSync(join(tmpdir(), "aggregator-sale-"));
     const filename = join(directory, "portfolio.sqlite");
     try {
       seedDatabase(filename);
@@ -88,7 +88,7 @@ describe("reviewed sale event", () => {
   });
 
   it("rejects an oversized sale and a stale review", async () => {
-    const directory = mkdtempSync(join(tmpdir(), "aggrigator-sale-"));
+    const directory = mkdtempSync(join(tmpdir(), "aggregator-sale-"));
     const filename = join(directory, "portfolio.sqlite");
     try {
       seedDatabase(filename);
@@ -110,7 +110,7 @@ describe("reviewed sale event", () => {
   });
 
   it("allocates cost basis by units sold, not by sale proceeds", async () => {
-    const directory = mkdtempSync(join(tmpdir(), "aggrigator-sale-"));
+    const directory = mkdtempSync(join(tmpdir(), "aggregator-sale-"));
     const filename = join(directory, "portfolio.sqlite");
     try {
       seedDatabase(filename);
@@ -130,7 +130,7 @@ describe("reviewed sale event", () => {
     }
   });
   it("excludes external sale proceeds, preserves their destination and supports audited undo", async () => {
-    const directory = mkdtempSync(join(tmpdir(), "aggrigator-external-sale-"));
+    const directory = mkdtempSync(join(tmpdir(), "aggregator-external-sale-"));
     try {
       const filename = join(directory, "portfolio.sqlite");
       seedDatabase(filename);
@@ -161,7 +161,7 @@ describe("reviewed sale event", () => {
   });
 
   it("reviews withdrawals, rejects overdrafts and restores cash when undone", async () => {
-    const directory = mkdtempSync(join(tmpdir(), "aggrigator-withdrawal-"));
+    const directory = mkdtempSync(join(tmpdir(), "aggregator-withdrawal-"));
     try {
       const filename = join(directory, "portfolio.sqlite");
       seedDatabase(filename);
@@ -182,7 +182,7 @@ describe("reviewed sale event", () => {
   });
 
   it("requires an external account name and blocks stale or dependent undo", async () => {
-    const directory = mkdtempSync(join(tmpdir(), "aggrigator-undo-"));
+    const directory = mkdtempSync(join(tmpdir(), "aggregator-undo-"));
     try {
       const filename = join(directory, "portfolio.sqlite");
       seedDatabase(filename);

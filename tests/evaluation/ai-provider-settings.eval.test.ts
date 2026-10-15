@@ -17,7 +17,7 @@ describe.skipIf(process.env.RUN_AI_SETTINGS_EVAL !== "1")("real OpenAI requests 
     if (existsSync(".env.local")) loadEnvFile(".env.local");
     const key = getAIEnvironment().OPENAI_API_KEY;
     expect(Boolean(key), "An existing OpenAI key is required for the live evaluation.").toBe(true);
-    const directory = mkdtempSync(join(tmpdir(), "aggrigator-ai-settings-eval-"));
+    const directory = mkdtempSync(join(tmpdir(), "aggregator-ai-settings-eval-"));
     const priorRequests = Number(process.env.AI_SETTINGS_EVAL_PRIOR_REQUESTS ?? "0");
     if (!Number.isInteger(priorRequests) || priorRequests < 0 || priorRequests >= defaultApiTestBudget.maxRequests) throw new Error("Invalid prior request count.");
     const measurement = measureApiUsage(globalThis.fetch, { ...defaultApiTestBudget, maxRequests: defaultApiTestBudget.maxRequests - priorRequests });

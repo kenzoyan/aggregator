@@ -56,8 +56,8 @@ export function AIProviderSettings() {
 
   return <section className="settings-card" aria-labelledby="settings-provider-heading" aria-busy={loading || saving}>
     <div className="settings-card-heading">
-      <div><p className="eyebrow">YOUR ASSISTANT</p><h2 id="settings-provider-heading">AI provider</h2>
-        <p>OpenAI · Used for the Agent, screenshots and research.</p></div>
+      <div><p className="eyebrow">GATOR’S AI PROVIDER</p><h2 id="settings-provider-heading">AI provider</h2>
+        <p>OpenAI · Used for Gator, screenshots and research.</p></div>
     </div>
     {error && <p className="error-message" role="alert">{error}</p>}
     {loading ? <p className="settings-loading">Loading AI settings…</p> : !configuration ?

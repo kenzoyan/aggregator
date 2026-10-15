@@ -118,7 +118,7 @@ describe("confirmed analyst memories", () => {
   });
 
   it("confirms, lists, edits, and deletes independent memories across database reopening", async () => {
-    const directory = mkdtempSync(join(tmpdir(), "aggrigator-memories-"));
+    const directory = mkdtempSync(join(tmpdir(), "aggregator-memories-"));
     directories.push(directory);
     const filename = join(directory, "portfolio.sqlite");
     let database = createPortfolioDatabase(filename);
@@ -149,7 +149,7 @@ describe("confirmed analyst memories", () => {
   });
 
   it("migrates a v11 answer-order choice into a normal memory item", () => {
-    const directory = mkdtempSync(join(tmpdir(), "aggrigator-memory-migration-"));
+    const directory = mkdtempSync(join(tmpdir(), "aggregator-memory-migration-"));
     directories.push(directory);
     const filename = join(directory, "portfolio.sqlite");
     const initial = createPortfolioDatabase(filename);
@@ -175,7 +175,7 @@ describe("confirmed analyst memories", () => {
   });
 
   it("upgrades a v10 database directly to the memory-list schema", () => {
-    const directory = mkdtempSync(join(tmpdir(), "aggrigator-memory-v10-"));
+    const directory = mkdtempSync(join(tmpdir(), "aggregator-memory-v10-"));
     directories.push(directory);
     const filename = join(directory, "portfolio.sqlite");
     const initial = createPortfolioDatabase(filename);

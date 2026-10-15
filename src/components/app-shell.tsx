@@ -92,8 +92,8 @@ export function AppShell({ children }: { children: ReactNode }) {
       </button>
       <aside id="app-navigation" className="sidebar" aria-hidden={navigationBlocked || undefined} inert={navigationBlocked || undefined}>
         <div className="brand">
-          <Image className="brand-mark" src="/brand/aggrigator-icon-192.png" alt="" width={38} height={38} />
-          <span className="brand-copy"><strong>Aggrigator</strong><small>All your investments, together</small></span>
+          <Image className="brand-mark" src="/brand/aggregator-icon-192.png" alt="" width={38} height={38} />
+          <span className="brand-copy"><strong>Aggregator</strong><small>Your investments. One view. A sharper perspective.</small></span>
         </div>
         <nav id="app-navigation-links" aria-label="Main navigation">
           {items.map((item) => {

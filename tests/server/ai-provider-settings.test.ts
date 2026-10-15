@@ -8,7 +8,7 @@ import { createAIProviderSettingsHandlers } from "@/app/api/settings/ai-provider
 const directories: string[] = [];
 afterEach(() => { for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true }); });
 function setup() {
-  const directory = mkdtempSync(join(tmpdir(), "aggrigator-ai-settings-")); directories.push(directory);
+  const directory = mkdtempSync(join(tmpdir(), "aggregator-ai-settings-")); directories.push(directory);
   const filename = join(directory, "settings.json");
   const store = createAIProviderSettingsStore(filename);
   return { store, filename, handlers: createAIProviderSettingsHandlers(store, { OPENAI_API_KEY: "synthetic-env-key" }) };

@@ -338,9 +338,9 @@ export function PortfolioAnalyst({
         body: JSON.stringify({ conversationId: conversation.id, turnId }),
       });
       const payload = await response.json();
-      if (!response.ok || !payload.conversation) throw new Error("Agent reply could not be retried.");
+      if (!response.ok || !payload.conversation) throw new Error("Gator’s reply could not be retried.");
       setConversation(payload.conversation);
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "Agent reply could not be retried."); }
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Gator’s reply could not be retried."); }
     finally { setImportBusy(false); }
   }
 
@@ -753,9 +753,9 @@ export function PortfolioAnalyst({
       >
         <header className="portfolio-agent-header">
           <div className="portfolio-agent-identity">
-            <Image src="/brand/aggrigator-icon-192.png" alt="" width={42} height={42} />
+            <Image src="/brand/aggregator-icon-192.png" alt="" width={42} height={42} />
             <div>
-              <h2 id="portfolio-analyst-title">Aggrigator</h2>
+              <h2 id="portfolio-analyst-title">Gator</h2>
               <p>{language === "zh-CN" ? "随时接着聊，也可以分享截图。" : "Pick up anytime. Questions or screenshots welcome."}</p>
             </div>
           </div>
@@ -791,7 +791,7 @@ export function PortfolioAnalyst({
         <AnalystConversationView language={language} sending={Boolean(pendingTurn?.phase === "sending" || pendingImageMessage)}>
           {!conversation?.turns.length && !conversation?.importActivities.length && !pendingTurn && (
             <div className="analyst-conversation-empty">
-              <h3>{language === "zh-CN" ? "今天想了解什么？" : "What’s on your mind?"}</h3>
+              <h3>{language === "zh-CN" ? "认识 Gator，让投资组合更清晰。" : "Meet Gator. Make sense of your portfolio."}</h3>
               <p>{language === "zh-CN" ? "一起看看你的资产，或从一个问题开始。" : "Let’s look at your portfolio, or start with a question."}</p>
               <div className="analyst-starter-grid">
                 {starterQuestions[language].map((prompt) => (
@@ -894,7 +894,7 @@ export function PortfolioAnalyst({
               maxLength={MAX_PORTFOLIO_ANALYST_QUESTION_CHARS}
               disabled={loading || importBusy || memoryReviewBusy || priceSourceReviewBusy || actionCancelBusy || !selectedProvider?.configured}
               value={question}
-              aria-label={language === "zh-CN" ? "给助手发送消息" : "Message your assistant"}
+              aria-label={language === "zh-CN" ? "给 Gator 发送消息" : "Message Gator"}
               placeholder={language === "zh-CN" ? "提出问题，或分享一张图片……" : "Ask a question or share an image…"}
               onChange={(event) => setQuestion(event.target.value)}
               onKeyDown={(event) => {

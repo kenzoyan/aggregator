@@ -79,7 +79,7 @@ export function PortfolioSettings() {
         <div>
           <p className="eyebrow">APPLICATION SETTINGS</p>
           <h1>Settings</h1>
-          <p>Set the language and default analysis period for your assistant.</p>
+          <p>Set the language and default analysis period for Gator.</p>
         </div>
       </header>
 
@@ -93,7 +93,7 @@ export function PortfolioSettings() {
             <div className="settings-card-heading">
               <div>
                 <p className="eyebrow">GENERAL</p>
-                <h2 id="settings-general-heading">Assistant defaults</h2>
+                <h2 id="settings-general-heading">Gator defaults</h2>
                 <p>These values are used when a new conversation starts.</p>
               </div>
               {saved && <span className="settings-saved" role="status">Saved on this device</span>}
