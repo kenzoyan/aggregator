@@ -33,6 +33,7 @@ describe("GET /api/accounts", () => {
       database: {
         readSourceAccounts: () => accounts,
         createSourceAccount: vi.fn(),
+        deleteSourceAccountWithData: vi.fn(),
         deleteSourceAccount: vi.fn(),
         readPortfolioFacts: () => ({
           openingSnapshots: [snapshot],
@@ -106,6 +107,7 @@ describe("GET /api/accounts", () => {
       database: {
         readSourceAccounts: () => accounts,
         createSourceAccount: vi.fn(),
+        deleteSourceAccountWithData: vi.fn(),
         deleteSourceAccount: vi.fn(),
         readPortfolioFacts: () => ({
           openingSnapshots: [],
@@ -151,6 +153,7 @@ describe("GET /api/accounts", () => {
       database: {
         readSourceAccounts: () => accounts,
         createSourceAccount: vi.fn(),
+        deleteSourceAccountWithData: vi.fn(),
         deleteSourceAccount: vi.fn(),
         readPortfolioFacts: () => {
           if (failReload) throw new Error("synthetic reload failure");
@@ -220,6 +223,7 @@ describe("GET /api/accounts", () => {
       database: {
         readSourceAccounts: () => accounts,
         createSourceAccount,
+        deleteSourceAccountWithData: vi.fn(),
         deleteSourceAccount: vi.fn(),
         readPortfolioFacts: () => ({
           openingSnapshots: [],
@@ -283,6 +287,7 @@ describe("GET /api/accounts", () => {
       database: {
         readSourceAccounts: () => accounts,
         createSourceAccount,
+        deleteSourceAccountWithData: vi.fn(),
         deleteSourceAccount: vi.fn(),
         readPortfolioFacts: () => ({
           openingSnapshots: [], events: [], confirmedImports: [], confirmedSnapshots: [],
@@ -320,6 +325,7 @@ describe("GET /api/accounts", () => {
         createSourceAccount: () => {
           throw new Error("Source Account type already exists");
         },
+        deleteSourceAccountWithData: vi.fn(),
         deleteSourceAccount: vi.fn(),
         readPortfolioFacts: () => ({
           openingSnapshots: [],
@@ -364,6 +370,7 @@ describe("GET /api/accounts", () => {
       database: {
         readSourceAccounts: () => accounts,
         createSourceAccount: vi.fn(),
+        deleteSourceAccountWithData: vi.fn(),
         deleteSourceAccount: (id) => {
           const index = accounts.findIndex((account) => account.id === id);
           if (index >= 0) accounts.splice(index, 1);
@@ -401,6 +408,7 @@ describe("GET /api/accounts", () => {
       database: {
         readSourceAccounts: () => [...sourceAccounts],
         createSourceAccount: vi.fn(),
+        deleteSourceAccountWithData: vi.fn(),
         deleteSourceAccount: () => {
           throw new SourceAccountDeletionError("has-data");
         },

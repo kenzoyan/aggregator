@@ -97,10 +97,11 @@ export const sourceAccounts: readonly SourceAccountDefinition[] = [
 export const trading212SourceAccountId = "trading212-main";
 
 export class SourceAccountDeletionError extends Error {
-  constructor(readonly code: "has-data" | "not-found") {
+  constructor(readonly code: "has-data" | "not-found" | "confirmation-mismatch") {
     super({
       "has-data": "Source Account has portfolio data",
       "not-found": "Source Account was not found",
+      "confirmation-mismatch": "Source Account confirmation name does not match",
     }[code]);
     this.name = "SourceAccountDeletionError";
   }

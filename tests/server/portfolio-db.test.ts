@@ -36,6 +36,7 @@ describe("portfolio database singleton", () => {
       readLatestMarketIntelligenceBrief: vi.fn(),
       saveMarketIntelligenceBrief: vi.fn(),
       deleteSourceAccount: vi.fn(),
+      deleteSourceAccountWithData: vi.fn(),
       saveImportDraftReview: vi.fn(),
       discardImportDraft: vi.fn(),
       readPriceSourceBindings: vi.fn(),
@@ -52,6 +53,20 @@ describe("portfolio database singleton", () => {
     expect(ensureCurrentPortfolioDatabase(current, create)).toBe(current);
     expect(current.close).not.toHaveBeenCalled();
     expect(create).not.toHaveBeenCalled();
+  });
+
+  it("replaces a cached repository that cannot delete confirmed account data", () => {
+    const current = {
+      close: vi.fn(), readLatestMarketIntelligenceBrief: vi.fn(), saveMarketIntelligenceBrief: vi.fn(),
+      deleteSourceAccount: vi.fn(), saveImportDraftReview: vi.fn(), discardImportDraft: vi.fn(),
+      readPriceSourceBindings: vi.fn(), savePriceSourceBinding: vi.fn(),
+      listPortfolioAnalystMemories: vi.fn(), readPortfolioAnalystMemory: vi.fn(),
+      savePortfolioAnalystMemory: vi.fn(), deletePortfolioAnalystMemory: vi.fn(),
+      confirmWithdrawal: vi.fn(), undoCashActivity: vi.fn(),
+    };
+    const replacement = { ...current, close: vi.fn(), deleteSourceAccountWithData: vi.fn() };
+    expect(ensureCurrentPortfolioDatabase(current, () => replacement)).toBe(replacement);
+    expect(current.close).toHaveBeenCalledOnce();
   });
 
   it("replaces the cached sale implementation that predates destination support", () => {

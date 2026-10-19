@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { AccountDeletionDialog } from "@/components/account-deletion-dialog";
 import { ReviewDialog } from "@/components/ui/review-dialog";
 import { useEffect, useMemo, useState, type CSSProperties, type FormEvent } from "react";
 
@@ -47,6 +48,7 @@ export function SourceAccountsPanel() {
   const [newAccountLabel, setNewAccountLabel] = useState("");
   const [busy, setBusy] = useState(false);
   const [deleting, setDeleting] = useState<string>();
+  const [pendingDeletion, setPendingDeletion] = useState<AccountView>();
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -161,10 +163,8 @@ export function SourceAccountsPanel() {
     }
   }
 
-  async function deleteAccount(account: AccountView) {
-    if (!window.confirm(
-      `Delete ${account.label}? This is only allowed when the account has no confirmed portfolio data.`,
-    )) return;
+  async function deleteAccount(account: AccountView, confirmationLabel: string) {
+    if (busy) return;
     setBusy(true);
     setDeleting(account.id);
     setError("");
@@ -172,7 +172,7 @@ export function SourceAccountsPanel() {
       const response = await fetch("/api/accounts", {
         method: "DELETE",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ id: account.id }),
+        body: JSON.stringify({ id: account.id, deletePortfolioData: true, confirmationLabel }),
       });
       const payload = (await response.json()) as Partial<SourceAccountsPageReadModel> & {
         error?: string;
@@ -186,6 +186,7 @@ export function SourceAccountsPanel() {
         throw new Error(payload.error ?? "Account could not be deleted.");
       }
       applyAccountsPage(payload as SourceAccountsPageReadModel);
+      setPendingDeletion(undefined);
       if (editing === account.id) setEditing(undefined);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Account could not be deleted.");
@@ -205,7 +206,7 @@ export function SourceAccountsPanel() {
         </div>
       </header>
 
-      {error && !creating && <p className="error-message" role="alert">{error}</p>}
+      {error && !creating && !pendingDeletion && <p className="error-message" role="alert">{error}</p>}
       <section className="account-allocation-panel" aria-labelledby="account-allocation-heading">
         <div className="account-allocation-copy">
           <p className="eyebrow">CURRENT ALLOCATION</p>
@@ -274,6 +275,14 @@ export function SourceAccountsPanel() {
         </form>
       </section>
       </ReviewDialog>
+      {pendingDeletion && <AccountDeletionDialog
+        key={pendingDeletion.id}
+        account={pendingDeletion}
+        busy={busy}
+        error={error}
+        onClose={() => { setPendingDeletion(undefined); setError(""); }}
+        onConfirm={(confirmationLabel) => deleteAccount(pendingDeletion, confirmationLabel)}
+      />}
       <section className="accounts-grid">
         {accounts.map((account) => {
           const marketData = marketDataByAccount.get(account.id);
@@ -312,7 +321,7 @@ export function SourceAccountsPanel() {
                   className="danger"
                   disabled={busy}
                   type="button"
-                  onClick={() => void deleteAccount(account)}
+                  onClick={() => { setError(""); setPendingDeletion(account); }}
                 >
                   {deleting === account.id ? "Deleting…" : "Delete"}
                 </button>

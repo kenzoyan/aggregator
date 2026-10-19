@@ -375,6 +375,16 @@
 .review-dialog .settings-memory-confirm blockquote { margin: 16px 0 24px; padding: 16px; border-radius: 8px; background: var(--muted-surface); }
 .operation-dialog-actions { display: flex; justify-content: flex-end; gap: 12px; margin-top: 24px; }
 .operation-dialog-actions button, .account-create-launcher button { padding: 10px 16px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--ink); font: inherit; font-size: 13px; cursor: pointer; }
+.account-delete-dialog { font-size: 14px; line-height: 1.7; }
+.account-delete-dialog h2 { margin: 0 0 16px; font-size: 22px; overflow-wrap: anywhere; }
+.account-delete-dialog fieldset { display: grid; gap: 16px; min-width: 0; margin: 24px 0 0; padding: 0; border: 0; }
+.account-delete-dialog label { display: grid; gap: 8px; }
+.account-delete-dialog label strong { overflow-wrap: anywhere; }
+.account-delete-dialog input:not([type="checkbox"]) { width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.account-delete-dialog .account-delete-acknowledgement { grid-template-columns: auto 1fr; align-items: start; gap: 12px; }
+.account-delete-acknowledgement input { margin-top: 6px; }
+.account-delete-dialog .danger { border-color: var(--loss); background: var(--loss); color: var(--accent-contrast); }
+.account-delete-dialog button:disabled { cursor: not-allowed; opacity: .55; }
 .account-create-launcher { display: flex; justify-content: flex-end; margin: 0 0 20px; }
 @media (min-width: 991px) {
   .home-workspace:has(.agent-focused) .home-summary-strip { grid-template-columns: 1fr; }

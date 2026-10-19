@@ -74,6 +74,7 @@ export interface PortfolioDatabase extends PortfolioAnalystConversationStore, Po
     input: CreateSourceAccountDefinitionInput,
   ): SourceAccountDefinition;
   deleteSourceAccount(id: string): void;
+  deleteSourceAccountWithData(id: string, confirmationLabel: string): void;
   recordMarketData(input: {
     observations: readonly MarketPriceObservation[];
     fxObservations?: readonly FxRateObservation[];

@@ -25,7 +25,15 @@ const createSchema = z.object({
   label: z.string().trim().max(80).optional(),
 });
 
-const deleteSchema = z.object({ id: z.string().trim().min(1).max(120) }).strict();
+const deleteIdSchema = z.string().trim().min(1).max(120);
+const deleteSchema = z.union([
+  z.object({ id: deleteIdSchema }).strict(),
+  z.object({
+    id: deleteIdSchema,
+    deletePortfolioData: z.literal(true),
+    confirmationLabel: z.string().min(1).max(80),
+  }).strict(),
+]);
 
 type AccountsDatabase = Pick<
   PortfolioDatabase,
@@ -35,6 +43,7 @@ type AccountsDatabase = Pick<
   | "readSourceAccounts"
   | "createSourceAccount"
   | "deleteSourceAccount"
+  | "deleteSourceAccountWithData"
   | "renameSourceAccount"
 >;
 
@@ -143,8 +152,12 @@ export function createAccountsHandlers(input: {
     },
     async DELETE(request: Request) {
       try {
-        const { id } = deleteSchema.parse(await request.json());
-        input.database.deleteSourceAccount(id);
+        const deletion = deleteSchema.parse(await request.json());
+        if ("deletePortfolioData" in deletion) {
+          input.database.deleteSourceAccountWithData(deletion.id, deletion.confirmationLabel);
+        } else {
+          input.database.deleteSourceAccount(deletion.id);
+        }
         return NextResponse.json(readAccountsPage());
       } catch (error) {
         if (error instanceof z.ZodError) {
@@ -154,6 +167,7 @@ export function createAccountsHandlers(input: {
           const response = {
             "has-data": ["Remove or transfer this account's portfolio data before deleting it.", 409],
             "not-found": ["Account was not found.", 404],
+            "confirmation-mismatch": ["Account name changed or does not match. Reload the accounts and confirm the current name.", 409],
           }[error.code] as [string, number];
           return NextResponse.json({ error: response[0] }, { status: response[1] });
         }

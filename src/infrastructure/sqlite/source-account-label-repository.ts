@@ -6,6 +6,7 @@ import {
   type SourceAccountDefinition,
 } from "@/domain/source-accounts";
 import type { PortfolioDatabase } from "@/infrastructure/sqlite/portfolio-repository-contract";
+import type { MarketRefreshFailure } from "@/domain/market-data";
 
 type SourceAccountLabelRepository = Pick<
   PortfolioDatabase,
@@ -13,6 +14,7 @@ type SourceAccountLabelRepository = Pick<
   | "readSourceAccounts"
   | "createSourceAccount"
   | "deleteSourceAccount"
+  | "deleteSourceAccountWithData"
   | "renameSourceAccount"
 >;
 
@@ -68,21 +70,22 @@ export function createSourceAccountLabelRepository(
     SELECT 1
     FROM import_drafts
     WHERE source_account_id = ? AND status = 'confirmed'
+    UNION ALL
+    SELECT 1 FROM portfolio_events WHERE source_account_id = ?
+    UNION ALL
+    SELECT 1 FROM confirmed_imports WHERE source_account_id = ?
     LIMIT 1
   `);
-  const deleteDraftAccounts = database.prepare(`
-    DELETE FROM import_drafts
-    WHERE source_account_id = ? AND status = 'draft'
-  `);
-  const deleteAccountLabel = database.prepare(`
-    DELETE FROM source_account_labels WHERE source_account_id = ?
-  `);
-  const deleteSyncState = database.prepare(`
-    DELETE FROM source_sync_state WHERE source_account_id = ?
-  `);
+  // Delete children before their confirmed import and draft foreign keys.
+  const deleteAccountRecords = [
+    "portfolio_events", "opening_snapshots", "confirmed_imports", "import_drafts",
+    "market_price_observations", "price_source_bindings", "source_account_labels", "source_sync_state",
+  ].map((table) => database.prepare(`DELETE FROM ${table} WHERE source_account_id = ?`));
   const deleteAccount = database.prepare(`
     DELETE FROM source_accounts WHERE id = ?
   `);
+  const selectRefreshRuns = database.prepare("SELECT id, failed_count, failures_json FROM market_refresh_runs");
+  const updateRefreshFailures = database.prepare("UPDATE market_refresh_runs SET failed_count = ?, failures_json = ? WHERE id = ?");
 
   function readAccounts(): SourceAccountDefinition[] {
     return (selectAccounts.all() as unknown as Array<{
@@ -102,6 +105,36 @@ export function createSourceAccountLabelRepository(
       dashboardLabel: row.dashboard_label,
       updateMethod: row.update_method,
     }));
+  }
+
+  function deleteSourceAccount(id: string, confirmationLabel?: string) {
+    database.exec("BEGIN IMMEDIATE");
+    try {
+      const account = readAccounts().find((candidate) => candidate.id === id);
+      if (!account) throw new SourceAccountDeletionError("not-found");
+      if (confirmationLabel !== undefined) {
+        if (confirmationLabel !== account.label) {
+          throw new SourceAccountDeletionError("confirmation-mismatch");
+        }
+      } else if (accountHasPortfolioData.get(id, id, id, id, id)) {
+        throw new SourceAccountDeletionError("has-data");
+      }
+      for (const statement of deleteAccountRecords) statement.run(id);
+      for (const run of selectRefreshRuns.all() as Array<{ id: number; failed_count: number; failures_json: string }>) {
+        const failures = JSON.parse(run.failures_json) as MarketRefreshFailure[];
+        const remaining = failures.filter((failure) => failure.sourceAccountId !== id);
+        if (remaining.length !== failures.length) {
+          updateRefreshFailures.run(Math.max(0, run.failed_count - failures.length + remaining.length), JSON.stringify(remaining), run.id);
+        }
+      }
+      // These shared caches describe the old portfolio and must be regenerated.
+      database.exec("DELETE FROM portfolio_narratives; DELETE FROM market_intelligence_briefs;");
+      deleteAccount.run(id);
+      database.exec("COMMIT");
+    } catch (error) {
+      database.exec("ROLLBACK");
+      throw error;
+    }
   }
 
   return {
@@ -145,23 +178,11 @@ export function createSourceAccountLabelRepository(
     },
 
     deleteSourceAccount(id) {
-      if (!accountExists.get(id)) {
-        throw new SourceAccountDeletionError("not-found");
-      }
-      if (accountHasPortfolioData.get(id, id, id)) {
-        throw new SourceAccountDeletionError("has-data");
-      }
-      database.exec("BEGIN IMMEDIATE");
-      try {
-        deleteDraftAccounts.run(id);
-        deleteAccountLabel.run(id);
-        deleteSyncState.run(id);
-        deleteAccount.run(id);
-        database.exec("COMMIT");
-      } catch (error) {
-        database.exec("ROLLBACK");
-        throw error;
-      }
+      deleteSourceAccount(id);
+    },
+
+    deleteSourceAccountWithData(id, confirmationLabel) {
+      deleteSourceAccount(id, confirmationLabel);
     },
 
     renameSourceAccount(id, label) {

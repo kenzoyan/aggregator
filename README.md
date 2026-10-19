@@ -156,6 +156,8 @@ The public fund-source pilot supports OP-Europe Fund A (`FI4000439773`, EUR), Da
 
 Portfolio records live in the ignored `data/invest-assets-monitor.sqlite` database. Chat images are stored in `data/agent-images/` for conversation history. Saved AI credentials live server-side in `data/ai-provider-settings.json` with owner-only file permissions; the browser receives their configured status, not the key. Trading 212 credentials stay in `.env.local`.
 
+In **Accounts**, **Delete** opens a review of the account and its local portfolio data. Type the exact account name and check the confirmation box to enable **Delete account and data**. This permanently removes that account's holdings, cash, snapshots, imports, activity, saved prices and price sources in one transaction. Portfolio totals and history are recalculated, and saved portfolio analysis is cleared. Other accounts, shared exchange rates, saved chats, local backups and credentials are kept. Deletion cannot be undone in the app.
+
 Agent requests include the full saved conversation text and original attached images, as well as relevant portfolio facts. Original images remain part of subsequent chat requests until the conversation is reset. Screenshots uploaded through the separate **Update assets** page are temporary rather than saved as chat images.
 
 For a local backup, stop the app and copy the `data/` folder and `.env.local` to a private location. That backup may contain financial records, screenshots and API keys. Keep it out of Git and public file sharing. The repository ignores these files; demo screenshots and test fixtures use synthetic data.
