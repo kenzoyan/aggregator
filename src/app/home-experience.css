@@ -4,6 +4,8 @@
   --chat-bubble: #e7eee5;
   --quiet-border: #dce2d8;
   --quiet-radius: 12px;
+  --agent-transition-duration: 360ms;
+  --agent-transition-easing: cubic-bezier(.22, 1, .36, 1);
 }
 .home-workspace button, .home-workspace a { transition: background-color .16s ease, border-color .16s ease, color .16s ease, box-shadow .16s ease; }
 .home-workspace button:disabled { cursor: not-allowed; }
@@ -123,7 +125,29 @@
 .quiet-disclosure-content { overflow: hidden; }
 
 /* Companion */
-.home-workspace .portfolio-analyst { padding: 24px; border-color: var(--quiet-border); background: var(--chat-surface); }
+.home-workspace .portfolio-analyst {
+  padding: 24px; border-color: var(--quiet-border); background: var(--chat-surface);
+  clip-path: inset(0 0 0 0 round 0); opacity: 1; visibility: visible;
+  transition: clip-path var(--agent-transition-duration) var(--agent-transition-easing), opacity var(--agent-transition-duration) ease, visibility 0s;
+}
+.home-workspace .agent-collapsed .portfolio-analyst {
+  clip-path: inset(24px calc(100% - 72px) calc(100% - 72px) 24px round 24px);
+  opacity: 0; visibility: hidden; pointer-events: none;
+  transition: clip-path var(--agent-transition-duration) var(--agent-transition-easing), opacity var(--agent-transition-duration) ease, visibility 0s var(--agent-transition-duration);
+}
+.home-workspace .agent-avatar-toggle {
+  position: absolute; z-index: 3; top: 24px; left: 24px;
+  display: grid; place-items: center; width: 48px; height: 48px; padding: 3px;
+  border: 1px solid transparent; border-radius: 12px; background: transparent; cursor: pointer;
+  transition: border-radius var(--agent-transition-duration) var(--agent-transition-easing), background-color .16s ease, border-color .16s ease, box-shadow .16s ease;
+}
+.agent-avatar-toggle:hover { border-color: var(--quiet-border); background: var(--muted-surface); }
+.agent-avatar-toggle img { display: block; }
+.home-workspace .agent-collapsed .agent-avatar-toggle { border-color: var(--quiet-border); border-radius: 50%; background: var(--chat-surface); box-shadow: var(--shadow); }
+.agent-avatar-expand-indicator { position: absolute; right: -4px; bottom: -4px; display: grid; place-items: center; padding: 3px; border: 1px solid var(--quiet-border); border-radius: 50%; background: var(--surface); color: var(--accent); opacity: 0; transform: scale(.8); transition: opacity .2s ease, transform var(--agent-transition-duration) var(--agent-transition-easing); pointer-events: none; }
+.agent-collapsed .agent-avatar-expand-indicator { opacity: 1; transform: scale(1); }
+.home-workspace .portfolio-agent-identity { min-height: 48px; padding-left: 60px; }
+.home-workspace .portfolio-agent-shell.agent-collapsed { min-height: 0; height: 88px; margin: 0; }
 .portfolio-agent-header { position: relative; align-items: center; gap: 12px; padding-bottom: 20px; border-bottom: 0; }
 .portfolio-agent-identity { min-width: 0; }
 .portfolio-agent-header h2 { font-family: var(--font-geist-sans), sans-serif; font-size: 18px; font-weight: 600; }
@@ -233,16 +257,17 @@
 @keyframes companion-pulse { 50% { opacity: .35; } }
 @keyframes companion-reveal { from { opacity: 0; } to { opacity: 1; } }
 @media (min-width: 991px) {
-  .home-workspace { grid-template-columns: minmax(360px, 46%) minmax(0, 1fr); transition: grid-template-columns .25s ease; }
+  .home-workspace { grid-template-columns: minmax(360px, 46%) minmax(0, 1fr); transition: grid-template-columns var(--agent-transition-duration) var(--agent-transition-easing); }
   .home-workspace:has(.agent-focused) { grid-template-columns: minmax(440px, 56%) minmax(0, 1fr); }
   .home-workspace .home-workspace-main { padding-inline: clamp(24px, 2.5vw, 40px); }
-  .home-workspace .portfolio-agent-shell { height: 100dvh; }
+  .home-workspace .portfolio-agent-shell, .home-workspace .portfolio-agent-shell.agent-collapsed { height: 100dvh; min-width: 0; }
+  .home-workspace .portfolio-analyst { min-width: 360px; }
   .home-workspace:has(.agent-focused) .portfolio-insights-grid { grid-template-columns: 1fr; }
   .home-workspace:has(.agent-focused) .period-summary { flex-wrap: wrap; }
   .home-workspace:has(.agent-focused) .market-note { text-align: left; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .home-workspace *, .home-workspace *::before, .home-workspace *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+  .home-workspace, .home-workspace *, .home-workspace *::before, .home-workspace *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 }
 .analyst-conversation-content { grid-template-columns: minmax(0, 1fr); }
 .analyst-conversation-content > div { min-width: 0; }
@@ -404,6 +429,22 @@
 .agent-import-review-fields { min-width: 0; margin: 0; padding: 0; border: 0; }
 @media (min-width: 991px) {
   .home-workspace:has(.agent-draft-review:not([hidden])) { grid-template-columns: minmax(360px, 40%) minmax(0, 1fr); }
+  /* Keep two tracks for the transition, but release the entire chat column. */
+  .home-workspace:has(> .portfolio-agent-shell.agent-collapsed) { grid-template-columns: minmax(0, 0) minmax(0, 1fr); }
+  .home-workspace .workspace-overview > .topbar {
+    padding-inline-start: 0;
+    transition: padding-inline-start var(--agent-transition-duration) var(--agent-transition-easing);
+  }
+  .home-workspace .analyst-workspace-detail > .workspace-back {
+    margin-inline-start: 0;
+    transition: margin-inline-start var(--agent-transition-duration) var(--agent-transition-easing);
+  }
+  .home-workspace #agent-import-review-host .agent-draft-review > .review-dialog-toolbar {
+    transition: padding-inline-start var(--agent-transition-duration) var(--agent-transition-easing);
+  }
+  .home-workspace:has(> .agent-collapsed) .workspace-overview > .topbar { padding-inline-start: 72px; }
+  .home-workspace:has(> .agent-collapsed) .analyst-workspace-detail > .workspace-back { margin-inline-start: 72px; }
+  .home-workspace:has(> .agent-collapsed) #agent-import-review-host .agent-draft-review > .review-dialog-toolbar { padding-inline-start: 84px; }
   #agent-import-review-host:has(.agent-draft-review:not([hidden])) { position: sticky; top: 16px; }
   .agent-draft-review { max-height: calc(100dvh - 32px); overflow-y: auto; }
   .agent-draft-review .review-dialog-toolbar { position: sticky; top: 0; z-index: 1; }

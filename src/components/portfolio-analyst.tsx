@@ -9,7 +9,8 @@ import { AnalystConversationView } from "@/components/analyst-conversation-view"
 import { AssistantMessageContent } from "@/components/assistant-message-content";
 import Image from "next/image";
 import { ReviewDialog } from "@/components/ui/review-dialog";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { readAgentPanelCollapsed, saveAgentPanelCollapsed } from "@/components/agent-panel-preference";
 
 import type { PortfolioAnalystConversation } from "@/application/portfolio-analyst-conversation";
 import type {
@@ -112,6 +113,18 @@ export function PortfolioAnalyst({
 }) {
   const activeRequest = useRef<AbortController | undefined>(undefined);
   const [focusedChat, setFocusedChat] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
+  const avatarToggle = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    setCollapsed(readAgentPanelCollapsed(() => window.localStorage));
+  }, []);
+  const changeCollapsed = useCallback((next: boolean) => {
+    setCollapsed(next);
+    saveAgentPanelCollapsed(() => window.localStorage, next);
+    window.requestAnimationFrame(() => {
+      avatarToggle.current?.focus({ preventScroll: true });
+    });
+  }, []);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const deleteDialog = useRef<HTMLDialogElement>(null);
   const deleteCancel = useRef<HTMLButtonElement>(null);
@@ -712,9 +725,10 @@ export function PortfolioAnalyst({
     if (!questionRequest || consumedQuestionRequest.current === questionRequest.id) return;
     consumedQuestionRequest.current = questionRequest.id;
     if (!canFillQuestion) return;
+    changeCollapsed(false);
     setQuestion(questionRequest.text);
-    composer.current?.focus();
-  }, [questionRequest, canFillQuestion]);
+    window.requestAnimationFrame(() => composer.current?.focus({ preventScroll: true }));
+  }, [questionRequest, canFillQuestion, changeCollapsed]);
   const closeReviewLabel = language === "zh-CN" ? "收起审核，保留草稿" : "Close review and keep draft";
 
   async function cancelAction(action: PendingAgentAction) {
@@ -741,19 +755,31 @@ export function PortfolioAnalyst({
 
   return (
     <div
-      className={`portfolio-agent-shell${focusedChat ? " agent-focused" : ""}`}
+      className={`portfolio-agent-shell${focusedChat && !collapsed ? " agent-focused" : ""}${collapsed ? " agent-collapsed" : ""}`}
       id="agent"
       aria-hidden={blocked || undefined}
       inert={blocked || undefined}
     >
+      <button ref={avatarToggle} type="button" className="agent-avatar-toggle"
+        aria-label={collapsed
+          ? (language === "zh-CN" ? "展开 Gator 对话" : "Expand Gator chat")
+          : (language === "zh-CN" ? "收起 Gator 对话" : "Minimize Gator chat")}
+        title={collapsed
+          ? (language === "zh-CN" ? "展开 Gator 对话" : "Expand Gator chat")
+          : (language === "zh-CN" ? "收起 Gator 对话" : "Minimize Gator chat")}
+        aria-expanded={!collapsed} aria-controls="portfolio-analyst-panel" onClick={() => changeCollapsed(!collapsed)}>
+        <Image src="/brand/aggregator-icon-192.png" alt="" width={42} height={42} />
+        <span className="agent-avatar-expand-indicator" aria-hidden="true"><Expand size={12} /></span>
+      </button>
       <aside
         id="portfolio-analyst-panel"
         className="portfolio-analyst"
         aria-labelledby="portfolio-analyst-title"
+        aria-hidden={collapsed || undefined}
+        inert={collapsed || undefined}
       >
         <header className="portfolio-agent-header">
           <div className="portfolio-agent-identity">
-            <Image src="/brand/aggregator-icon-192.png" alt="" width={42} height={42} />
             <div>
               <h2 id="portfolio-analyst-title">Gator</h2>
               <p>{language === "zh-CN" ? "随时接着聊，也可以分享截图。" : "Pick up anytime. Questions or screenshots welcome."}</p>
